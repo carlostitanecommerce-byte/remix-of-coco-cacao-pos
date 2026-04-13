@@ -1,0 +1,402 @@
+import { useState } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { Loader2, CheckCircle2, Printer } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { toast } from 'sonner';
+import type { VentaSummary } from './types';
+import { nowCDMX } from '@/lib/utils';
+
+interface Props {
+  summary: VentaSummary | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
+  const { user, profile } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [ticket, setTicket] = useState<VentaSummary | null>(null);
+
+  if (!summary && !ticket) return null;
+
+  const handleConfirm = async () => {
+    if (!user || !summary) return;
+    setSaving(true);
+    try {
+      // 0. Pre-validar inventario para no registrar venta si falta stock
+      const productoItems = summary.items.filter(
+        (item) => item.tipo_concepto === 'producto' && !!item.producto_id && !item.producto_id.startsWith('coworking-')
+      );
+
+      if (productoItems.length > 0) {
+        const qtyByProduct = new Map<string, number>();
+        for (const item of productoItems) {
+          const productId = item.producto_id as string;
+          qtyByProduct.set(productId, (qtyByProduct.get(productId) ?? 0) + item.cantidad);
+        }
+
+        const { data: recetas, error: recetasErr } = await supabase
+          .from('recetas')
+          .select('producto_id, insumo_id, cantidad_necesaria')
+          .in('producto_id', Array.from(qtyByProduct.keys()));
+
+        if (recetasErr) throw recetasErr;
+
+        const requiredByInsumo = new Map<string, number>();
+        for (const receta of recetas ?? []) {
+          const productQty = qtyByProduct.get(receta.producto_id) ?? 0;
+          const required = Number(receta.cantidad_necesaria) * productQty;
+          requiredByInsumo.set(receta.insumo_id, (requiredByInsumo.get(receta.insumo_id) ?? 0) + required);
+        }
+
+        if (requiredByInsumo.size > 0) {
+          const { data: insumos, error: insumosErr } = await supabase
+            .from('insumos')
+            .select('id, nombre, stock_actual')
+            .in('id', Array.from(requiredByInsumo.keys()));
+
+          if (insumosErr) throw insumosErr;
+
+          const faltantes = (insumos ?? []).filter(
+            (insumo) => Number(insumo.stock_actual) < (requiredByInsumo.get(insumo.id) ?? 0)
+          );
+
+          if (faltantes.length > 0) {
+            const detalle = faltantes
+              .map((insumo) => `${insumo.nombre} (disp: ${Number(insumo.stock_actual).toFixed(2)})`)
+              .join(', ');
+            toast.error(`Stock insuficiente: ${detalle}`);
+            return;
+          }
+        }
+      }
+
+      // 1. Insert venta
+      // For tarjeta/transferencia: tip is included in the digital payment amount
+      // For mixto: depends on propina_en_digital flag
+      const propinaAmount = summary.propina || 0;
+
+      let montoEfectivo = summary.mixed_payment?.efectivo ?? (summary.metodo_pago === 'efectivo' ? summary.subtotal : 0);
+      let montoTarjeta = summary.mixed_payment?.tarjeta ?? (summary.metodo_pago === 'tarjeta' ? summary.subtotal : 0);
+      let montoTransferencia = summary.mixed_payment?.transferencia ?? (summary.metodo_pago === 'transferencia' ? summary.subtotal : 0);
+
+      // Add tip to the correct payment channel
+      if (summary.metodo_pago === 'tarjeta') {
+        montoTarjeta += propinaAmount;
+      } else if (summary.metodo_pago === 'transferencia') {
+        montoTransferencia += propinaAmount;
+      } else if (summary.metodo_pago === 'efectivo') {
+        montoEfectivo += propinaAmount;
+      }
+      // For mixto: amounts already include tip distribution from user input
+
+      const { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
+        usuario_id: user.id,
+        total_bruto: summary.subtotal,
+        iva: summary.iva,
+        comisiones_bancarias: 0,
+        monto_propina: propinaAmount,
+        total_neto: summary.total,
+        metodo_pago: summary.metodo_pago as any,
+        tipo_consumo: summary.tipo_consumo as any,
+        estado: 'completada' as any,
+        fecha: nowCDMX(),
+        monto_efectivo: montoEfectivo,
+        monto_tarjeta: montoTarjeta,
+        monto_transferencia: montoTransferencia,
+        coworking_session_id: summary.coworking_session_id ?? null,
+      }).select('id, folio').single();
+
+      if (ventaErr || !venta) throw ventaErr || new Error('No se pudo crear la venta');
+
+      // 2. Insert detalle_ventas
+      const detalles = summary.items.map(item => ({
+        venta_id: venta.id,
+        producto_id: item.tipo_concepto === 'coworking' ? null : item.producto_id,
+        cantidad: item.cantidad,
+        precio_unitario: item.precio_unitario,
+        subtotal: item.subtotal,
+        tipo_concepto: item.tipo_concepto as any,
+        coworking_session_id: item.coworking_session_id ?? null,
+        descripcion: item.descripcion ?? item.nombre,
+      }));
+
+      // For coworking items without real producto_id, we need to handle differently
+      // detalle_ventas.producto_id has FK constraint — only insert real product IDs
+      const realDetalles = detalles.map(d => {
+        if (d.producto_id?.startsWith('coworking-')) {
+          const { producto_id, ...rest } = d;
+          return rest;
+        }
+        return d;
+      });
+
+      const { error: detErr } = await supabase.from('detalle_ventas').insert(realDetalles as any);
+      if (detErr) {
+        // Rollback: cancel the orphan venta since detalle failed (e.g. insufficient stock)
+        await supabase.from('ventas').update({
+          estado: 'cancelada' as any,
+          motivo_cancelacion: `Venta cancelada automáticamente: ${detErr.message}`,
+        }).eq('id', venta.id);
+        throw detErr;
+      }
+
+      // 3. Finalize coworking session if linked
+      if (summary.coworking_session_id) {
+        const coworkingTotal = summary.items
+          .filter(i => i.tipo_concepto === 'coworking')
+          .reduce((s, i) => s + i.subtotal, 0);
+
+        await supabase.from('coworking_sessions').update({
+          estado: 'finalizado' as any,
+          fecha_salida_real: nowCDMX(),
+          monto_acumulado: coworkingTotal,
+        }).eq('id', summary.coworking_session_id);
+      }
+
+      // 4. Create KDS order for kitchen (only product items)
+      const productoItemsForKds = summary.items.filter(i => i.tipo_concepto === 'producto');
+      if (productoItemsForKds.length > 0) {
+        const { data: kdsOrder } = await supabase.from('kds_orders').insert({
+          venta_id: venta.id,
+          folio: venta.folio,
+          tipo_consumo: summary.tipo_consumo,
+          estado: 'pendiente' as any,
+        }).select('id').single();
+
+        if (kdsOrder) {
+          const kdsItems = productoItemsForKds.map(item => ({
+            kds_order_id: kdsOrder.id,
+            producto_id: item.producto_id?.startsWith('coworking-') ? null : item.producto_id,
+            nombre_producto: item.nombre,
+            cantidad: item.cantidad,
+          }));
+          await supabase.from('kds_order_items').insert(kdsItems as any);
+        }
+      }
+
+      // 5. Audit log
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        accion: 'venta_completada',
+        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${summary.coworking_session_id ? ' + Coworking' : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}`,
+        metadata: { venta_id: venta.id, total: summary.total, propina: propinaAmount, items: summary.items.length },
+      });
+
+      // Show ticket
+      setTicket({
+        ...summary,
+        folio: venta.folio,
+        usuario_nombre: profile?.nombre ?? user.email ?? '',
+        fecha: nowCDMX(),
+      });
+
+      toast.success('Venta registrada exitosamente');
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Error al procesar la venta');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCloseTicket = () => {
+    setTicket(null);
+    onSuccess();
+    onClose();
+  };
+
+  // Ticket view after successful sale
+  if (ticket) {
+    const coworkingItems = ticket.items.filter(i => i.tipo_concepto === 'coworking');
+    const amenityItems = ticket.items.filter(i => i.tipo_concepto === 'amenity');
+    const productoItems = ticket.items.filter(i => i.tipo_concepto === 'producto');
+
+    const metodoPagoLabel: Record<string, string> = {
+      efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', mixto: 'Mixto'
+    };
+
+    return (
+      <Dialog open onOpenChange={handleCloseTicket}>
+        <DialogContent className="sm:max-w-md overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-center">🧾 Ticket de Venta</DialogTitle>
+            {ticket.folio && (
+              <p className="text-center text-sm font-bold text-primary">Folio: #{String(ticket.folio).padStart(4, '0')}</p>
+            )}
+          </DialogHeader>
+          <div className="space-y-3 text-sm font-mono overflow-hidden">
+            <div className="text-center text-xs text-muted-foreground space-y-1">
+              <p>{new Date(ticket.fecha!).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p>{new Date(ticket.fecha!).toLocaleTimeString('es-MX')}</p>
+              <p>Atendió: {ticket.usuario_nombre}</p>
+            </div>
+
+            <Separator />
+
+            {coworkingItems.length > 0 && (
+              <>
+                <p className="font-bold text-xs uppercase text-muted-foreground">Coworking</p>
+                {coworkingItems.map(i => (
+                  <div key={i.producto_id} className="flex justify-between gap-2">
+                    <span className="flex-1 break-words min-w-0">{i.nombre}</span>
+                    <span className="shrink-0">${i.subtotal.toFixed(2)}</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {amenityItems.length > 0 && (
+              <>
+                <p className="font-bold text-xs uppercase text-muted-foreground">Amenities (incluidos)</p>
+                {amenityItems.map(i => (
+                  <div key={i.producto_id} className="flex justify-between gap-2 text-muted-foreground">
+                    <span className="flex-1 break-words min-w-0">{i.cantidad}x {i.nombre}</span>
+                    <span className="shrink-0">$0.00</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {productoItems.length > 0 && (
+              <>
+                <p className="font-bold text-xs uppercase text-muted-foreground">Productos</p>
+                {productoItems.map(i => (
+                  <div key={i.producto_id} className="flex justify-between gap-2">
+                    <span className="flex-1 break-words min-w-0">{i.cantidad}x {i.nombre}</span>
+                    <span className="shrink-0">${i.subtotal.toFixed(2)}</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            <Separator />
+
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span>Subtotal (sin IVA)</span>
+                <span>${(ticket.subtotal - ticket.iva).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>IVA</span>
+                <span>${ticket.iva.toFixed(2)}</span>
+              </div>
+              {ticket.propina > 0 && (
+                <div className="flex justify-between">
+                  <span>Propina</span>
+                  <span>+${ticket.propina.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            <div className="flex justify-between font-bold text-base">
+              <span>TOTAL</span>
+              <span>${ticket.total.toFixed(2)}</span>
+            </div>
+
+            <div className="text-xs text-muted-foreground text-center">
+              <p>Método: {metodoPagoLabel[ticket.metodo_pago]}</p>
+              {ticket.metodo_pago === 'mixto' && ticket.mixed_payment && (
+                <p>
+                  Efvo: ${ticket.mixed_payment.efectivo.toFixed(2)} |
+                  Tarj: ${ticket.mixed_payment.tarjeta.toFixed(2)} |
+                  Transf: ${ticket.mixed_payment.transferencia.toFixed(2)}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button className="w-full" onClick={handleCloseTicket}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // Confirmation view before sale
+  const metodoPagoLabel: Record<string, string> = {
+    efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', mixto: 'Mixto'
+  };
+  const tipoConsumoLabel: Record<string, string> = {
+    sitio: 'En sitio', para_llevar: 'Para llevar', delivery: 'Delivery'
+  };
+
+  return (
+    <Dialog open={!!summary} onOpenChange={() => !saving && onClose()}>
+      <DialogContent className="sm:max-w-md overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-primary" /> Confirmar Venta
+          </DialogTitle>
+          <DialogDescription>Revisa el desglose antes de confirmar</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {summary!.items.map(item => (
+              <div key={item.producto_id} className="flex justify-between gap-2 text-sm">
+                <span className="flex-1 break-words min-w-0">{item.cantidad}x {item.nombre}</span>
+                <span className="font-medium shrink-0">${item.subtotal.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+
+          <Separator />
+
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Subtotal (sin IVA)</span>
+              <span>${(summary!.subtotal - summary!.iva).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">IVA</span>
+              <span>${summary!.iva.toFixed(2)}</span>
+            </div>
+            {summary!.propina > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Propina</span>
+                <span className="text-primary">+${summary!.propina.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex justify-between font-bold text-lg">
+            <span>Total a cobrar</span>
+            <span className="text-primary">${summary!.total.toFixed(2)}</span>
+          </div>
+
+          <div className="flex gap-4 text-xs text-muted-foreground">
+            <span>Pago: {metodoPagoLabel[summary!.metodo_pago]}</span>
+            <span>Consumo: {tipoConsumoLabel[summary!.tipo_consumo]}</span>
+          </div>
+
+          {summary!.metodo_pago === 'mixto' && summary!.mixed_payment && (
+            <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+              Efectivo: ${summary!.mixed_payment.efectivo.toFixed(2)} |
+              Tarjeta: ${summary!.mixed_payment.tarjeta.toFixed(2)} |
+              Transferencia: ${summary!.mixed_payment.transferencia.toFixed(2)}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button onClick={handleConfirm} disabled={saving}>
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Confirmar Venta
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -1,0 +1,366 @@
+import { useState, useEffect, useMemo } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
+import { Plus, Search, Package } from 'lucide-react';
+
+interface Insumo {
+  id: string;
+  nombre: string;
+  unidad_medida: string;
+  presentacion: string;
+  costo_presentacion: number;
+  cantidad_por_presentacion: number;
+  stock_actual: number;
+}
+
+interface CompraRow {
+  id: string;
+  insumo_id: string;
+  cantidad_presentaciones: number;
+  cantidad_unidades: number;
+  costo_total: number;
+  costo_presentacion: number;
+  nota: string | null;
+  usuario_id: string;
+  fecha: string;
+  insumo_nombre?: string;
+  usuario_nombre?: string;
+}
+
+interface Props {
+  isAdmin: boolean;
+}
+
+const ComprasTab = ({ isAdmin }: Props) => {
+  const { user } = useAuth();
+  const [compras, setCompras] = useState<CompraRow[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+
+  // Form state
+  const [selectedInsumoId, setSelectedInsumoId] = useState('');
+  const [cantidadPresentaciones, setCantidadPresentaciones] = useState('');
+  const [costoPresentacion, setCostoPresentacion] = useState('');
+  const [nota, setNota] = useState('');
+  const [actualizarCosto, setActualizarCosto] = useState(false);
+
+  const selectedInsumo = useMemo(
+    () => insumos.find((i) => i.id === selectedInsumoId),
+    [insumos, selectedInsumoId]
+  );
+
+  const cantidadNum = parseFloat(cantidadPresentaciones) || 0;
+  const costoNum = parseFloat(costoPresentacion) || 0;
+  const totalUnidades = selectedInsumo ? cantidadNum * selectedInsumo.cantidad_por_presentacion : 0;
+  const costoTotal = cantidadNum * costoNum;
+
+  const fetchData = async () => {
+    setLoading(true);
+    const [insumosRes, comprasRes] = await Promise.all([
+      supabase.from('insumos').select('id, nombre, unidad_medida, presentacion, costo_presentacion, cantidad_por_presentacion, stock_actual').order('nombre'),
+      supabase.from('compras_insumos').select('*').order('fecha', { ascending: false }).limit(200),
+    ]);
+
+    if (insumosRes.data) setInsumos(insumosRes.data);
+
+    if (comprasRes.data && insumosRes.data) {
+      const insumoMap = new Map(insumosRes.data.map((i) => [i.id, i.nombre]));
+      const userIds = [...new Set(comprasRes.data.map((c) => c.usuario_id))];
+      
+      let profileMap = new Map<string, string>();
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, nombre')
+          .in('id', userIds);
+        if (profiles) {
+          profileMap = new Map(profiles.map((p) => [p.id, p.nombre]));
+        }
+      }
+
+      setCompras(
+        comprasRes.data.map((c) => ({
+          ...c,
+          insumo_nombre: insumoMap.get(c.insumo_id) || 'Desconocido',
+          usuario_nombre: profileMap.get(c.usuario_id) || 'Desconocido',
+        }))
+      );
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const resetForm = () => {
+    setSelectedInsumoId('');
+    setCantidadPresentaciones('');
+    setCostoPresentacion('');
+    setNota('');
+    setActualizarCosto(false);
+  };
+
+  const handleInsumoChange = (id: string) => {
+    setSelectedInsumoId(id);
+    const ins = insumos.find((i) => i.id === id);
+    if (ins) {
+      setCostoPresentacion(String(ins.costo_presentacion));
+    }
+  };
+
+  const handleSave = async () => {
+    if (!selectedInsumoId || cantidadNum <= 0 || costoNum <= 0 || !user) {
+      toast.error('Completa todos los campos requeridos');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('compras_insumos').insert({
+        insumo_id: selectedInsumoId,
+        cantidad_presentaciones: cantidadNum,
+        cantidad_unidades: totalUnidades,
+        costo_total: costoTotal,
+        costo_presentacion: costoNum,
+        nota: nota || null,
+        usuario_id: user.id,
+      });
+
+      if (error) throw error;
+
+      // Opcionalmente actualizar costo de presentación del insumo
+      if (actualizarCosto && selectedInsumo) {
+        const nuevoCostoUnitario = costoNum / selectedInsumo.cantidad_por_presentacion;
+        const { error: updateErr } = await supabase
+          .from('insumos')
+          .update({
+            costo_presentacion: costoNum,
+            costo_unitario: nuevoCostoUnitario,
+          })
+          .eq('id', selectedInsumoId);
+        if (updateErr) throw updateErr;
+      }
+
+      // Audit log
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        accion: 'compra_insumo',
+        descripcion: `Compra de ${cantidadNum} ${selectedInsumo?.presentacion || ''} de ${selectedInsumo?.nombre || ''} por $${costoTotal.toFixed(2)}`,
+        metadata: {
+          insumo_id: selectedInsumoId,
+          cantidad_presentaciones: cantidadNum,
+          cantidad_unidades: totalUnidades,
+          costo_total: costoTotal,
+        },
+      });
+
+      toast.success('Compra registrada correctamente');
+      setDialogOpen(false);
+      resetForm();
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Error al registrar compra');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const comprasFiltradas = useMemo(() => {
+    if (!busqueda) return compras;
+    const q = busqueda.toLowerCase();
+    return compras.filter(
+      (c) =>
+        c.insumo_nombre?.toLowerCase().includes(q) ||
+        c.nota?.toLowerCase().includes(q)
+    );
+  }, [compras, busqueda]);
+
+  const fmtMoney = (v: number) =>
+    v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 justify-between">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por insumo..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
+          <Plus className="h-4 w-4 mr-2" /> Registrar Compra
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Package className="h-5 w-5" /> Historial de Compras
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-center text-muted-foreground py-8">Cargando...</p>
+          ) : comprasFiltradas.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              {busqueda ? 'Sin resultados para la búsqueda' : 'No hay compras registradas'}
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Insumo</TableHead>
+                  <TableHead className="text-right">Presentaciones</TableHead>
+                  <TableHead className="text-right">Unidades</TableHead>
+                  <TableHead className="text-right">Costo Total</TableHead>
+                  <TableHead>Nota</TableHead>
+                  <TableHead>Registrado por</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {comprasFiltradas.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell>
+                      {new Date(c.fecha).toLocaleString('es-MX', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </TableCell>
+                    <TableCell className="font-medium">{c.insumo_nombre}</TableCell>
+                    <TableCell className="text-right">{c.cantidad_presentaciones}</TableCell>
+                    <TableCell className="text-right">{c.cantidad_unidades}</TableCell>
+                    <TableCell className="text-right">{fmtMoney(c.costo_total)}</TableCell>
+                    <TableCell className="max-w-[200px] truncate">{c.nota || '—'}</TableCell>
+                    <TableCell>{c.usuario_nombre}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Dialog Registrar Compra */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar Compra de Insumo</DialogTitle>
+            <DialogDescription>Selecciona el insumo y la cantidad comprada</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Insumo</Label>
+              <Select value={selectedInsumoId} onValueChange={handleInsumoChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar insumo..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {insumos.map((i) => (
+                    <SelectItem key={i.id} value={i.id}>
+                      {i.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {selectedInsumo && (
+              <div className="rounded-md bg-muted p-3 text-sm space-y-1">
+                <p><span className="text-muted-foreground">Presentación:</span> {selectedInsumo.presentacion} ({selectedInsumo.cantidad_por_presentacion} {selectedInsumo.unidad_medida})</p>
+                <p><span className="text-muted-foreground">Costo actual:</span> {fmtMoney(selectedInsumo.costo_presentacion)} / {selectedInsumo.presentacion}</p>
+                <p><span className="text-muted-foreground">Stock actual:</span> {selectedInsumo.stock_actual} {selectedInsumo.unidad_medida}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Cantidad de presentaciones</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={cantidadPresentaciones}
+                  onChange={(e) => setCantidadPresentaciones(e.target.value)}
+                  placeholder="Ej: 3"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Costo por presentación</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={costoPresentacion}
+                  onChange={(e) => setCostoPresentacion(e.target.value)}
+                  placeholder="$0.00"
+                />
+              </div>
+            </div>
+
+            {selectedInsumo && cantidadNum > 0 && (
+              <div className="rounded-md bg-primary/10 p-3 text-sm space-y-1">
+                <p className="font-medium">Resumen:</p>
+                <p>+ {totalUnidades} {selectedInsumo.unidad_medida} al stock</p>
+                <p className="font-semibold">Total: {fmtMoney(costoTotal)}</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Nota (opcional)</Label>
+              <Textarea
+                value={nota}
+                onChange={(e) => setNota(e.target.value)}
+                placeholder="Proveedor, factura, observaciones..."
+                rows={2}
+              />
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="actualizar-costo"
+                checked={actualizarCosto}
+                onCheckedChange={(v) => setActualizarCosto(v === true)}
+              />
+              <label htmlFor="actualizar-costo" className="text-sm cursor-pointer">
+                Actualizar costo de presentación del insumo
+              </label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSave} disabled={saving || !selectedInsumoId || cantidadNum <= 0}>
+              {saving ? 'Guardando...' : 'Registrar Compra'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default ComprasTab;
