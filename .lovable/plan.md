@@ -1,37 +1,43 @@
 
 
-## Plan Profesional: Archivo .gitignore Completo
+## Plan: Proteger `.env` y preparar `.gitignore` para repo público
 
-### Problema Actual
-El proyecto tiene un `.gitignore` básico que no cubre todos los escenarios necesarios para un proyecto profesional con Vite, React, TypeScript, Supabase y shadcn/ui.
+### Problema Crítico
+El `.env` contiene `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`. Aunque la publishable key es pública por diseño, es buena práctica no incluir `.env` en repos públicos para evitar exponer configuración del proyecto.
 
-### Objetivo
-Crear un `.gitignore` profesional y completo que:
-- Evite subir archivos sensibles (env, keys, secrets)
-- Excluya archivos de caché y logs
-- Maneje archivos específicos de Supabase Edge Functions
-- Ignore archivos de build y dependencias
-- Soporte múltiples sistemas operativos y editores
+### Cambio Requerido
+Actualizar `.gitignore` agregando las siguientes líneas:
 
-### Lista de Exclusiones a Agregar
+```text
+# Environment variables
+.env
+.env.*
+!.env.example
 
-| Categoría | Qué se excluirá | Razón |
-|-----------|-----------------|-------|
-| **Secrets/Env** | `.env.*`, `.env.local`, `.env.*.local` | Variables sensibles |
-| **Supabase** | `supabase/.branches/`, `supabase/.temp/` | Caché local de Supabase CLI |
-| **Testing** | `coverage/`, `.vitest/` | Reportes de cobertura |
-| **Cache** | `.cache/`, `.eslintcache`, `*.tsbuildinfo` | Archivos de caché |
-| **Lockfiles** | `bun.lockb` ya está ignorado | Revisar consistencia |
-| **Temp** | `tmp/`, `temp/`, `*.tmp` | Archivos temporales |
+# Supabase local
+supabase/.branches/
+supabase/.temp/
 
-### Estructura del Archivo Final
-El archivo se organizará en secciones claras:
-1. Logs y debugging
-2. Dependencias (node_modules)
-3. Build outputs (dist, dist-ssr)
-4. Secrets y configuración local
-5. Supabase CLI local files
-6. Testing (coverage)
-7. Editor y OS files
-8. Cache y archivos temporales
+# Testing & Cache
+coverage/
+.vitest/
+.eslintcache
+*.tsbuildinfo
+
+# Temp files
+tmp/
+*.tmp
+```
+
+### Archivo opcional: `.env.example`
+Crear un `.env.example` como referencia (sin valores reales):
+
+```
+VITE_SUPABASE_PROJECT_ID="your-project-id"
+VITE_SUPABASE_PUBLISHABLE_KEY="your-anon-key"
+VITE_SUPABASE_URL="https://your-project.supabase.co"
+```
+
+### Nota sobre seguridad
+La `VITE_SUPABASE_PUBLISHABLE_KEY` (anon key) es pública por diseño y se expone en el bundle del frontend. La protección real viene de las políticas RLS en la base de datos. Aun así, mantener `.env` fuera del repo es una buena práctica profesional.
 
