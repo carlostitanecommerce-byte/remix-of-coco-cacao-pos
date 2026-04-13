@@ -22,3 +22,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+
+# Testing & Cache
+coverage/
+.vitest/
+.eslintcache
+*.tsbuildinfo
+
+# Temp files
+tmp/
+*.tmp
+Update gitignore
