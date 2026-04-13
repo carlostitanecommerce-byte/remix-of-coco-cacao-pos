@@ -695,7 +695,7 @@ export type Database = {
           email: string
           id: string
           nombre: string
-          password_visible: string | null
+          password_encrypted: string | null
           updated_at: string
           username: string | null
         }
@@ -704,7 +704,7 @@ export type Database = {
           email?: string
           id: string
           nombre?: string
-          password_visible?: string | null
+          password_encrypted?: string | null
           updated_at?: string
           username?: string | null
         }
@@ -713,7 +713,7 @@ export type Database = {
           email?: string
           id?: string
           nombre?: string
-          password_visible?: string | null
+          password_encrypted?: string | null
           updated_at?: string
           username?: string | null
         }
@@ -1057,6 +1057,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      encrypt_and_save_password: {
+        Args: { p_password: string; p_user_id: string; p_username: string }
+        Returns: undefined
+      }
+      get_decrypted_password: { Args: { p_user_id: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
