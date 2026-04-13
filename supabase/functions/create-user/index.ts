@@ -118,11 +118,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Update profile with username and initial password
-    await supabaseAdmin
-      .from("profiles")
-      .update({ username: cleanUsername, password_visible: password })
-      .eq("id", newUser.user.id);
+    // Update profile with username and encrypted password
+    await supabaseAdmin.rpc("encrypt_and_save_password", {
+      p_user_id: newUser.user.id,
+      p_username: cleanUsername,
+      p_password: password,
+    });
 
     // Assign role
     await supabaseAdmin

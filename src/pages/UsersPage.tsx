@@ -154,16 +154,12 @@ const UsersPage = () => {
       return;
     }
 
-    // Fetch password_visible
-    const { data } = await supabase
-      .from('profiles')
-      .select('password_visible')
-      .eq('id', userId)
-      .single();
+    // Fetch decrypted password via RPC (admin only)
+    const { data } = await supabase.rpc('get_decrypted_password', { p_user_id: userId });
 
     setVisiblePasswords((prev) => ({
       ...prev,
-      [userId]: (data as any)?.password_visible ?? null,
+      [userId]: (data as string) ?? null,
     }));
   };
 
