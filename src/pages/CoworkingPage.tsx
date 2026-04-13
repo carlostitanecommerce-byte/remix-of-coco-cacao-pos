@@ -43,10 +43,19 @@ const CoworkingPage = () => {
     const area = data.areas.find(a => a.id === session.area_id);
     if (!area) return;
 
-    const now = new Date();
+    // Freeze fecha_salida_real in DB if not already set
+    if (!session.fecha_salida_real) {
+      const ahora = new Date().toISOString();
+      await supabase
+        .from('coworking_sessions')
+        .update({ fecha_salida_real: ahora })
+        .eq('id', session.id);
+      session = { ...session, fecha_salida_real: ahora };
+    }
+
     const inicio = new Date(session.fecha_inicio);
     const finEstimada = new Date(session.fecha_fin_estimada);
-    const salidaReal = session.fecha_salida_real ? new Date(session.fecha_salida_real) : now;
+    const salidaReal = new Date(session.fecha_salida_real!);
 
     const tiempoContratadoMin = (finEstimada.getTime() - inicio.getTime()) / 60000;
     const tiempoRealMin = (salidaReal.getTime() - inicio.getTime()) / 60000;

@@ -104,8 +104,16 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   }, [pendingSessionId, loading, sessions]);
 
   const handleSelect = async (session: ActiveSession) => {
-    // Use frozen checkout time for pendiente_pago sessions
-    const endRef = session.fecha_salida_real ?? new Date().toISOString();
+    // Fetch frozen checkout time from DB to ensure consistency with coworking checkout
+    let endRef = session.fecha_salida_real;
+    if (!endRef) {
+      const { data: fresh } = await supabase
+        .from('coworking_sessions')
+        .select('fecha_salida_real')
+        .eq('id', session.id)
+        .single();
+      endRef = fresh?.fecha_salida_real ?? new Date().toISOString();
+    }
 
     // Find applicable tarifa for this area
     const { data: tarifas } = await supabase
