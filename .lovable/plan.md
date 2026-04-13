@@ -1,40 +1,49 @@
 
 
-## Plan: Encriptar contraseñas con pgcrypto
+## Plan: Migrar toda la base de datos del proyecto anterior
 
-### Resumen
-Reemplazar el almacenamiento en texto plano (`password_visible`) por encriptación simétrica usando `pgp_sym_encrypt/decrypt` de pgcrypto. El admin podrá seguir consultando contraseñas, pero ahora se desencriptan bajo demanda mediante una función SQL segura.
+### Situación
+- Todas las tablas de este proyecto están vacías (0 registros en las 25 tablas)
+- El proyecto origen es [Coco & Cacao POS](/projects/9c332c2f-2fce-4909-a39f-4cd1af816a71) (ref: `lfaotqkmevncdocuelqn`)
+- No puedo consultar la base de datos del proyecto origen directamente — necesito una Edge Function que se conecte en runtime
 
-### Cambios
+### Requisito previo: Service Role Key del proyecto origen
+Necesito agregar un secreto `SOURCE_SERVICE_ROLE_KEY` con la service role key del proyecto anterior. La puedes encontrar en el proyecto anterior yendo a **Cloud → Overview**.
 
-**1. Migración SQL**
-- Activar extensión `pgcrypto`
-- Renombrar columna `password_visible` → `password_encrypted` en `profiles`
-- Migrar datos existentes: encriptar valores actuales en texto plano con `pgp_sym_encrypt(password_visible, 'coco_y_cacao_secret_key')`
-- Crear función `get_decrypted_password(p_user_id uuid)` con `SECURITY DEFINER` que:
-  - Valida que `auth.uid()` tenga rol administrador via `has_role()`
-  - Retorna `pgp_sym_decrypt(password_encrypted::bytea, 'coco_y_cacao_secret_key')` 
-  - Retorna `null` si no es admin
+### Implementación
 
-**2. Edge Function `create-user/index.ts` (línea 122-125)**
-- Cambiar el update de `password_visible: password` por una llamada RPC que ejecute:
-  ```sql
-  UPDATE profiles SET username = $1, password_encrypted = pgp_sym_encrypt($2, 'coco_y_cacao_secret_key') WHERE id = $3
-  ```
-- Se usará `supabaseAdmin.rpc('encrypt_and_save_password', ...)` o un raw SQL update vía la función de base de datos
+**1. Crear Edge Function `migrate-data`**
+Una función temporal que:
+- Se conecta al proyecto origen usando su URL (`https://lfaotqkmevncdocuelqn.supabase.co`) y la `SOURCE_SERVICE_ROLE_KEY`
+- Lee todas las tablas en orden de dependencias (tablas padre primero)
+- Inserta los datos en este proyecto usando la service role key local
+- Desactiva temporalmente triggers de inventario para evitar efectos secundarios durante la migración
 
-**3. `src/pages/UsersPage.tsx` (línea 157-167)**
-- Reemplazar `supabase.from('profiles').select('password_visible')` por:
-  ```ts
-  supabase.rpc('get_decrypted_password', { p_user_id: userId })
-  ```
-- Usar el resultado directamente como string
+**Orden de migración (respetando dependencias):**
+1. `categorias_maestras`, `areas_coworking`, `configuracion_ventas`, `insumos`, `productos`
+2. `tarifas_coworking`, `recetas`
+3. `tarifa_upsells`, `tarifa_amenities_incluidos`
+4. `profiles` (sin `password_encrypted` — los usuarios de auth son diferentes entre proyectos)
+5. `cajas`, `ventas`, `coworking_sessions`, `coworking_reservaciones`
+6. `detalle_ventas`, `movimientos_caja`, `compras_insumos`, `mermas`
+7. `coworking_session_upsells`, `solicitudes_cancelacion`, `solicitudes_cancelacion_sesiones`
+8. `kds_orders`, `kds_order_items`
+9. `audit_logs`, `user_roles`
 
-### Archivos modificados
-- Nueva migración SQL en `supabase/migrations/`
-- `supabase/functions/create-user/index.ts`
-- `src/pages/UsersPage.tsx`
+**2. Ejecutar la función una sola vez**
 
-### Nota de seguridad
-La clave de encriptación `'coco_y_cacao_secret_key'` queda embebida en la función SQL (SECURITY DEFINER, no expuesta al cliente) y en la Edge Function (servidor). No es accesible desde el frontend. Para mayor seguridad en producción, se podría mover a un secret de Vault, pero para este caso es suficiente.
+**3. Verificar conteos en cada tabla**
+
+**4. Eliminar la Edge Function** (es temporal, solo para migración)
+
+### Limitación importante: Usuarios
+Las tablas `profiles`, `user_roles` y `audit_logs` referencian IDs de `auth.users` que **no existen** en este proyecto. Las opciones son:
+- **Migrar los datos con los UUIDs originales** — los registros existirán pero no estarán vinculados a usuarios reales hasta que se recreen con los mismos IDs (no es posible)
+- **Omitir estas tablas** — y recrear usuarios manualmente
+
+Para las tablas transaccionales (`ventas`, `cajas`, `coworking_sessions`, etc.) que tienen `usuario_id`, los datos se insertarán con los UUIDs originales pero no tendrán un usuario asociado en auth.
+
+### Archivos
+- Nuevo: `supabase/functions/migrate-data/index.ts` (temporal)
+- Secreto necesario: `SOURCE_SERVICE_ROLE_KEY`
 
