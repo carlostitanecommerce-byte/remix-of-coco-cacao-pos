@@ -1,49 +1,44 @@
 
 
-## Plan: Migrar toda la base de datos del proyecto anterior
+## Plan: Migrar datos desde tu Supabase externo a este proyecto
 
-### Situación
-- Todas las tablas de este proyecto están vacías (0 registros en las 25 tablas)
-- El proyecto origen es [Coco & Cacao POS](/projects/9c332c2f-2fce-4909-a39f-4cd1af816a71) (ref: `lfaotqkmevncdocuelqn`)
-- No puedo consultar la base de datos del proyecto origen directamente — necesito una Edge Function que se conecte en runtime
+### Enfoque
+Crear una Edge Function temporal `migrate-data` que se conecte a tu proyecto de Supabase externo, lea todas las tablas y las inserte en este proyecto.
 
-### Requisito previo: Service Role Key del proyecto origen
-Necesito agregar un secreto `SOURCE_SERVICE_ROLE_KEY` con la service role key del proyecto anterior. La puedes encontrar en el proyecto anterior yendo a **Cloud → Overview**.
+### Requisitos previos
+Necesito dos datos de tu proyecto de Supabase:
+1. **URL del proyecto** (ej: `https://xxxxx.supabase.co`)
+2. **Service Role Key** — la encuentras en tu dashboard de Supabase → Settings → API → `service_role` (la clave secreta, no la anon key)
+
+Estos se guardarán como secretos seguros: `SOURCE_SUPABASE_URL` y `SOURCE_SERVICE_ROLE_KEY`.
 
 ### Implementación
 
-**1. Crear Edge Function `migrate-data`**
-Una función temporal que:
-- Se conecta al proyecto origen usando su URL (`https://lfaotqkmevncdocuelqn.supabase.co`) y la `SOURCE_SERVICE_ROLE_KEY`
-- Lee todas las tablas en orden de dependencias (tablas padre primero)
+**1. Edge Function `migrate-data`**
+- Se conecta a tu Supabase externo con las credenciales proporcionadas
+- Lee cada tabla en orden de dependencias (tablas padre primero)
 - Inserta los datos en este proyecto usando la service role key local
-- Desactiva temporalmente triggers de inventario para evitar efectos secundarios durante la migración
+- Desactiva el trigger `descontar_inventario_venta` durante la migración para evitar efectos secundarios en `detalle_ventas`
 
-**Orden de migración (respetando dependencias):**
+**Orden de migración:**
 1. `categorias_maestras`, `areas_coworking`, `configuracion_ventas`, `insumos`, `productos`
 2. `tarifas_coworking`, `recetas`
 3. `tarifa_upsells`, `tarifa_amenities_incluidos`
-4. `profiles` (sin `password_encrypted` — los usuarios de auth son diferentes entre proyectos)
+4. `profiles`, `user_roles`
 5. `cajas`, `ventas`, `coworking_sessions`, `coworking_reservaciones`
 6. `detalle_ventas`, `movimientos_caja`, `compras_insumos`, `mermas`
 7. `coworking_session_upsells`, `solicitudes_cancelacion`, `solicitudes_cancelacion_sesiones`
 8. `kds_orders`, `kds_order_items`
-9. `audit_logs`, `user_roles`
+9. `audit_logs`
 
-**2. Ejecutar la función una sola vez**
+**2. Ejecutar una sola vez y verificar conteos**
 
-**3. Verificar conteos en cada tabla**
+**3. Eliminar la función y los secretos** (son temporales)
 
-**4. Eliminar la Edge Function** (es temporal, solo para migración)
-
-### Limitación importante: Usuarios
-Las tablas `profiles`, `user_roles` y `audit_logs` referencian IDs de `auth.users` que **no existen** en este proyecto. Las opciones son:
-- **Migrar los datos con los UUIDs originales** — los registros existirán pero no estarán vinculados a usuarios reales hasta que se recreen con los mismos IDs (no es posible)
-- **Omitir estas tablas** — y recrear usuarios manualmente
-
-Para las tablas transaccionales (`ventas`, `cajas`, `coworking_sessions`, etc.) que tienen `usuario_id`, los datos se insertarán con los UUIDs originales pero no tendrán un usuario asociado en auth.
+### Nota sobre profiles/user_roles
+Los registros de `profiles` y `user_roles` referencian UUIDs de `auth.users` del proyecto original. Se insertarán con sus IDs originales, pero no tendrán usuarios de Auth asociados en este proyecto hasta que se recreen.
 
 ### Archivos
-- Nuevo: `supabase/functions/migrate-data/index.ts` (temporal)
-- Secreto necesario: `SOURCE_SERVICE_ROLE_KEY`
+- Nuevo temporal: `supabase/functions/migrate-data/index.ts`
+- Secretos necesarios: `SOURCE_SUPABASE_URL`, `SOURCE_SERVICE_ROLE_KEY`
 
