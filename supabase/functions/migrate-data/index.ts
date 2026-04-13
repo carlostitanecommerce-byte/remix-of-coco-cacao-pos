@@ -84,17 +84,9 @@ Deno.serve(async (req) => {
       await insertAll(t, rows);
     }
 
-    // Step 4: User-related tables
-    const profiles = await fetchAll(source, "profiles");
-    // Remove password_visible (source) - dest uses password_encrypted (bytea)
-    const cleanProfiles = profiles.map((p: any) => {
-      const { password_visible, password_encrypted, ...rest } = p;
-      return rest;
-    });
-    await insertAll("profiles", cleanProfiles);
-
-    const userRoles = await fetchAll(source, "user_roles");
-    await insertAll("user_roles", userRoles);
+    // Skip profiles and user_roles - they require auth.users entries
+    log["profiles"] = "SKIPPED (FK to auth.users)";
+    log["user_roles"] = "SKIPPED (FK to auth.users)";
 
     // Step 5: Transactional parent tables
     const tables5 = ["cajas", "coworking_sessions", "coworking_reservaciones"];
