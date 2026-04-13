@@ -1,45 +1,40 @@
 
 
-## Plan: Anclar fecha_salida_real como punto de referencia único
+## Plan: Encriptar contraseñas con pgcrypto
 
-### Problema
-CoworkingPage calcula el costo al abrir el diálogo de checkout, pero CoworkingSessionSelector recalcula usando `new Date()` si `fecha_salida_real` es null — generando precios diferentes por el tiempo transcurrido entre ambos cálculos.
+### Resumen
+Reemplazar el almacenamiento en texto plano (`password_visible`) por encriptación simétrica usando `pgp_sym_encrypt/decrypt` de pgcrypto. El admin podrá seguir consultando contraseñas, pero ahora se desencriptan bajo demanda mediante una función SQL segura.
 
 ### Cambios
 
-**1. `src/pages/CoworkingPage.tsx` — función `handleCheckOut` (línea ~43)**
-Al inicio, antes de cualquier cálculo, si `session.fecha_salida_real` es null, hacer update a la DB:
-```ts
-if (!session.fecha_salida_real) {
-  const ahora = new Date().toISOString();
-  await supabase
-    .from('coworking_sessions')
-    .update({ fecha_salida_real: ahora })
-    .eq('id', session.id);
-  session = { ...session, fecha_salida_real: ahora };
-}
-```
-Luego usar `session.fecha_salida_real` en lugar de `now` para `salidaReal` (línea 49).
+**1. Migración SQL**
+- Activar extensión `pgcrypto`
+- Renombrar columna `password_visible` → `password_encrypted` en `profiles`
+- Migrar datos existentes: encriptar valores actuales en texto plano con `pgp_sym_encrypt(password_visible, 'coco_y_cacao_secret_key')`
+- Crear función `get_decrypted_password(p_user_id uuid)` con `SECURITY DEFINER` que:
+  - Valida que `auth.uid()` tenga rol administrador via `has_role()`
+  - Retorna `pgp_sym_decrypt(password_encrypted::bytea, 'coco_y_cacao_secret_key')` 
+  - Retorna `null` si no es admin
 
-**2. `src/components/pos/CoworkingSessionSelector.tsx` — función `handleSelect` (línea ~106)**
-Al inicio, si `session.fecha_salida_real` es null, hacer fetch fresco desde Supabase:
-```ts
-let endRef = session.fecha_salida_real;
-if (!endRef) {
-  const { data: fresh } = await supabase
-    .from('coworking_sessions')
-    .select('fecha_salida_real')
-    .eq('id', session.id)
-    .single();
-  endRef = fresh?.fecha_salida_real ?? new Date().toISOString();
-}
-```
-Usar `endRef` en todos los cálculos subsecuentes (ya lo hace, solo cambia cómo se obtiene).
+**2. Edge Function `create-user/index.ts` (línea 122-125)**
+- Cambiar el update de `password_visible: password` por una llamada RPC que ejecute:
+  ```sql
+  UPDATE profiles SET username = $1, password_encrypted = pgp_sym_encrypt($2, 'coco_y_cacao_secret_key') WHERE id = $3
+  ```
+- Se usará `supabaseAdmin.rpc('encrypt_and_save_password', ...)` o un raw SQL update vía la función de base de datos
+
+**3. `src/pages/UsersPage.tsx` (línea 157-167)**
+- Reemplazar `supabase.from('profiles').select('password_visible')` por:
+  ```ts
+  supabase.rpc('get_decrypted_password', { p_user_id: userId })
+  ```
+- Usar el resultado directamente como string
 
 ### Archivos modificados
-- `src/pages/CoworkingPage.tsx` — 2 cambios en `handleCheckOut`
-- `src/components/pos/CoworkingSessionSelector.tsx` — 1 cambio en `handleSelect`
+- Nueva migración SQL en `supabase/migrations/`
+- `supabase/functions/create-user/index.ts`
+- `src/pages/UsersPage.tsx`
 
-### Sin otros cambios
-No se modifica lógica de precios, tarifas ni upsells.
+### Nota de seguridad
+La clave de encriptación `'coco_y_cacao_secret_key'` queda embebida en la función SQL (SECURITY DEFINER, no expuesta al cliente) y en la Edge Function (servidor). No es accesible desde el frontend. Para mayor seguridad en producción, se podría mover a un secret de Vault, pero para este caso es suficiente.
 
