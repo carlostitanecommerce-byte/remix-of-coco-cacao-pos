@@ -71,9 +71,12 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [tarifas, setTarifas] = useState<Tarifa[]>([]);
   const [selectedTarifaId, setSelectedTarifaId] = useState('');
   const [upsellOptions, setUpsellOptions] = useState<UpsellOption[]>([]);
-  const [selectedUpsells, setSelectedUpsells] = useState<UpsellOption[]>([]);
-  const [pendingUpsellId, setPendingUpsellId] = useState('');
   const [amenityOptions, setAmenityOptions] = useState<AmenityOption[]>([]);
+
+  // Unified product search for extra consumption at check-in
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
+  const [search, setSearch] = useState('');
 
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const isPublicArea = selectedArea ? !selectedArea.es_privado : false;
@@ -85,16 +88,18 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     }
   }, [isPublicArea]);
 
-  // Load tarifas on mount
+  // Load tarifas + productos on open
   useEffect(() => {
-    const fetchTarifas = async () => {
-      const { data } = await supabase
-        .from('tarifas_coworking')
-        .select('*')
-        .eq('activo', true);
-      setTarifas((data as Tarifa[]) ?? []);
+    if (!open) return;
+    const fetchOpenData = async () => {
+      const [tarifasRes, prodRes] = await Promise.all([
+        supabase.from('tarifas_coworking').select('*').eq('activo', true),
+        supabase.from('productos').select('id, nombre, categoria, precio_venta').eq('activo', true).order('nombre'),
+      ]);
+      setTarifas((tarifasRes.data as Tarifa[]) ?? []);
+      setProductos((prodRes.data as Producto[]) ?? []);
     };
-    if (open) fetchTarifas();
+    fetchOpenData();
   }, [open]);
 
   // Filter tarifas by selected area
