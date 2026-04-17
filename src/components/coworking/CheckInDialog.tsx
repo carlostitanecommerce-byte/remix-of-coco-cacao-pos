@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserPlus, X, Plus } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { UserPlus, X, Plus, Search, Sparkles, Gift } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
@@ -33,6 +34,20 @@ interface AmenityOption {
   producto_id: string;
   nombre: string;
   cantidad_incluida: number;
+}
+
+interface Producto {
+  id: string;
+  nombre: string;
+  categoria: string;
+  precio_venta: number;
+}
+
+interface ExtraItem {
+  producto_id: string;
+  nombre: string;
+  precio: number;
+  isSpecial: boolean;
 }
 
 interface Props {
