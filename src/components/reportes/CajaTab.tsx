@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Info } from 'lucide-react';
 import { Loader2, Wallet, ArrowUpCircle, ArrowDownCircle, Clock, AlertTriangle, CheckCircle2, CalendarIcon } from 'lucide-react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -90,8 +92,12 @@ export default function CajaTab() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <SummaryCard label="Fondo Apertura Total" value={fmt(consolidado.fondoTotal)} />
-              <SummaryCard label="Ventas Efectivo" value={fmt(consolidado.ventasEfectivo)} />
+              <SummaryCard
+                label="Fondo Apertura Total"
+                value={fmt(consolidado.fondoTotal)}
+                tooltip="Capital inicial entregado al inicio del turno para dar cambio. No forma parte de las ventas del día."
+              />
+              <SummaryCard label="Ingresos por Ventas (Solo Efectivo)" value={fmt(consolidado.ventasEfectivo)} />
               <SummaryCard label="Entradas" value={fmt(consolidado.entradas)} accent="text-primary" />
               <SummaryCard label="Salidas" value={fmt(consolidado.salidas)} accent="text-destructive" />
               <SummaryCard
@@ -283,10 +289,25 @@ function DatePicker({ label, date, onChange }: { label: string; date: Date; onCh
   );
 }
 
-function SummaryCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function SummaryCard({ label, value, accent, tooltip }: { label: string; value: string; accent?: string; tooltip?: string }) {
+  const labelEl = tooltip ? (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <p className="text-xs text-muted-foreground mb-1 inline-flex items-center justify-center gap-1 cursor-help">
+            {label}
+            <Info className="h-3 w-3" />
+          </p>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-center">{tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  ) : (
+    <p className="text-xs text-muted-foreground mb-1">{label}</p>
+  );
   return (
     <div className="rounded-lg border border-border/60 p-3 text-center">
-      <p className="text-xs text-muted-foreground mb-1">{label}</p>
+      {labelEl}
       <p className={`font-mono font-semibold text-lg ${accent ?? ''}`}>{value}</p>
     </div>
   );

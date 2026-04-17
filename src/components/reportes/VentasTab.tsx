@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-const HORAS_RETAIL = Array.from({ length: 14 }, (_, i) => i + 8);
+const HORAS_RETAIL = Array.from({ length: 18 }, (_, i) => i + 6);
 const HORAS_COWORK = Array.from({ length: 13 }, (_, i) => i + 8);
 
 interface CellData {
@@ -128,7 +128,6 @@ export default function VentasTab() {
       const jsDay = getDay(fecha);
       const diaIdx = jsDay === 0 ? 6 : jsDay - 1;
       const hora = getHours(fecha);
-      if (hora < 8 || hora > 21) return;
       const key = `${diaIdx}-${hora}`;
       if (!map[key]) map[key] = { total: 0, count: 0 };
       map[key].total += d.subtotal;

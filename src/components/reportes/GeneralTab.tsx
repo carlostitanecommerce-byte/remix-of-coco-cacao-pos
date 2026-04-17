@@ -133,7 +133,7 @@ export default function GeneralTab() {
 
   const kpis = useMemo(() => {
     // Ingreso Gravable = sum of total_neto (includes IVA, excludes propinas)
-    const ingresoGravable = ventas.reduce((s, v) => s + (v.total_neto - v.monto_propina), 0);
+    const ingresoGravable = ventas.reduce((s, v) => s + v.total_neto, 0);
     const totalPropinas = ventas.reduce((s, v) => s + v.monto_propina, 0);
     const ivaTotal = ventas.reduce((s, v) => s + v.iva, 0);
     const comisionesTotal = ventas.reduce((s, v) => s + v.comisiones_bancarias, 0);
@@ -349,8 +349,9 @@ export default function GeneralTab() {
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <KPICard icon={Receipt} label="Ingreso Gravable" value={fmt(kpis.ingresoGravable)} />
+          <KPICard icon={Receipt} label="Ingreso Bruto Total" value={fmt(kpis.ingresoGravable + kpis.totalPropinas)} />
           <KPICard icon={Receipt} label="IVA Acumulado" value={fmt(kpis.ivaTotal)} />
           <KPICard icon={CreditCard} label="Propinas (No Gravable)" value={fmt(kpis.totalPropinas)} />
           <KPICard icon={TrendingUp} label="Utilidad Estimada" value={fmt(kpis.utilidad)} accent />
