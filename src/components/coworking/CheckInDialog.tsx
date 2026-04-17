@@ -118,8 +118,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
 
   // Load upsell options and amenities when tarifa changes
   useEffect(() => {
-    setPendingUpsellId('');
-    setSelectedUpsells([]);
+    setExtraItems([]);
     setUpsellOptions([]);
     setAmenityOptions([]);
     if (!selectedTarifaId) return;
@@ -180,7 +179,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     const fechaInicio = new Date();
     const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
 
-    const firstUpsell = selectedUpsells.length > 0 ? selectedUpsells[0] : null;
+    const firstUpsell = extraItems.find(i => i.isSpecial) ?? null;
 
     // Build immutable tarifa snapshot at check-in time
     const selectedTarifa = selectedTarifaId
@@ -207,19 +206,19 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       tarifa_id: selectedTarifaId || null,
       tarifa_snapshot: tarifaSnapshot,
       upsell_producto_id: firstUpsell?.producto_id ?? null,
-      upsell_precio: firstUpsell?.precio_especial ?? null,
+      upsell_precio: firstUpsell?.precio ?? null,
     } as any).select('id').single();
 
     if (error) {
       toast({ variant: 'destructive', title: 'Error', description: error.message });
     } else {
       if (sessionData) {
-        // Insert upsells with real-time prices
-        for (const u of selectedUpsells) {
+        // Insert extra items (upsells de tarifa o consumos a precio regular)
+        for (const it of extraItems) {
           await supabase.from('coworking_session_upsells').insert({
             session_id: sessionData.id,
-            producto_id: u.producto_id,
-            precio_especial: u.precio_especial,
+            producto_id: it.producto_id,
+            precio_especial: it.precio,
             cantidad: 1,
           });
         }
@@ -241,7 +240,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
           pax_count: pax,
           horas: horasNum,
           tarifa_id: selectedTarifaId || null,
-          upsell_ids: selectedUpsells.map(u => u.producto_id),
+          extra_items: extraItems.map(i => ({ producto_id: i.producto_id, precio: i.precio, isSpecial: i.isSpecial })),
           tarifa_snapshot_resumen: selectedTarifa
             ? {
                 nombre: selectedTarifa.nombre,
@@ -255,7 +254,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       });
       toast({ title: 'Entrada registrada exitosamente' });
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
-      setSelectedTarifaId(''); setSelectedUpsells([]); setPendingUpsellId('');
+      setSelectedTarifaId(''); setExtraItems([]); setSearch('');
       setAmenityOptions([]);
       setOpen(false);
       await onSuccess?.();
