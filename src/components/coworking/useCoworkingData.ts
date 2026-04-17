@@ -16,7 +16,7 @@ export function useCoworkingData() {
       supabase.from('coworking_reservaciones').select('*').in('estado', ['pendiente', 'confirmada']).order('fecha_reserva'),
     ]);
     setAreas((areasRes.data as Area[]) ?? []);
-    setSessions((sessionsRes.data as CoworkingSession[]) ?? []);
+    setSessions((sessionsRes.data as unknown as CoworkingSession[]) ?? []);
     setReservaciones((reservRes.data as Reservacion[]) ?? []);
     setLoading(false);
   }, []);
