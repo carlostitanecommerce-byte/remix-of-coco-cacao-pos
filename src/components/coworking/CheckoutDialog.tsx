@@ -27,8 +27,6 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
     return h > 0 ? `${h}h ${m}min` : `${m}min`;
   };
 
-  const useFraccion15 = summary.useFraccion15 ?? true;
-
   const handleConfirm = async () => {
     if (!user) return;
     const { error } = await supabase
@@ -52,6 +50,11 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
           area_id: summary.session.area_id,
           tiempo_real_min: summary.tiempoRealMin,
           tiempo_excedido_min: summary.tiempoExcedidoMin,
+          metodo_fraccion: summary.metodoFraccion,
+          tolerancia_min: summary.toleranciaMin,
+          min_cobrar: summary.minCobrar,
+          bloques_extra: summary.bloquesExtra,
+          cargo_extra: summary.cargoExtra,
           total: summary.total,
         },
       });
@@ -61,8 +64,6 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
       navigate(`/pos?session=${summary.session.id}`);
     }
   };
-
-  const upsellsTotal = summary.upsells.reduce((sum, u) => sum + u.precio_especial * u.cantidad, 0);
 
   return (
     <Dialog open={!!summary} onOpenChange={() => onClose()}>
@@ -77,6 +78,10 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
           <div className="rounded-lg border border-border p-4 space-y-2">
             <p className="font-medium text-foreground">{summary.session.cliente_nombre}</p>
             <p className="text-sm text-muted-foreground">{summary.area.nombre_area} · {summary.session.pax_count} pax</p>
+            <p className="text-xs text-muted-foreground">
+              Modo de cobro: <span className="font-medium text-foreground">{summary.metodoFraccionLabel}</span>
+              {summary.toleranciaMin > 0 && <> · Tolerancia: {summary.toleranciaMin} min</>}
+            </p>
           </div>
 
           <div className="space-y-3">
@@ -89,17 +94,24 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
               <span>{formatMin(summary.tiempoRealMin)}</span>
             </div>
             {summary.tiempoExcedidoMin > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Excedente bruto</span>
+                <span>+{formatMin(summary.tiempoExcedidoMin)}</span>
+              </div>
+            )}
+            {summary.tiempoExcedidoMin > 0 && summary.toleranciaMin > 0 && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>− Tolerancia ({summary.toleranciaMin} min)</span>
+                <span>{summary.minCobrar > 0 ? `Quedan ${formatMin(summary.minCobrar)}` : 'Dentro de gracia'}</span>
+              </div>
+            )}
+            {summary.cargoExtra > 0 && (
               <div className="flex justify-between text-sm text-amber-600 dark:text-amber-400">
                 <span>
-                  {useFraccion15
-                    ? `Tiempo excedido (${summary.bloquesExtra} bloques de 15 min)`
-                    : `Tiempo excedido (${formatMin(summary.tiempoExcedidoMin)} prorrateado)`}
+                  Cobro excedente ({summary.metodoFraccionLabel}
+                  {summary.metodoFraccion !== 'minuto_exacto' && ` · ${summary.bloquesExtra} bloque${summary.bloquesExtra !== 1 ? 's' : ''}`})
                 </span>
-                <span>
-                  {useFraccion15
-                    ? `+${formatMin(summary.bloquesExtra * 15)}`
-                    : `+${formatMin(summary.tiempoExcedidoMin)}`}
-                </span>
+                <span>+${summary.cargoExtra.toFixed(2)}</span>
               </div>
             )}
           </div>

@@ -6,6 +6,19 @@ export interface Area {
   es_privado: boolean;
 }
 
+export interface TarifaSnapshot {
+  id?: string;
+  nombre?: string;
+  precio_base: number;
+  tipo_cobro?: string;
+  metodo_fraccion: string;
+  minutos_tolerancia: number;
+  amenities?: unknown[];
+  upsells_disponibles?: unknown[];
+  snapshot_at?: string;
+  [key: string]: unknown;
+}
+
 export interface CoworkingSession {
   id: string;
   cliente_nombre: string;
@@ -20,6 +33,7 @@ export interface CoworkingSession {
   tarifa_id: string | null;
   upsell_producto_id: string | null;
   upsell_precio: number | null;
+  tarifa_snapshot?: TarifaSnapshot | null;
 }
 
 export interface Reservacion {
@@ -55,5 +69,12 @@ export interface CheckoutSummary {
   cargoExtra: number;
   total: number;
   upsells: SessionUpsell[];
+  /** @deprecated reemplazado por metodoFraccion del snapshot */
   useFraccion15?: boolean;
+  metodoFraccion: string;
+  metodoFraccionLabel: string;
+  toleranciaMin: number;
+  minCobrar: number;
+  precioBaseSnapshot: number;
+  paxMultiplier: number;
 }
