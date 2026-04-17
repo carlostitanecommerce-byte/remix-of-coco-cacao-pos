@@ -7,8 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Search, Users, Clock, Plus, Ban } from 'lucide-react';
 import type { CartItem } from './types';
 import { CancelSessionDialog } from '@/components/coworking/CancelSessionDialog';
-import type { CoworkingSession } from '@/components/coworking/types';
+import type { CoworkingSession, TarifaSnapshot } from '@/components/coworking/types';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 
 interface ActiveSession {
   id: string;
@@ -23,15 +24,7 @@ interface ActiveSession {
   upsell_producto_id: string | null;
   upsell_precio: number | null;
   tarifa_id: string | null;
-}
-
-interface TarifaMatch {
-  id: string;
-  nombre: string;
-  precio_base: number;
-  tipo_cobro: string;
-  amenities: { producto_id: string; nombre: string; cantidad_incluida: number }[];
-  upsells: { producto_id: string; nombre: string; precio_especial: number; precio_original: number }[];
+  tarifa_snapshot: TarifaSnapshot | null;
 }
 
 interface Props {
@@ -41,19 +34,26 @@ interface Props {
   onPendingConsumed?: () => void;
 }
 
+const FRACCION_LABELS: Record<string, string> = {
+  '15_min': 'Bloques de 15 min',
+  '30_min': 'Bloques de 30 min',
+  'hora_cerrada': 'Hora cerrada',
+  'minuto_exacto': 'Minuto exacto',
+};
+
 export function CoworkingSessionSelector({ onImportSession, importedSessionId, pendingSessionId, onPendingConsumed }: Props) {
   const { roles } = useAuth();
+  const { toast } = useToast();
   const isAdmin = roles.includes('administrador');
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
-  const [fraccion15, setFraccion15] = useState(true);
 
   const fetchSessions = async () => {
     const { data: sessData } = await supabase
       .from('coworking_sessions')
-      .select('id, cliente_nombre, area_id, pax_count, fecha_inicio, fecha_fin_estimada, upsell_producto_id, upsell_precio, tarifa_id, usuario_id, estado, monto_acumulado, fecha_salida_real')
+      .select('id, cliente_nombre, area_id, pax_count, fecha_inicio, fecha_fin_estimada, upsell_producto_id, upsell_precio, tarifa_id, usuario_id, estado, monto_acumulado, fecha_salida_real, tarifa_snapshot')
       .eq('estado', 'pendiente_pago');
 
     if (!sessData || sessData.length === 0) { setSessions([]); setLoading(false); return; }
@@ -76,6 +76,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
         upsell_producto_id: s.upsell_producto_id ?? null,
         upsell_precio: s.upsell_precio ?? null,
         tarifa_id: s.tarifa_id ?? null,
+        tarifa_snapshot: (s.tarifa_snapshot as TarifaSnapshot | null) ?? null,
       };
     }));
     setLoading(false);
@@ -83,13 +84,6 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
 
   useEffect(() => {
     fetchSessions();
-    // Load fraccion config
-    supabase
-      .from('configuracion_ventas')
-      .select('valor')
-      .eq('clave', 'cobro_fraccion_15min')
-      .single()
-      .then(({ data: cfg }) => setFraccion15(cfg?.valor === 1));
   }, []);
 
   // Auto-import pending session from coworking checkout redirect
@@ -101,10 +95,22 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
         onPendingConsumed?.();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSessionId, loading, sessions]);
 
   const handleSelect = async (session: ActiveSession) => {
-    // Fetch frozen checkout time from DB to ensure consistency with coworking checkout
+    const snapshot = session.tarifa_snapshot;
+
+    if (!snapshot) {
+      toast({
+        variant: 'destructive',
+        title: 'Sesión sin tarifa congelada',
+        description: 'Esta sesión no tiene snapshot de tarifa. Pide a un administrador que la cancele y la rehaga.',
+      });
+      return;
+    }
+
+    // Frozen checkout time
     let endRef = session.fecha_salida_real;
     if (!endRef) {
       const { data: fresh } = await supabase
@@ -115,151 +121,83 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
       endRef = fresh?.fecha_salida_real ?? new Date().toISOString();
     }
 
-    // Find applicable tarifa for this area
-    const { data: tarifas } = await supabase
-      .from('tarifas_coworking')
-      .select('id, nombre, precio_base, tipo_cobro, areas_aplicables')
-      .eq('activo', true);
+    // Snapshot fields (immutable source of truth)
+    const tarifaNombre = (snapshot.nombre as string) || 'Tarifa Coworking';
+    const precioBase = Number(snapshot.precio_base) || 0;
+    const tipoCobro = (snapshot.tipo_cobro as string) || 'hora';
+    const metodo = (snapshot.metodo_fraccion as string) || '15_min';
+    const tolerancia = Number(snapshot.minutos_tolerancia) || 0;
+    const paxMultiplier = session.es_privado ? 1 : session.pax_count;
 
-    const tarifa = tarifas?.find(t =>
-      (t.areas_aplicables as string[])?.includes(session.area_id)
-    );
+    // Time math
+    const tiempoContratadoMin = calcMinutes(session.fecha_inicio, session.fecha_fin_estimada);
+    const tiempoRealMin = calcMinutes(session.fecha_inicio, endRef);
+    const extraMins = Math.max(0, tiempoRealMin - tiempoContratadoMin);
+    const minCobrar = Math.max(0, extraMins - tolerancia);
+    const hours = tiempoContratadoMin / 60;
 
-    if (!tarifa) {
-      // Fallback: just add coworking time with area price
-      const { data: area } = await supabase
-        .from('areas_coworking')
-        .select('precio_por_hora')
-        .eq('id', session.area_id)
-        .single();
-
-      const mins = calcMinutes(session.fecha_inicio, session.fecha_fin_estimada);
-      const extraMins = calcExtraMinutesFrozen(session.fecha_fin_estimada, endRef);
-      const hours = mins / 60;
-      const pricePerHour = area?.precio_por_hora ?? 0;
-      const baseCharge = session.es_privado
-        ? pricePerHour * hours
-        : pricePerHour * session.pax_count * hours;
-
-      const items: CartItem[] = [{
-        producto_id: `coworking-${session.id}`,
-        nombre: `Coworking: ${session.area_nombre} (${formatDuration(mins)})`,
-        precio_unitario: Math.round(baseCharge * 100) / 100,
-        cantidad: 1,
-        subtotal: Math.round(baseCharge * 100) / 100,
-        tipo_concepto: 'coworking',
-        coworking_session_id: session.id,
-        descripcion: `${session.cliente_nombre} - ${session.area_nombre}`,
-      }];
-
-      if (extraMins > 0) {
-        if (fraccion15) {
-          const blocks = Math.ceil(extraMins / 15);
-          const extraRate = (pricePerHour / 4) * (session.es_privado ? 1 : session.pax_count);
-          const extraCharge = blocks * extraRate;
-          items.push({
-            producto_id: `coworking-extra-${session.id}`,
-            nombre: `Tiempo excedido (${blocks} bloques x 15min)`,
-            precio_unitario: Math.round(extraCharge * 100) / 100,
-            cantidad: 1,
-            subtotal: Math.round(extraCharge * 100) / 100,
-            tipo_concepto: 'coworking',
-            coworking_session_id: session.id,
-            descripcion: 'Cargo por tiempo excedido',
-          });
-        } else {
-          const extraRate = (pricePerHour / 60) * (session.es_privado ? 1 : session.pax_count);
-          const extraCharge = extraMins * extraRate;
-          items.push({
-            producto_id: `coworking-extra-${session.id}`,
-            nombre: `Tiempo excedido (${extraMins} min prorrateado)`,
-            precio_unitario: Math.round(extraCharge * 100) / 100,
-            cantidad: 1,
-            subtotal: Math.round(extraCharge * 100) / 100,
-            tipo_concepto: 'coworking',
-            coworking_session_id: session.id,
-            descripcion: 'Cargo por tiempo excedido',
-          });
-        }
-      }
-
-      onImportSession(items, session.id, session.cliente_nombre);
-      return;
-    }
-
-    // Fetch amenities and upsells for this tarifa
-    const [amenitiesRes, upsellsRes] = await Promise.all([
-      supabase
-        .from('tarifa_amenities_incluidos')
-        .select('producto_id, cantidad_incluida, productos:producto_id(nombre)')
-        .eq('tarifa_id', tarifa.id),
-      supabase
-        .from('tarifa_upsells')
-        .select('producto_id, precio_especial, productos:producto_id(nombre, precio_venta)')
-        .eq('tarifa_id', tarifa.id),
-    ]);
-
-    // Calculate time — frozen at checkout moment
-    const mins = calcMinutes(session.fecha_inicio, session.fecha_fin_estimada);
-    const extraMins = calcExtraMinutesFrozen(session.fecha_fin_estimada, endRef);
-    const hours = mins / 60;
-
-    // Base charge
-    let baseCharge = tarifa.precio_base;
-    if (tarifa.tipo_cobro === 'hora') {
-      baseCharge = session.es_privado
-        ? tarifa.precio_base * hours
-        : tarifa.precio_base * session.pax_count * hours;
-    } else if (tarifa.tipo_cobro === 'dia' || tarifa.tipo_cobro === 'mes') {
-      baseCharge = session.es_privado
-        ? tarifa.precio_base
-        : tarifa.precio_base * session.pax_count;
+    // Base charge from snapshot
+    let baseCharge = precioBase;
+    if (tipoCobro === 'hora') {
+      baseCharge = precioBase * hours * paxMultiplier;
+    } else if (tipoCobro === 'dia' || tipoCobro === 'mes') {
+      baseCharge = precioBase * paxMultiplier;
     }
 
     const items: CartItem[] = [{
       producto_id: `coworking-${session.id}`,
-      nombre: `${tarifa.nombre}: ${session.area_nombre} (${formatDuration(mins)})`,
-      precio_unitario: Math.round(baseCharge * 100) / 100,
+      nombre: `${tarifaNombre}: ${session.area_nombre} (${formatDuration(tiempoContratadoMin)})`,
+      precio_unitario: round2(baseCharge),
       cantidad: 1,
-      subtotal: Math.round(baseCharge * 100) / 100,
+      subtotal: round2(baseCharge),
       tipo_concepto: 'coworking',
       coworking_session_id: session.id,
-      descripcion: `${session.cliente_nombre} - Tarifa: ${tarifa.nombre}`,
+      descripcion: `${session.cliente_nombre} - Tarifa: ${tarifaNombre}`,
     }];
 
-    // Extra time
-    if (extraMins > 0 && tarifa.tipo_cobro === 'hora') {
-      if (fraccion15) {
-        const blocks = Math.ceil(extraMins / 15);
-        const extraRate = (tarifa.precio_base / 4) * (session.es_privado ? 1 : session.pax_count);
-        const extraCharge = blocks * extraRate;
-        items.push({
-          producto_id: `coworking-extra-${session.id}`,
-          nombre: `Tiempo excedido (${blocks} bloques x 15min)`,
-          precio_unitario: Math.round(extraCharge * 100) / 100,
-          cantidad: 1,
-          subtotal: Math.round(extraCharge * 100) / 100,
-          tipo_concepto: 'coworking',
-          coworking_session_id: session.id,
-          descripcion: 'Cargo por tiempo excedido',
-        });
-      } else {
-        const extraRate = (tarifa.precio_base / 60) * (session.es_privado ? 1 : session.pax_count);
-        const extraCharge = extraMins * extraRate;
-        items.push({
-          producto_id: `coworking-extra-${session.id}`,
-          nombre: `Tiempo excedido (${extraMins} min prorrateado)`,
-          precio_unitario: Math.round(extraCharge * 100) / 100,
-          cantidad: 1,
-          subtotal: Math.round(extraCharge * 100) / 100,
-          tipo_concepto: 'coworking',
-          coworking_session_id: session.id,
-          descripcion: 'Cargo por tiempo excedido',
-        });
+    // Extra time charge (immutable, snapshot-driven)
+    if (minCobrar > 0 && tipoCobro === 'hora') {
+      let bloquesExtra = 0;
+      let cargoExtra = 0;
+      let descExtra = '';
+
+      switch (metodo) {
+        case '30_min':
+          bloquesExtra = Math.ceil(minCobrar / 30);
+          cargoExtra = bloquesExtra * (precioBase / 2) * paxMultiplier;
+          descExtra = `${bloquesExtra} bloque${bloquesExtra !== 1 ? 's' : ''} x 30min`;
+          break;
+        case 'hora_cerrada':
+          bloquesExtra = Math.ceil(minCobrar / 60);
+          cargoExtra = bloquesExtra * precioBase * paxMultiplier;
+          descExtra = `${bloquesExtra} hora${bloquesExtra !== 1 ? 's' : ''} cerrada${bloquesExtra !== 1 ? 's' : ''}`;
+          break;
+        case 'minuto_exacto':
+          bloquesExtra = minCobrar;
+          cargoExtra = minCobrar * (precioBase / 60) * paxMultiplier;
+          descExtra = `${minCobrar} min prorrateado`;
+          break;
+        case '15_min':
+        default:
+          bloquesExtra = Math.ceil(minCobrar / 15);
+          cargoExtra = bloquesExtra * (precioBase / 4) * paxMultiplier;
+          descExtra = `${bloquesExtra} bloque${bloquesExtra !== 1 ? 's' : ''} x 15min`;
+          break;
       }
+
+      items.push({
+        producto_id: `coworking-extra-${session.id}`,
+        nombre: `Tiempo excedido (${descExtra})`,
+        precio_unitario: round2(cargoExtra),
+        cantidad: 1,
+        subtotal: round2(cargoExtra),
+        tipo_concepto: 'coworking',
+        coworking_session_id: session.id,
+        descripcion: `Excedente — ${FRACCION_LABELS[metodo] ?? metodo}${tolerancia > 0 ? ` · Tolerancia ${tolerancia}min` : ''}`,
+      });
     }
 
-    // Fetch all session items (amenities + upsells + consumos) from junction table
+    // Session upsells/amenities/consumos (junction table — frozen prices already stored per row)
     const { data: sessionUpsells } = await supabase
       .from('coworking_session_upsells')
       .select('producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
@@ -276,7 +214,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
         subtotal: u.precio_especial * u.cantidad,
         tipo_concepto: isAmenity ? 'amenity' : 'producto',
         coworking_session_id: session.id,
-        descripcion: isAmenity ? `Amenity incluido en ${tarifa.nombre}` : `Upsell/consumo coworking`,
+        descripcion: isAmenity ? `Amenity incluido en ${tarifaNombre}` : `Upsell/consumo coworking`,
       });
     }
 
@@ -353,6 +291,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
                         tarifa_id: s.tarifa_id,
                         upsell_producto_id: s.upsell_producto_id,
                         upsell_precio: s.upsell_precio,
+                        tarifa_snapshot: s.tarifa_snapshot,
                       })}
                       title="Cancelar sesión"
                     >
@@ -389,10 +328,8 @@ function calcMinutes(start: string, end: string): number {
   return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000));
 }
 
-function calcExtraMinutesFrozen(estimatedEnd: string, actualEnd: string): number {
-  const actual = new Date(actualEnd).getTime();
-  const end = new Date(estimatedEnd).getTime();
-  return actual > end ? Math.round((actual - end) / 60000) : 0;
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 function formatDuration(mins: number): string {
