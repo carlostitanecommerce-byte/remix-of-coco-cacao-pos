@@ -7,8 +7,7 @@ import { useCoworkingData } from '@/components/coworking/useCoworkingData';
 import { CheckInDialog } from '@/components/coworking/CheckInDialog';
 import { CheckoutDialog } from '@/components/coworking/CheckoutDialog';
 import { CancelSessionDialog } from '@/components/coworking/CancelSessionDialog';
-import { EditUpsellDialog } from '@/components/coworking/EditUpsellDialog';
-import { AddConsumoDialog } from '@/components/coworking/AddConsumoDialog';
+import { ManageSessionAccountDialog } from '@/components/coworking/ManageSessionAccountDialog';
 import { SolicitudesCancelacionSesionesPanel } from '@/components/coworking/SolicitudesCancelacionSesionesPanel';
 import { OccupancyGrid } from '@/components/coworking/OccupancyGrid';
 import { ActiveSessionsTable } from '@/components/coworking/ActiveSessionsTable';
@@ -20,9 +19,7 @@ const CoworkingPage = () => {
   const { roles } = useAuth();
   const data = useCoworkingData();
   const [checkoutSummary, setCheckoutSummary] = useState<CheckoutSummary | null>(null);
-  const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
-  const [sessionToEditUpsell, setSessionToEditUpsell] = useState<CoworkingSession | null>(null);
-  const [sessionToAddConsumo, setSessionToAddConsumo] = useState<CoworkingSession | null>(null);
+  const [sessionToManageAccount, setSessionToManageAccount] = useState<CoworkingSession | null>(null);
   const isAdmin = roles.includes('administrador');
 
   const METODO_LABELS: Record<string, string> = {
