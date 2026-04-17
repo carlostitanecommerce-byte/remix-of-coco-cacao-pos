@@ -69,8 +69,6 @@ export interface CheckoutSummary {
   cargoExtra: number;
   total: number;
   upsells: SessionUpsell[];
-  /** @deprecated reemplazado por metodoFraccion del snapshot */
-  useFraccion15?: boolean;
   metodoFraccion: string;
   metodoFraccionLabel: string;
   toleranciaMin: number;
