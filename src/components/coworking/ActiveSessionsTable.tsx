@@ -119,8 +119,8 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         {onManageAccount && (
-                          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onManageAccount(s)} title="Gestionar cuenta de la sesión">
-                            <ShoppingBag className="h-3 w-3 mr-1" />Cuenta
+                          <Button variant="default" size="sm" onClick={() => onManageAccount(s)} title="Gestionar cuenta de la sesión">
+                            <ShoppingBag className="h-3 w-3 mr-1" />Gestionar Cuenta
                           </Button>
                         )}
                         <Button variant="outline" size="sm" onClick={() => onCheckOut(s)}>
