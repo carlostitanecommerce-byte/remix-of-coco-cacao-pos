@@ -161,8 +161,7 @@ const CoworkingPage = () => {
             areas={data.areas}
             onCheckOut={handleCheckOut}
             onCancel={setSessionToCancel}
-            onEditUpsell={setSessionToEditUpsell}
-            onAddConsumo={setSessionToAddConsumo}
+            onManageAccount={setSessionToManageAccount}
             onPaxUpdated={data.fetchData}
           />
           {isAdmin && <SolicitudesCancelacionSesionesPanel onSessionCancelled={data.fetchData} />}
@@ -181,8 +180,7 @@ const CoworkingPage = () => {
 
       <CheckoutDialog summary={checkoutSummary} onClose={() => setCheckoutSummary(null)} onSuccess={data.fetchData} />
       <CancelSessionDialog session={sessionToCancel} isAdmin={isAdmin} onClose={() => setSessionToCancel(null)} onSuccess={data.fetchData} />
-      <EditUpsellDialog session={sessionToEditUpsell} onClose={() => setSessionToEditUpsell(null)} onSuccess={data.fetchData} />
-      <AddConsumoDialog session={sessionToAddConsumo} onClose={() => setSessionToAddConsumo(null)} onSuccess={data.fetchData} />
+      <ManageSessionAccountDialog session={sessionToManageAccount} onClose={() => setSessionToManageAccount(null)} onSuccess={data.fetchData} />
     </div>
   );
 };

@@ -14,12 +14,11 @@ interface Props {
   areas: Area[];
   onCheckOut: (session: CoworkingSession) => void;
   onCancel: (session: CoworkingSession) => void;
-  onEditUpsell?: (session: CoworkingSession) => void;
-  onAddConsumo?: (session: CoworkingSession) => void;
+  onManageAccount?: (session: CoworkingSession) => void;
   onPaxUpdated?: () => void | Promise<void>;
 }
 
-export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onEditUpsell, onAddConsumo, onPaxUpdated }: Props) {
+export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onManageAccount, onPaxUpdated }: Props) {
   const { toast } = useToast();
   const [editingPaxId, setEditingPaxId] = useState<string | null>(null);
   const [newPax, setNewPax] = useState('');
@@ -119,14 +118,9 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onE
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        {onAddConsumo && (
-                          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onAddConsumo(s)} title="Añadir consumo a precio público">
-                            <ShoppingBag className="h-3 w-3 mr-1" />Consumo
-                          </Button>
-                        )}
-                        {onEditUpsell && (
-                          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onEditUpsell(s)} title="Editar upsells">
-                            <Pencil className="h-3 w-3 mr-1" />Upsell
+                        {onManageAccount && (
+                          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onManageAccount(s)} title="Gestionar cuenta de la sesión">
+                            <ShoppingBag className="h-3 w-3 mr-1" />Cuenta
                           </Button>
                         )}
                         <Button variant="outline" size="sm" onClick={() => onCheckOut(s)}>
