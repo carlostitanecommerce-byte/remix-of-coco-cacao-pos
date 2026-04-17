@@ -20,7 +20,16 @@ interface Tarifa {
   precio_base: number;
   areas_aplicables: string[];
   activo: boolean;
+  metodo_fraccion: string;
+  minutos_tolerancia: number;
 }
+
+const METODO_FRACCION_LABELS: Record<string, string> = {
+  hora_cerrada: 'Hora Cerrada',
+  '30_min': 'Bloques de 30 min',
+  '15_min': 'Bloques de 15 min',
+  minuto_exacto: 'Minuto Exacto',
+};
 
 interface Amenity {
   id?: string;
@@ -65,6 +74,8 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
   const [areasSeleccionadas, setAreasSeleccionadas] = useState<string[]>([]);
   const [amenities, setAmenities] = useState<Amenity[]>([]);
   const [upsells, setUpsells] = useState<Upsell[]>([]);
+  const [metodoFraccion, setMetodoFraccion] = useState<string>('15_min');
+  const [minutosTolerancia, setMinutosTolerancia] = useState<string>('5');
 
   const fetchData = useCallback(async () => {
     const [tarifasRes, productosRes] = await Promise.all([
@@ -86,6 +97,8 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
     setAreasSeleccionadas([]);
     setAmenities([]);
     setUpsells([]);
+    setMetodoFraccion('15_min');
+    setMinutosTolerancia('5');
     setEditingId(null);
   };
 
@@ -97,6 +110,8 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
     setTipoCobro(tarifa.tipo_cobro);
     setPrecioBase(String(tarifa.precio_base));
     setAreasSeleccionadas(tarifa.areas_aplicables ?? []);
+    setMetodoFraccion(tarifa.metodo_fraccion ?? '15_min');
+    setMinutosTolerancia(String(tarifa.minutos_tolerancia ?? 5));
 
     const [amenitiesRes, upsellsRes] = await Promise.all([
       supabase.from('tarifa_amenities_incluidos').select('id, producto_id, cantidad_incluida').eq('tarifa_id', tarifa.id),
@@ -137,6 +152,8 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
       tipo_cobro: tipoCobro as 'hora' | 'dia' | 'mes' | 'paquete_horas',
       precio_base: parseFloat(precioBase) || 0,
       areas_aplicables: areasSeleccionadas,
+      metodo_fraccion: metodoFraccion,
+      minutos_tolerancia: Math.max(0, parseInt(minutosTolerancia) || 0),
     };
 
     let tarifaId = editingId;
@@ -187,6 +204,8 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
     setTipoCobro(tarifa.tipo_cobro);
     setPrecioBase(String(tarifa.precio_base));
     setAreasSeleccionadas(tarifa.areas_aplicables ?? []);
+    setMetodoFraccion(tarifa.metodo_fraccion ?? '15_min');
+    setMinutosTolerancia(String(tarifa.minutos_tolerancia ?? 5));
 
     const [amenitiesRes, upsellsRes] = await Promise.all([
       supabase.from('tarifa_amenities_incluidos').select('id, producto_id, cantidad_incluida').eq('tarifa_id', tarifa.id),
@@ -287,6 +306,31 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
               <div>
                 <Label>Precio Base ($)</Label>
                 <Input type="number" min={0} step={5} value={precioBase} onChange={e => setPrecioBase(e.target.value)} />
+              </div>
+            </div>
+
+            {/* Fracción extra + Tolerancia */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Modo de Fracción Extra</Label>
+                <Select value={metodoFraccion} onValueChange={setMetodoFraccion}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(METODO_FRACCION_LABELS).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Minutos de Tolerancia (Gracia)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={minutosTolerancia}
+                  onChange={e => setMinutosTolerancia(e.target.value)}
+                />
               </div>
             </div>
 
