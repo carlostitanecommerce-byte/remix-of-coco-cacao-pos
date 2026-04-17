@@ -188,7 +188,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       tarifa_snapshot: tarifaSnapshot,
       upsell_producto_id: firstUpsell?.producto_id ?? null,
       upsell_precio: firstUpsell?.precio_especial ?? null,
-    }).select('id').single();
+    } as any).select('id').single();
 
     if (error) {
       toast({ variant: 'destructive', title: 'Error', description: error.message });
