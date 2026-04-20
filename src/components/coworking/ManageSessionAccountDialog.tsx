@@ -6,8 +6,29 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { verificarStock } from '@/hooks/useValidarStock';
-import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag } from 'lucide-react';
-import type { CoworkingSession } from './types';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X } from 'lucide-react';
+import type { Area, CoworkingSession } from './types';
+
+interface SnapshotAmenity {
+  producto_id: string;
+  cantidad_incluida: number;
+  nombre?: string;
+}
+
+interface PendingAmenityUpdate {
+  newPax: number;
+  oldPax: number;
+}
 
 interface Producto {
   id: string;
