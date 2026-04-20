@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { UserPlus, X, Plus, Search, Sparkles, Gift } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { verificarStock } from '@/hooks/useValidarStock';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
 
