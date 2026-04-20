@@ -428,40 +428,27 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             </div>
           )}
 
-          {/* Amenities preview con cantidad editable */}
+          {/* Amenities informativos (Solo lectura) */}
           {selectedTarifaId && amenityOptions.length > 0 && (
-            <div className="space-y-2">
-              <Label>Amenities Incluidos</Label>
-              <p className="text-xs text-muted-foreground -mt-1">
-                Sugerido por defecto: cantidad incluida × pax. Puedes ajustar a la baja si el cliente no los quiere todos.
-              </p>
-              <div className="space-y-1">
+            <div className="space-y-2 bg-primary/5 border border-primary/20 rounded-md p-3">
+              <Label className="text-primary flex items-center gap-1.5">
+                <Gift className="h-4 w-4" /> Entregar al cliente ahora:
+              </Label>
+              <div className="space-y-1.5 mt-2">
                 {amenityOptions.map(a => {
                   const pax = parseInt(paxCount, 10) || 1;
-                  const sugerido = a.cantidad_incluida * pax;
-                  const value = amenityQty[a.producto_id] ?? sugerido;
+                  const totalSugerido = a.cantidad_incluida * pax;
                   return (
-                    <div key={a.producto_id} className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-1.5 text-sm">
-                      <span className="flex-1 min-w-0 truncate">🎁 {a.nombre}</span>
-                      <span className="text-xs text-muted-foreground shrink-0">Sug: {sugerido}</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={sugerido}
-                        value={value}
-                        onChange={e => {
-                          const raw = parseInt(e.target.value, 10);
-                          const clamped = Math.max(0, Math.min(sugerido, isNaN(raw) ? 0 : raw));
-                          setAmenityQty(prev => ({ ...prev, [a.producto_id]: clamped }));
-                          setAmenityDirty(prev => ({ ...prev, [a.producto_id]: true }));
-                        }}
-                        className="h-7 w-16 text-center"
-                      />
-                      <span className="text-xs text-muted-foreground shrink-0">(gratis)</span>
+                    <div key={a.producto_id} className="flex items-center justify-between text-sm">
+                      <span className="font-medium text-foreground">• {a.nombre}</span>
+                      <span className="font-bold text-primary">× {totalSugerido}</span>
                     </div>
                   );
                 })}
               </div>
+              <p className="text-[10px] text-muted-foreground mt-2 leading-tight">
+                Las cantidades se añadirán automáticamente a la cuenta. Si el cliente no desea alguno, podrás descontarlo desde la gestión de la sesión activa.
+              </p>
             </div>
           )}
 
