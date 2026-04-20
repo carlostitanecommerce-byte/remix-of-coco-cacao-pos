@@ -79,10 +79,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
   const [search, setSearch] = useState('');
 
-  // Cantidades manuales por amenity (sobreescriben cantidad_incluida * pax)
-  const [amenityQty, setAmenityQty] = useState<Record<string, number>>({});
-  const [amenityDirty, setAmenityDirty] = useState<Record<string, boolean>>({});
-
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const isPublicArea = selectedArea ? !selectedArea.es_privado : false;
 
