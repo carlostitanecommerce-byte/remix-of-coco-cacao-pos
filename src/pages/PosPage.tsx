@@ -260,6 +260,7 @@ const PosPage = () => {
     setPropina(0);
     setPropinaEnDigital(true);
     setImportedSessionId(undefined);
+    setOriginalSessionItems([]);
     setKey(k => k + 1);
   };
 
@@ -386,10 +387,12 @@ const PosPage = () => {
             onSetPropinaEnDigital={setPropinaEnDigital}
             onUpdateQty={updateQty}
             onRemove={removeItem}
-            onClear={() => { setItems([]); setImportedSessionId(undefined); setPropina(0); }}
+            onClear={() => { setItems([]); setImportedSessionId(undefined); setOriginalSessionItems([]); setPropina(0); }}
             onConfirm={handleConfirm}
             subtotal={subtotal}
             comisionPct={0}
+            missingImportedItems={missingImportedItems}
+            onRestoreItem={handleRestoreItem}
           />
         </div>
       </div>

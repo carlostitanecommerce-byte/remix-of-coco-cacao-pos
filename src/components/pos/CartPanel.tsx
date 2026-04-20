@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users, RotateCcw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -25,12 +25,15 @@ interface Props {
   onConfirm: () => void;
   subtotal: number;
   comisionPct: number;
+  missingImportedItems?: (CartItem & { cantidad_faltante: number })[];
+  onRestoreItem?: (item: CartItem) => void | Promise<void>;
 }
 
 export function CartPanel({
   items, metodoPago, tipoConsumo, mixedPayment, propina, propinaEnDigital,
   onSetMetodoPago, onSetTipoConsumo, onSetMixedPayment, onSetPropina, onSetPropinaEnDigital,
-  onUpdateQty, onRemove, onClear, onConfirm, subtotal, comisionPct
+  onUpdateQty, onRemove, onClear, onConfirm, subtotal, comisionPct,
+  missingImportedItems = [], onRestoreItem,
 }: Props) {
   const coworkingItems = items.filter(i => i.tipo_concepto === 'coworking');
   const amenityItems = items.filter(i => i.tipo_concepto === 'amenity');
