@@ -396,10 +396,52 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     <Dialog open={!!session} onOpenChange={() => handleClose()}>
       <DialogContent className="sm:max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
             <ShoppingBag className="h-5 w-5 text-primary" />
-            Cuenta de la sesión — {session.cliente_nombre}
+            <span>Cuenta de la sesión — {session.cliente_nombre}</span>
+            <div className="flex items-center gap-1.5 ml-auto text-sm font-normal">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              {isEditingPax ? (
+                <>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={sessionArea?.capacidad_pax ?? 99}
+                    value={tempPax}
+                    onChange={e => setTempPax(e.target.value)}
+                    className="h-7 w-16 text-sm"
+                    autoFocus
+                  />
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSavePax} title="Guardar">
+                    <Check className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPax(false)} title="Cancelar">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span className="font-medium">{session.pax_count} pax</span>
+                  {sessionArea?.es_privado && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
+                      title="Editar pax"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
           </DialogTitle>
+          {sessionArea && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {sessionArea.nombre_area} · Capacidad máxima: {sessionArea.capacidad_pax}
+            </p>
+          )}
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
