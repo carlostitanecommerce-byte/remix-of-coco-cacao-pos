@@ -5,6 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Clock, Users, LogOut as LogOutIcon, XCircle, Pencil, ShoppingBag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Area, CoworkingSession } from './types';
@@ -18,10 +28,23 @@ interface Props {
   onPaxUpdated?: () => void | Promise<void>;
 }
 
+interface PendingAmenityUpdate {
+  session: CoworkingSession;
+  newPax: number;
+  oldPax: number;
+}
+
+interface SnapshotAmenity {
+  producto_id: string;
+  cantidad_incluida: number;
+  nombre?: string;
+}
+
 export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onManageAccount, onPaxUpdated }: Props) {
   const { toast } = useToast();
   const [editingPaxId, setEditingPaxId] = useState<string | null>(null);
   const [newPax, setNewPax] = useState('');
+  const [pendingAmenity, setPendingAmenity] = useState<PendingAmenityUpdate | null>(null);
 
   if (sessions.length === 0) return null;
 
@@ -36,6 +59,8 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
       return;
     }
 
+    const oldPax = session.pax_count;
+
     const { error } = await supabase
       .from('coworking_sessions')
       .update({ pax_count: pax })
@@ -43,11 +68,82 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
 
     if (error) {
       toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } else {
-      toast({ title: `Pax actualizado a ${pax}` });
-      setEditingPaxId(null);
-      await onPaxUpdated?.();
+      return;
     }
+
+    toast({ title: `Pax actualizado a ${pax}` });
+    setEditingPaxId(null);
+    await onPaxUpdated?.();
+
+    // Si el pax cambió y la tarifa tenía amenities, preguntamos al recepcionista
+    const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
+    if (pax !== oldPax && Array.isArray(amenities) && amenities.length > 0) {
+      setPendingAmenity({ session, newPax: pax, oldPax });
+    }
+  };
+
+  const handleConfirmAmenityRecalc = async () => {
+    if (!pendingAmenity) return;
+    const { session, newPax: pax } = pendingAmenity;
+    const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
+
+    let okCount = 0;
+    let errCount = 0;
+
+    for (const a of amenities) {
+      const nuevaCantidad = (a.cantidad_incluida ?? 0) * pax;
+
+      if (nuevaCantidad <= 0) {
+        const { error } = await supabase
+          .from('coworking_session_upsells')
+          .delete()
+          .eq('session_id', session.id)
+          .eq('producto_id', a.producto_id)
+          .eq('precio_especial', 0);
+        if (error) errCount++; else okCount++;
+        continue;
+      }
+
+      // Buscamos si ya existe la línea de amenity (precio $0) para esta sesión
+      const { data: existing } = await supabase
+        .from('coworking_session_upsells')
+        .select('id')
+        .eq('session_id', session.id)
+        .eq('producto_id', a.producto_id)
+        .eq('precio_especial', 0)
+        .maybeSingle();
+
+      if (existing?.id) {
+        const { error } = await supabase
+          .from('coworking_session_upsells')
+          .update({ cantidad: nuevaCantidad })
+          .eq('id', existing.id);
+        if (error) errCount++; else okCount++;
+      } else {
+        const { error } = await supabase
+          .from('coworking_session_upsells')
+          .insert({
+            session_id: session.id,
+            producto_id: a.producto_id,
+            precio_especial: 0,
+            cantidad: nuevaCantidad,
+          });
+        if (error) errCount++; else okCount++;
+      }
+    }
+
+    if (errCount === 0) {
+      toast({ title: 'Amenities actualizados', description: `${okCount} amenity(s) recalculados a ${pax} pax.` });
+    } else {
+      toast({
+        variant: 'destructive',
+        title: 'Actualización parcial',
+        description: `${okCount} ok · ${errCount} con error.`,
+      });
+    }
+
+    setPendingAmenity(null);
+    await onPaxUpdated?.();
   };
 
   return (
@@ -138,6 +234,23 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
           </Table>
         </div>
       </CardContent>
+
+      <AlertDialog open={!!pendingAmenity} onOpenChange={(open) => { if (!open) setPendingAmenity(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Actualizar amenities incluidos?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cambiaste el pax de {pendingAmenity?.oldPax} a {pendingAmenity?.newPax}. ¿Deseas actualizar
+              también la cantidad de amenities incluidos según el nuevo número de personas?
+              Esta acción recalculará la cantidad gratis de cada amenity en la cuenta de la sesión.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, dejar como está</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Sí, actualizar amenities</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
