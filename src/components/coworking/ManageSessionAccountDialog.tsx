@@ -399,7 +399,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <ShoppingBag className="h-5 w-5 text-primary" />
             <span>Cuenta de la sesión — {session.cliente_nombre}</span>
-            <div className="flex items-center gap-1.5 ml-auto text-sm font-normal">
+            <div className="flex items-center gap-1.5 ml-auto mr-8 text-sm font-normal">
               <Users className="h-4 w-4 text-muted-foreground" />
               {isEditingPax ? (
                 <>
