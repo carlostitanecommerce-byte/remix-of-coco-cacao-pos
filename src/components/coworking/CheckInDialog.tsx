@@ -79,6 +79,10 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
   const [search, setSearch] = useState('');
 
+  // Cantidades manuales por amenity (sobreescriben cantidad_incluida * pax)
+  const [amenityQty, setAmenityQty] = useState<Record<string, number>>({});
+  const [amenityDirty, setAmenityDirty] = useState<Record<string, boolean>>({});
+
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const isPublicArea = selectedArea ? !selectedArea.es_privado : false;
 
@@ -122,6 +126,8 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     setExtraItems([]);
     setUpsellOptions([]);
     setAmenityOptions([]);
+    setAmenityQty({});
+    setAmenityDirty({});
     if (!selectedTarifaId) return;
 
     const fetchData = async () => {
@@ -155,6 +161,20 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     };
     fetchData();
   }, [selectedTarifaId]);
+
+  // Recalcula cantidad por amenity al cambiar pax/amenities (sin pisar ediciones manuales)
+  useEffect(() => {
+    const pax = parseInt(paxCount, 10) || 1;
+    setAmenityQty(prev => {
+      const next: Record<string, number> = {};
+      for (const a of amenityOptions) {
+        next[a.producto_id] = amenityDirty[a.producto_id]
+          ? (prev[a.producto_id] ?? a.cantidad_incluida * pax)
+          : a.cantidad_incluida * pax;
+      }
+      return next;
+    });
+  }, [amenityOptions, paxCount, amenityDirty]);
 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,13 +243,15 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             cantidad: 1,
           });
         }
-        // Insert amenities × pax (price $0)
+        // Insert amenities con la cantidad manual definida por el recepcionista
         for (const a of amenityOptions) {
+          const qty = amenityQty[a.producto_id] ?? a.cantidad_incluida * pax;
+          if (qty <= 0) continue; // si bajó a 0, no insertamos el amenity
           await supabase.from('coworking_session_upsells').insert({
             session_id: sessionData.id,
             producto_id: a.producto_id,
             precio_especial: 0,
-            cantidad: a.cantidad_incluida * pax,
+            cantidad: qty,
           });
         }
       }
@@ -257,6 +279,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
       setSelectedTarifaId(''); setExtraItems([]); setSearch('');
       setAmenityOptions([]);
+      setAmenityQty({}); setAmenityDirty({});
       setOpen(false);
       await onSuccess?.();
     }
