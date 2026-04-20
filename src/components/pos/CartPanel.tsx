@@ -124,38 +124,28 @@ export function CartPanel({
           </>
         )}
 
-        {missingImportedItems.length > 0 && onRestoreItem && (
-          <div className="space-y-1.5 pt-2 border-t border-dashed border-primary/30">
-            <Badge variant="outline" className="text-xs mb-1 border-primary/50 text-primary">
-              Items eliminados de la sesión
-            </Badge>
-            <p className="text-[10px] text-muted-foreground leading-tight">
-              Estos items venían de la sesión importada y fueron eliminados. Pulsa restaurar para recuperarlos.
-            </p>
-            {missingImportedItems.map((mi) => (
-              <div
-                key={`miss-${mi.producto_id}`}
-                className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 p-2 text-sm"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium truncate">{mi.nombre}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    Faltan {mi.cantidad_faltante} · {mi.precio_unitario === 0 ? 'Incluido' : `$${mi.precio_unitario.toFixed(2)} c/u`}
-                  </p>
+      </div>
+
+      {missingImportedItems && missingImportedItems.length > 0 && (
+        <div className="border-t border-border pt-3 mt-3 space-y-2">
+          <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
+            <Coffee className="h-3.5 w-3.5" /> Consumos de sesión omitidos
+          </p>
+          <div className="space-y-1.5">
+            {missingImportedItems.map((mi, idx) => (
+              <div key={idx} className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-md p-2 text-sm">
+                <div>
+                  <span className="font-medium text-foreground">{mi.nombre}</span>
+                  <span className="text-xs text-muted-foreground ml-2">Faltan: {mi.cantidad_faltante}</span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 border-primary/30 text-primary hover:bg-primary/10"
-                  onClick={() => onRestoreItem(mi)}
-                >
-                  <RotateCcw className="h-3 w-3 mr-1" /> Restaurar
+                <Button size="sm" variant="outline" className="h-7 border-primary/30 text-primary hover:bg-primary/10" onClick={() => onRestoreItem && onRestoreItem(mi)}>
+                  <Plus className="h-3 w-3 mr-1" /> Reclamar
                 </Button>
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="border-t border-border pt-3 mt-3 space-y-3">
         <div className="grid grid-cols-2 gap-2">
