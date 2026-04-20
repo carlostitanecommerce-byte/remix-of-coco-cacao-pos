@@ -266,7 +266,118 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     setItems(prev => prev.map(i => (i.id === item.id ? { ...i, cantidad: newQty } : i)));
   };
 
+  const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
+
+  const handleSavePax = async () => {
+    if (!session) return;
+    const pax = parseInt(tempPax, 10);
+    if (isNaN(pax) || pax < 1) {
+      toast({ variant: 'destructive', title: 'Pax inválido' });
+      return;
+    }
+    if (sessionArea && pax > sessionArea.capacidad_pax) {
+      toast({ variant: 'destructive', title: 'Excede capacidad', description: `Máximo ${sessionArea.capacidad_pax} personas.` });
+      return;
+    }
+
+    const oldPax = session.pax_count;
+    const { error } = await supabase
+      .from('coworking_sessions')
+      .update({ pax_count: pax })
+      .eq('id', session.id);
+
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      return;
+    }
+
+    toast({ title: `Pax actualizado a ${pax}` });
+    setIsEditingPax(false);
+    session.pax_count = pax;
+    await onSuccess?.();
+
+    const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
+    if (pax !== oldPax && Array.isArray(amenities) && amenities.length > 0) {
+      setPendingAmenityUpdate({ newPax: pax, oldPax });
+    }
+  };
+
+  const handleConfirmAmenityRecalc = async () => {
+    if (!pendingAmenityUpdate || !session) return;
+    const { newPax: pax } = pendingAmenityUpdate;
+    const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
+
+    let okCount = 0;
+    let errCount = 0;
+
+    for (const a of amenities) {
+      const nuevaCantidad = (a.cantidad_incluida ?? 0) * pax;
+
+      if (nuevaCantidad <= 0) {
+        const { error } = await supabase
+          .from('coworking_session_upsells')
+          .delete()
+          .eq('session_id', session.id)
+          .eq('producto_id', a.producto_id)
+          .eq('precio_especial', 0);
+        if (error) errCount++; else okCount++;
+        continue;
+      }
+
+      const { data: existing } = await supabase
+        .from('coworking_session_upsells')
+        .select('id')
+        .eq('session_id', session.id)
+        .eq('producto_id', a.producto_id)
+        .eq('precio_especial', 0)
+        .maybeSingle();
+
+      if (existing?.id) {
+        const { error } = await supabase
+          .from('coworking_session_upsells')
+          .update({ cantidad: nuevaCantidad })
+          .eq('id', existing.id);
+        if (error) errCount++; else okCount++;
+      } else {
+        const { error } = await supabase
+          .from('coworking_session_upsells')
+          .insert({
+            session_id: session.id,
+            producto_id: a.producto_id,
+            precio_especial: 0,
+            cantidad: nuevaCantidad,
+          });
+        if (error) errCount++; else okCount++;
+      }
+    }
+
+    if (errCount === 0) {
+      toast({ title: 'Amenities actualizados', description: `${okCount} amenity(s) recalculados a ${pax} pax.` });
+    } else {
+      toast({ variant: 'destructive', title: 'Actualización parcial', description: `${okCount} ok · ${errCount} con error.` });
+    }
+
+    setPendingAmenityUpdate(null);
+
+    const { data: itemsRes } = await supabase
+      .from('coworking_session_upsells')
+      .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
+      .eq('session_id', session.id)
+      .order('created_at', { ascending: true });
+    setItems(
+      (itemsRes ?? []).map((u: any) => ({
+        id: u.id,
+        producto_id: u.producto_id,
+        nombre: u.productos?.nombre ?? 'Producto',
+        precio_especial: Number(u.precio_especial) || 0,
+        cantidad: u.cantidad,
+      })),
+    );
+    await onSuccess?.();
+  };
+
   const handleClose = () => {
+    setIsEditingPax(false);
     onClose();
     onSuccess?.();
   };
