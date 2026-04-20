@@ -17,6 +17,7 @@ import { useVentaConfig } from '@/components/pos/useVentaConfig';
 import { useCajaSession } from '@/hooks/useCajaSession';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { verificarStock } from '@/hooks/useValidarStock';
 import type { CartItem, VentaSummary, MixedPayment } from '@/components/pos/types';
 
 const PosPage = () => {
