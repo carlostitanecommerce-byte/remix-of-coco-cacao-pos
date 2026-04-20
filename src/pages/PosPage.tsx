@@ -109,7 +109,14 @@ const PosPage = () => {
     setImportedSessionId(sessionId);
   }, []);
 
-  const updateQty = useCallback((productoId: string, delta: number) => {
+  const updateQty = useCallback(async (productoId: string, delta: number) => {
+    if (delta > 0) {
+      const validacion = await verificarStock(productoId, 1);
+      if (!validacion.valido) {
+        toast.error(validacion.error);
+        return;
+      }
+    }
     setItems(prev => prev.map(i => {
       if (i.producto_id !== productoId) return i;
       const newQty = Math.max(1, i.cantidad + delta);
