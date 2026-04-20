@@ -103,14 +103,51 @@ const PosPage = () => {
   }, [user, profile]);
 
   const handleImportSession = useCallback((sessionItems: CartItem[], sessionId: string, _clienteNombre: string) => {
-    // Guardamos foto de todo lo que no sea el cobro base de tiempo
-    setOriginalSessionItems(sessionItems.filter(i => i.tipo_concepto !== 'coworking'));
+    // Guardamos foto profunda de todo lo que no sea el cobro base de tiempo
+    setOriginalSessionItems(JSON.parse(JSON.stringify(sessionItems.filter(i => i.tipo_concepto !== 'coworking'))));
     setItems(prev => [
       ...prev.filter(i => i.tipo_concepto === 'producto' && !i.coworking_session_id),
       ...sessionItems,
     ]);
     setImportedSessionId(sessionId);
   }, []);
+
+  const handleClearCart = async () => {
+    // 1. Si hay una sesión importada, restauramos su estado original en la BD antes de limpiar
+    if (importedSessionId && originalSessionItems.length > 0) {
+      try {
+        for (const original of originalSessionItems) {
+          const current = items.find(i => i.producto_id === original.producto_id && i.coworking_session_id === importedSessionId);
+          const currentQty = current ? current.cantidad : 0;
+
+          if (currentQty < original.cantidad) {
+            if (currentQty === 0) {
+              await supabase.from('coworking_session_upsells').insert({
+                session_id: importedSessionId,
+                producto_id: original.producto_id,
+                precio_especial: original.precio_unitario,
+                cantidad: original.cantidad,
+              });
+            } else {
+              await supabase.from('coworking_session_upsells')
+                .update({ cantidad: original.cantidad })
+                .eq('session_id', importedSessionId)
+                .eq('producto_id', original.producto_id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error restaurando sesión al limpiar:', err);
+        toast.error('Hubo un problema al restaurar la sesión original');
+      }
+    }
+
+    setItems([]);
+    setImportedSessionId(undefined);
+    setOriginalSessionItems([]);
+    setPropina(0);
+    setKey(k => k + 1);
+  };
 
   const updateQty = useCallback(async (productoId: string, delta: number) => {
     const current = items.find(i => i.producto_id === productoId);
