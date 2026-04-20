@@ -1078,6 +1078,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      validar_stock_disponible: {
+        Args: { p_cantidad: number; p_producto_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role:
