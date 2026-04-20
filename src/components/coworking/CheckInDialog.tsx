@@ -224,10 +224,9 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             cantidad: 1,
           });
         }
-        // Insert amenities con la cantidad manual definida por el recepcionista
+        // Insert amenities con cantidad automática (cantidad_incluida * pax)
         for (const a of amenityOptions) {
-          const qty = amenityQty[a.producto_id] ?? a.cantidad_incluida * pax;
-          if (qty <= 0) continue; // si bajó a 0, no insertamos el amenity
+          const qty = a.cantidad_incluida * pax;
           await supabase.from('coworking_session_upsells').insert({
             session_id: sessionData.id,
             producto_id: a.producto_id,
@@ -260,7 +259,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
       setSelectedTarifaId(''); setExtraItems([]); setSearch('');
       setAmenityOptions([]);
-      setAmenityQty({}); setAmenityDirty({});
+      
       setOpen(false);
       await onSuccess?.();
     }
