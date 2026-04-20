@@ -52,16 +52,20 @@ interface UpsellSnapshotEntry {
 
 interface Props {
   session: CoworkingSession | null;
+  areas: Area[];
   onClose: () => void;
   onSuccess?: () => void | Promise<void>;
 }
 
-export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Props) {
+export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess }: Props) {
   const { toast } = useToast();
   const [productos, setProductos] = useState<Producto[]>([]);
   const [items, setItems] = useState<SessionItem[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isEditingPax, setIsEditingPax] = useState(false);
+  const [tempPax, setTempPax] = useState('');
+  const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
 
   // Snapshot de upsells disponibles para esta sesión (precio congelado al check-in)
   const upsellsMap = useMemo(() => {
