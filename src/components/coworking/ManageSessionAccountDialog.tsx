@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { verificarStock } from '@/hooks/useValidarStock';
 import { Search, Plus, Trash2, Gift, Sparkles, ShoppingBag } from 'lucide-react';
 import type { CoworkingSession } from './types';
 
