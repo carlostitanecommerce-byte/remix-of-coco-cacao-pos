@@ -424,7 +424,7 @@ const PosPage = () => {
             onSetPropinaEnDigital={setPropinaEnDigital}
             onUpdateQty={updateQty}
             onRemove={removeItem}
-            onClear={() => { setItems([]); setImportedSessionId(undefined); setOriginalSessionItems([]); setPropina(0); }}
+            onClear={handleClearCart}
             onConfirm={handleConfirm}
             subtotal={subtotal}
             comisionPct={0}
