@@ -122,8 +122,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     setExtraItems([]);
     setUpsellOptions([]);
     setAmenityOptions([]);
-    setAmenityQty({});
-    setAmenityDirty({});
     if (!selectedTarifaId) return;
 
     const fetchData = async () => {
@@ -158,19 +156,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     fetchData();
   }, [selectedTarifaId]);
 
-  // Recalcula cantidad por amenity al cambiar pax/amenities (sin pisar ediciones manuales)
-  useEffect(() => {
-    const pax = parseInt(paxCount, 10) || 1;
-    setAmenityQty(prev => {
-      const next: Record<string, number> = {};
-      for (const a of amenityOptions) {
-        next[a.producto_id] = amenityDirty[a.producto_id]
-          ? (prev[a.producto_id] ?? a.cantidad_incluida * pax)
-          : a.cantidad_incluida * pax;
-      }
-      return next;
-    });
-  }, [amenityOptions, paxCount, amenityDirty]);
 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
