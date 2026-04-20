@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users, RotateCcw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -25,12 +25,15 @@ interface Props {
   onConfirm: () => void;
   subtotal: number;
   comisionPct: number;
+  missingImportedItems?: (CartItem & { cantidad_faltante: number })[];
+  onRestoreItem?: (item: CartItem) => void | Promise<void>;
 }
 
 export function CartPanel({
   items, metodoPago, tipoConsumo, mixedPayment, propina, propinaEnDigital,
   onSetMetodoPago, onSetTipoConsumo, onSetMixedPayment, onSetPropina, onSetPropinaEnDigital,
-  onUpdateQty, onRemove, onClear, onConfirm, subtotal, comisionPct
+  onUpdateQty, onRemove, onClear, onConfirm, subtotal, comisionPct,
+  missingImportedItems = [], onRestoreItem,
 }: Props) {
   const coworkingItems = items.filter(i => i.tipo_concepto === 'coworking');
   const amenityItems = items.filter(i => i.tipo_concepto === 'amenity');
@@ -119,6 +122,38 @@ export function CartPanel({
               </div>
             )}
           </>
+        )}
+
+        {missingImportedItems.length > 0 && onRestoreItem && (
+          <div className="space-y-1.5 pt-2 border-t border-dashed border-primary/30">
+            <Badge variant="outline" className="text-xs mb-1 border-primary/50 text-primary">
+              Items eliminados de la sesión
+            </Badge>
+            <p className="text-[10px] text-muted-foreground leading-tight">
+              Estos items venían de la sesión importada y fueron eliminados. Pulsa restaurar para recuperarlos.
+            </p>
+            {missingImportedItems.map((mi) => (
+              <div
+                key={`miss-${mi.producto_id}`}
+                className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 p-2 text-sm"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{mi.nombre}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Faltan {mi.cantidad_faltante} · {mi.precio_unitario === 0 ? 'Incluido' : `$${mi.precio_unitario.toFixed(2)} c/u`}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => onRestoreItem(mi)}
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" /> Restaurar
+                </Button>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

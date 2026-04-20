@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Store, Lock, DoorOpen, AlertTriangle } from 'lucide-react';
@@ -29,6 +29,7 @@ const PosPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [items, setItems] = useState<CartItem[]>([]);
+  const [originalSessionItems, setOriginalSessionItems] = useState<CartItem[]>([]);
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [tipoConsumo, setTipoConsumo] = useState('sitio');
   const [mixedPayment, setMixedPayment] = useState<MixedPayment>({ efectivo: 0, tarjeta: 0, transferencia: 0 });
@@ -102,8 +103,10 @@ const PosPage = () => {
   }, [user, profile]);
 
   const handleImportSession = useCallback((sessionItems: CartItem[], sessionId: string, _clienteNombre: string) => {
+    // Guardamos foto de todo lo que no sea el cobro base de tiempo
+    setOriginalSessionItems(sessionItems.filter(i => i.tipo_concepto !== 'coworking'));
     setItems(prev => [
-      ...prev.filter(i => i.tipo_concepto === 'producto'),
+      ...prev.filter(i => i.tipo_concepto === 'producto' && !i.coworking_session_id),
       ...sessionItems,
     ]);
     setImportedSessionId(sessionId);
@@ -167,21 +170,58 @@ const PosPage = () => {
     }));
   }, [items]);
 
-  const removeItem = useCallback((productoId: string) => {
-    setItems(prev => {
-      const item = prev.find(i => i.producto_id === productoId);
-      if (item?.coworking_session_id) {
-        // Only remove entire session when deleting the main coworking tariff
-        if (item.tipo_concepto === 'coworking') {
-          setImportedSessionId(undefined);
-          return prev.filter(i => i.coworking_session_id !== item.coworking_session_id);
-        }
-        // Amenity or upsell: remove only that specific item
-        return prev.filter(i => i.producto_id !== productoId);
+  const removeItem = useCallback(async (productoId: string) => {
+    const item = items.find(i => i.producto_id === productoId);
+    if (!item) return;
+
+    if (item.coworking_session_id) {
+      if (item.tipo_concepto === 'coworking') {
+        setImportedSessionId(undefined);
+        setOriginalSessionItems([]);
+        setItems(prev => prev.filter(i => i.coworking_session_id !== item.coworking_session_id));
+        return;
       }
-      return prev.filter(i => i.producto_id !== productoId);
-    });
-  }, []);
+      const { error } = await supabase.from('coworking_session_upsells')
+        .delete()
+        .eq('session_id', item.coworking_session_id)
+        .eq('producto_id', productoId);
+      if (error) toast.error('Error al desvincular consumo de la BD');
+    }
+    setItems(prev => prev.filter(i => i.producto_id !== productoId));
+  }, [items]);
+
+  const missingImportedItems = useMemo(() => {
+    if (!importedSessionId || originalSessionItems.length === 0) return [];
+    const result: (CartItem & { cantidad_faltante: number })[] = [];
+    for (const orig of originalSessionItems) {
+      const current = items.find(i => i.producto_id === orig.producto_id && i.coworking_session_id === orig.coworking_session_id);
+      const currentQty = current ? current.cantidad : 0;
+      if (orig.cantidad > currentQty) {
+        result.push({ ...orig, cantidad_faltante: orig.cantidad - currentQty });
+      }
+    }
+    return result;
+  }, [items, originalSessionItems, importedSessionId]);
+
+  const handleRestoreItem = useCallback(async (item: CartItem) => {
+    const current = items.find(i => i.producto_id === item.producto_id && i.coworking_session_id === item.coworking_session_id);
+    if (current) {
+      await updateQty(item.producto_id, 1);
+    } else {
+      const validacion = await verificarStock(item.producto_id, 1);
+      if (!validacion.valido) { toast.error(validacion.error); return; }
+
+      const { error } = await supabase.from('coworking_session_upsells').insert({
+        session_id: item.coworking_session_id!,
+        producto_id: item.producto_id,
+        precio_especial: item.precio_unitario,
+        cantidad: 1,
+      });
+      if (error) { toast.error('Error al restaurar en BD'); return; }
+
+      setItems(prev => [...prev, { ...item, cantidad: 1, subtotal: item.precio_unitario }]);
+    }
+  }, [items, updateQty]);
 
   const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
 
@@ -220,6 +260,7 @@ const PosPage = () => {
     setPropina(0);
     setPropinaEnDigital(true);
     setImportedSessionId(undefined);
+    setOriginalSessionItems([]);
     setKey(k => k + 1);
   };
 
@@ -346,10 +387,12 @@ const PosPage = () => {
             onSetPropinaEnDigital={setPropinaEnDigital}
             onUpdateQty={updateQty}
             onRemove={removeItem}
-            onClear={() => { setItems([]); setImportedSessionId(undefined); setPropina(0); }}
+            onClear={() => { setItems([]); setImportedSessionId(undefined); setOriginalSessionItems([]); setPropina(0); }}
             onConfirm={handleConfirm}
             subtotal={subtotal}
             comisionPct={0}
+            missingImportedItems={missingImportedItems}
+            onRestoreItem={handleRestoreItem}
           />
         </div>
       </div>
