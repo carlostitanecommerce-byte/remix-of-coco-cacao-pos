@@ -79,6 +79,10 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
   const [search, setSearch] = useState('');
 
+  // Cantidades manuales por amenity (sobreescriben cantidad_incluida * pax)
+  const [amenityQty, setAmenityQty] = useState<Record<string, number>>({});
+  const [amenityDirty, setAmenityDirty] = useState<Record<string, boolean>>({});
+
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const isPublicArea = selectedArea ? !selectedArea.es_privado : false;
 
@@ -122,6 +126,8 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     setExtraItems([]);
     setUpsellOptions([]);
     setAmenityOptions([]);
+    setAmenityQty({});
+    setAmenityDirty({});
     if (!selectedTarifaId) return;
 
     const fetchData = async () => {
@@ -155,6 +161,20 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     };
     fetchData();
   }, [selectedTarifaId]);
+
+  // Recalcula cantidad por amenity al cambiar pax/amenities (sin pisar ediciones manuales)
+  useEffect(() => {
+    const pax = parseInt(paxCount, 10) || 1;
+    setAmenityQty(prev => {
+      const next: Record<string, number> = {};
+      for (const a of amenityOptions) {
+        next[a.producto_id] = amenityDirty[a.producto_id]
+          ? (prev[a.producto_id] ?? a.cantidad_incluida * pax)
+          : a.cantidad_incluida * pax;
+      }
+      return next;
+    });
+  }, [amenityOptions, paxCount, amenityDirty]);
 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,13 +243,15 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             cantidad: 1,
           });
         }
-        // Insert amenities × pax (price $0)
+        // Insert amenities con la cantidad manual definida por el recepcionista
         for (const a of amenityOptions) {
+          const qty = amenityQty[a.producto_id] ?? a.cantidad_incluida * pax;
+          if (qty <= 0) continue; // si bajó a 0, no insertamos el amenity
           await supabase.from('coworking_session_upsells').insert({
             session_id: sessionData.id,
             producto_id: a.producto_id,
             precio_especial: 0,
-            cantidad: a.cantidad_incluida * pax,
+            cantidad: qty,
           });
         }
       }
@@ -257,6 +279,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
       setSelectedTarifaId(''); setExtraItems([]); setSearch('');
       setAmenityOptions([]);
+      setAmenityQty({}); setAmenityDirty({});
       setOpen(false);
       await onSuccess?.();
     }
@@ -425,18 +448,36 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             </div>
           )}
 
-          {/* Amenities preview */}
+          {/* Amenities preview con cantidad editable */}
           {selectedTarifaId && amenityOptions.length > 0 && (
             <div className="space-y-2">
               <Label>Amenities Incluidos</Label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Sugerido por defecto: cantidad incluida × pax. Puedes ajustar a la baja si el cliente no los quiere todos.
+              </p>
               <div className="space-y-1">
                 {amenityOptions.map(a => {
                   const pax = parseInt(paxCount, 10) || 1;
-                  const totalQty = a.cantidad_incluida * pax;
+                  const sugerido = a.cantidad_incluida * pax;
+                  const value = amenityQty[a.producto_id] ?? sugerido;
                   return (
-                    <div key={a.producto_id} className="flex items-center justify-between rounded-md border border-border/50 bg-muted/30 px-3 py-1.5 text-sm">
-                      <span>🎁 {a.nombre}</span>
-                      <span className="text-muted-foreground">×{totalQty} (gratis)</span>
+                    <div key={a.producto_id} className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-1.5 text-sm">
+                      <span className="flex-1 min-w-0 truncate">🎁 {a.nombre}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">Sug: {sugerido}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={sugerido}
+                        value={value}
+                        onChange={e => {
+                          const raw = parseInt(e.target.value, 10);
+                          const clamped = Math.max(0, Math.min(sugerido, isNaN(raw) ? 0 : raw));
+                          setAmenityQty(prev => ({ ...prev, [a.producto_id]: clamped }));
+                          setAmenityDirty(prev => ({ ...prev, [a.producto_id]: true }));
+                        }}
+                        className="h-7 w-16 text-center"
+                      />
+                      <span className="text-xs text-muted-foreground shrink-0">(gratis)</span>
                     </div>
                   );
                 })}
