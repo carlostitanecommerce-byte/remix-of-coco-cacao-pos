@@ -50,7 +50,13 @@ const PosPage = () => {
     }
   }, [searchParams, cajaAbierta, cajaLoading, setSearchParams]);
 
-  const addProduct = useCallback((p: { id: string; nombre: string; precio_venta: number; precio_upsell_coworking?: number | null }, tipoPrecio?: 'especial' | 'promocion') => {
+  const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; precio_upsell_coworking?: number | null }, tipoPrecio?: 'especial' | 'promocion') => {
+    const validacion = await verificarStock(p.id, 1);
+    if (!validacion.valido) {
+      toast.error(validacion.error);
+      return;
+    }
+
     let precio = p.precio_venta;
     let nombreDisplay = p.nombre;
 
