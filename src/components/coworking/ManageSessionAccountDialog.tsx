@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { verificarStock } from '@/hooks/useValidarStock';
-import { Search, Plus, Trash2, Gift, Sparkles, ShoppingBag } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag } from 'lucide-react';
 import type { CoworkingSession } from './types';
 
 interface Producto {
@@ -154,6 +154,43 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
     toast({ title: 'Eliminado' });
   };
 
+  const handleUpdateQuantity = async (item: SessionItem, delta: number) => {
+    if (item.precio_especial === 0) return; // amenities incluidos: cantidad fija
+    const newQty = item.cantidad + delta;
+    if (newQty < 0) return;
+
+    if (delta > 0) {
+      const validacion = await verificarStock(item.producto_id, 1);
+      if (!validacion.valido) {
+        toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
+        return;
+      }
+    }
+
+    if (newQty === 0) {
+      const { error } = await supabase
+        .from('coworking_session_upsells')
+        .delete()
+        .eq('id', item.id);
+      if (error) {
+        toast({ variant: 'destructive', title: 'Error', description: error.message });
+        return;
+      }
+      setItems(prev => prev.filter(i => i.id !== item.id));
+      return;
+    }
+
+    const { error } = await supabase
+      .from('coworking_session_upsells')
+      .update({ cantidad: newQty })
+      .eq('id', item.id);
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      return;
+    }
+    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, cantidad: newQty } : i)));
+  };
+
   const handleClose = () => {
     onClose();
     onSuccess?.();
@@ -217,7 +254,7 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0">
                         <span
                           className={
                             isAmenity ? 'text-primary font-medium' : 'text-foreground font-medium'
@@ -225,6 +262,29 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
                         >
                           {isAmenity ? 'Incluido' : `$${item.precio_especial.toFixed(2)}`}
                         </span>
+                        {!isAmenity && (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => handleUpdateQuantity(item, -1)}
+                              title="Disminuir"
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-6 text-center font-medium">{item.cantidad}</span>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => handleUpdateQuantity(item, 1)}
+                              title="Aumentar"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
