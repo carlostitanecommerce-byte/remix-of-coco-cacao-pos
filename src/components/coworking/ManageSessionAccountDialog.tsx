@@ -133,14 +133,6 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
   };
 
   const handleRemove = async (item: SessionItem) => {
-    if (item.precio_especial === 0) {
-      toast({
-        variant: 'destructive',
-        title: 'Beneficio incluido',
-        description: 'Los amenities con precio $0 no se pueden eliminar.',
-      });
-      return;
-    }
     const { error } = await supabase
       .from('coworking_session_upsells')
       .delete()
@@ -155,7 +147,6 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
   };
 
   const handleUpdateQuantity = async (item: SessionItem, delta: number) => {
-    if (item.precio_especial === 0) return; // amenities incluidos: cantidad fija
     const newQty = item.cantidad + delta;
     if (newQty < 0) return;
 
@@ -262,36 +253,33 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
                         >
                           {isAmenity ? 'Incluido' : `$${item.precio_especial.toFixed(2)}`}
                         </span>
-                        {!isAmenity && (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => handleUpdateQuantity(item, -1)}
-                              title="Disminuir"
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <span className="w-6 text-center font-medium">{item.cantidad}</span>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => handleUpdateQuantity(item, 1)}
-                              title="Aumentar"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleUpdateQuantity(item, -1)}
+                            title="Disminuir"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="w-6 text-center font-medium">{item.cantidad}</span>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleUpdateQuantity(item, 1)}
+                            title="Aumentar"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 w-7 p-0 text-destructive hover:text-destructive disabled:opacity-30"
-                          disabled={isAmenity}
+                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                           onClick={() => handleRemove(item)}
-                          title={isAmenity ? 'Beneficio incluido — no se puede eliminar' : 'Eliminar'}
+                          title="Eliminar"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
