@@ -110,6 +110,13 @@ const PosPage = () => {
   }, []);
 
   const updateQty = useCallback(async (productoId: string, delta: number) => {
+    const current = items.find(i => i.producto_id === productoId);
+    if (!current) return;
+
+    const isCoworkingLinked =
+      (current.tipo_concepto === 'amenity' || current.tipo_concepto === 'producto') &&
+      !!current.coworking_session_id;
+
     if (delta > 0) {
       const validacion = await verificarStock(productoId, 1);
       if (!validacion.valido) {
@@ -117,12 +124,48 @@ const PosPage = () => {
         return;
       }
     }
+
+    // Amenity/consumo vinculado a una sesión activa: sincronizar con BD
+    if (isCoworkingLinked) {
+      const newQty = current.cantidad + delta;
+
+      if (newQty <= 0) {
+        const { error } = await supabase
+          .from('coworking_session_upsells')
+          .delete()
+          .eq('session_id', current.coworking_session_id!)
+          .eq('producto_id', productoId);
+        if (error) {
+          toast.error('No se pudo eliminar el consumo de la sesión');
+          return;
+        }
+        setItems(prev => prev.filter(i => i.producto_id !== productoId));
+        return;
+      }
+
+      const { error } = await supabase
+        .from('coworking_session_upsells')
+        .update({ cantidad: newQty })
+        .eq('session_id', current.coworking_session_id!)
+        .eq('producto_id', productoId);
+      if (error) {
+        toast.error('No se pudo actualizar la cantidad en la sesión');
+        return;
+      }
+      setItems(prev => prev.map(i =>
+        i.producto_id === productoId
+          ? { ...i, cantidad: newQty, subtotal: newQty * i.precio_unitario }
+          : i
+      ));
+      return;
+    }
+
     setItems(prev => prev.map(i => {
       if (i.producto_id !== productoId) return i;
       const newQty = Math.max(1, i.cantidad + delta);
       return { ...i, cantidad: newQty, subtotal: newQty * i.precio_unitario };
     }));
-  }, []);
+  }, [items]);
 
   const removeItem = useCallback((productoId: string) => {
     setItems(prev => {

@@ -47,7 +47,9 @@ export function CartPanel({
   };
 
   const renderItem = (item: CartItem) => {
-    const isCoworking = item.tipo_concepto === 'coworking' || item.tipo_concepto === 'amenity';
+    const isTarifa = item.tipo_concepto === 'coworking';
+    const isAmenityIncluido = item.tipo_concepto === 'amenity' && item.precio_unitario === 0;
+    const lockQty = isTarifa;
     return (
       <div key={item.producto_id} className="flex items-center gap-2 rounded-md border border-border p-2 bg-card">
         <div className="flex-1 min-w-0">
@@ -57,10 +59,10 @@ export function CartPanel({
             <p className="text-sm font-medium truncate">{item.nombre}</p>
           </div>
           <p className="text-xs text-muted-foreground">
-            {item.tipo_concepto === 'amenity' ? 'Incluido' : `$${item.precio_unitario.toFixed(2)} c/u`}
+            {isAmenityIncluido ? 'Incluido' : `$${item.precio_unitario.toFixed(2)} c/u`}
           </p>
         </div>
-        {!isCoworking && (
+        {!lockQty && (
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onUpdateQty(item.producto_id, -1)}>
               <Minus className="h-3 w-3" />
@@ -71,7 +73,7 @@ export function CartPanel({
             </Button>
           </div>
         )}
-        {isCoworking && <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>}
+        {lockQty && <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>}
         <p className="text-sm font-bold w-16 text-right">${item.subtotal.toFixed(2)}</p>
         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(item.producto_id)}>
           <Trash2 className="h-3 w-3" />
