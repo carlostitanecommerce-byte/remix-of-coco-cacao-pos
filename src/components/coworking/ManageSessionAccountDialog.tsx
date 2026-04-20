@@ -97,6 +97,11 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
 
   const handleAdd = async (producto: Producto) => {
     if (!session) return;
+    const validacion = await verificarStock(producto.id, 1);
+    if (!validacion.valido) {
+      toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
+      return;
+    }
     const { precio } = resolvePrice(producto.id, producto.precio_venta);
 
     const { data, error } = await supabase
