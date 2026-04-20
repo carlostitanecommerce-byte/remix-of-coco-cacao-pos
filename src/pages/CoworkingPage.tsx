@@ -180,7 +180,7 @@ const CoworkingPage = () => {
 
       <CheckoutDialog summary={checkoutSummary} onClose={() => setCheckoutSummary(null)} onSuccess={data.fetchData} />
       <CancelSessionDialog session={sessionToCancel} isAdmin={isAdmin} onClose={() => setSessionToCancel(null)} onSuccess={data.fetchData} />
-      <ManageSessionAccountDialog session={sessionToManageAccount} onClose={() => setSessionToManageAccount(null)} onSuccess={data.fetchData} />
+      <ManageSessionAccountDialog session={sessionToManageAccount} areas={data.areas} onClose={() => setSessionToManageAccount(null)} onSuccess={data.fetchData} />
     </div>
   );
 };
