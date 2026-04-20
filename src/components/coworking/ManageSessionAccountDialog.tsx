@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { verificarStock } from '@/hooks/useValidarStock';
 import { Search, Plus, Trash2, Gift, Sparkles, ShoppingBag } from 'lucide-react';
 import type { CoworkingSession } from './types';
 
@@ -96,6 +97,11 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
 
   const handleAdd = async (producto: Producto) => {
     if (!session) return;
+    const validacion = await verificarStock(producto.id, 1);
+    if (!validacion.valido) {
+      toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
+      return;
+    }
     const { precio } = resolvePrice(producto.id, producto.precio_venta);
 
     const { data, error } = await supabase

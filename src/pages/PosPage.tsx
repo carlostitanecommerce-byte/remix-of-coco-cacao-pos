@@ -17,6 +17,7 @@ import { useVentaConfig } from '@/components/pos/useVentaConfig';
 import { useCajaSession } from '@/hooks/useCajaSession';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { verificarStock } from '@/hooks/useValidarStock';
 import type { CartItem, VentaSummary, MixedPayment } from '@/components/pos/types';
 
 const PosPage = () => {
@@ -49,7 +50,13 @@ const PosPage = () => {
     }
   }, [searchParams, cajaAbierta, cajaLoading, setSearchParams]);
 
-  const addProduct = useCallback((p: { id: string; nombre: string; precio_venta: number; precio_upsell_coworking?: number | null }, tipoPrecio?: 'especial' | 'promocion') => {
+  const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; precio_upsell_coworking?: number | null }, tipoPrecio?: 'especial' | 'promocion') => {
+    const validacion = await verificarStock(p.id, 1);
+    if (!validacion.valido) {
+      toast.error(validacion.error);
+      return;
+    }
+
     let precio = p.precio_venta;
     let nombreDisplay = p.nombre;
 
@@ -102,7 +109,14 @@ const PosPage = () => {
     setImportedSessionId(sessionId);
   }, []);
 
-  const updateQty = useCallback((productoId: string, delta: number) => {
+  const updateQty = useCallback(async (productoId: string, delta: number) => {
+    if (delta > 0) {
+      const validacion = await verificarStock(productoId, 1);
+      if (!validacion.valido) {
+        toast.error(validacion.error);
+        return;
+      }
+    }
     setItems(prev => prev.map(i => {
       if (i.producto_id !== productoId) return i;
       const newQty = Math.max(1, i.cantidad + delta);

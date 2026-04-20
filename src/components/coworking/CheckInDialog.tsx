@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { UserPlus, X, Plus, Search, Sparkles, Gift } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { verificarStock } from '@/hooks/useValidarStock';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
 
@@ -399,7 +400,12 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
                               size="sm"
                               variant="outline"
                               className="h-7"
-                              onClick={() => {
+                              onClick={async () => {
+                                const validacion = await verificarStock(p.id, 1);
+                                if (!validacion.valido) {
+                                  toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
+                                  return;
+                                }
                                 setExtraItems(prev => [
                                   ...prev,
                                   { producto_id: p.id, nombre: p.nombre, precio, isSpecial },
