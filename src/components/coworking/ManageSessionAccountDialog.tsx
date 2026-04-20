@@ -56,6 +56,65 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
     return map;
   }, [session]);
 
+  const missingAmenities = useMemo(() => {
+    if (!session || !session.tarifa_snapshot?.amenities) return [];
+    const snapshotAmenities = session.tarifa_snapshot.amenities as any[];
+    const result: any[] = [];
+
+    for (const a of snapshotAmenities) {
+      const maxAllowed = (a.cantidad_incluida || 0) * session.pax_count;
+      const currentItem = items.find(i => i.producto_id === a.producto_id && i.precio_especial === 0);
+      const currentQty = currentItem ? currentItem.cantidad : 0;
+
+      if (maxAllowed > currentQty) {
+        result.push({
+          ...a,
+          disponible: maxAllowed - currentQty,
+          currentItemId: currentItem?.id,
+        });
+      }
+    }
+    return result;
+  }, [session, items]);
+
+  const handleRestoreAmenity = async (amenity: any) => {
+    if (!session) return;
+    const validacion = await verificarStock(amenity.producto_id, 1);
+    if (!validacion.valido) {
+      toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
+      return;
+    }
+
+    if (amenity.currentItemId) {
+      const item = items.find(i => i.id === amenity.currentItemId);
+      if (item) await handleUpdateQuantity(item, 1);
+    } else {
+      const { data, error } = await supabase
+        .from('coworking_session_upsells')
+        .insert({
+          session_id: session.id,
+          producto_id: amenity.producto_id,
+          precio_especial: 0,
+          cantidad: 1,
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        toast({ variant: 'destructive', title: 'Error', description: error.message });
+        return;
+      }
+      setItems(prev => [...prev, {
+        id: data.id,
+        producto_id: amenity.producto_id,
+        nombre: amenity.nombre || 'Amenity',
+        precio_especial: 0,
+        cantidad: 1,
+      }]);
+      toast({ title: 'Beneficio restaurado' });
+    }
+  };
+
   useEffect(() => {
     if (!session) return;
     setSearch('');
@@ -293,6 +352,27 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
               </div>
             )}
           </section>
+
+          {missingAmenities.length > 0 && (
+            <section className="space-y-2 pb-2 border-b border-border/50">
+              <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
+                <Gift className="h-4 w-4" /> Beneficios por reclamar
+              </h3>
+              <div className="space-y-1.5">
+                {missingAmenities.map((ma, idx) => (
+                  <div key={idx} className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-md p-2 text-sm">
+                    <div>
+                      <span className="font-medium text-foreground">{ma.nombre || 'Amenity'}</span>
+                      <span className="text-xs text-muted-foreground ml-2">Disponibles: {ma.disponible}</span>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-7 border-primary/30 text-primary hover:bg-primary/10" onClick={() => handleRestoreAmenity(ma)}>
+                      <Plus className="h-3 w-3 mr-1" /> Reclamar
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Añadir consumo extra */}
           <section className="space-y-3">
