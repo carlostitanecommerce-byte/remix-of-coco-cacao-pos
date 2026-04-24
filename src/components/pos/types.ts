@@ -1,12 +1,20 @@
+export interface PaqueteComponente {
+  producto_id: string;
+  nombre: string;
+  cantidad: number;
+}
+
 export interface CartItem {
   producto_id: string;
   nombre: string;
   precio_unitario: number;
   cantidad: number;
   subtotal: number;
-  tipo_concepto: 'producto' | 'coworking' | 'amenity';
+  tipo_concepto: 'producto' | 'coworking' | 'amenity' | 'paquete';
   coworking_session_id?: string;
   descripcion?: string;
+  paquete_id?: string;
+  componentes?: PaqueteComponente[];
 }
 
 export interface VentaConfig {

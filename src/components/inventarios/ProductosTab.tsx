@@ -73,7 +73,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
 
   const fetchProductos = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('productos').select('*').order('nombre');
+    const { data } = await supabase.from('productos').select('*').eq('tipo', 'simple').order('nombre');
     setProductos((data as Producto[]) ?? []);
     setLoading(false);
   }, []);
