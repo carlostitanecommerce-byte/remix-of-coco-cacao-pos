@@ -27,17 +27,28 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
     setSaving(true);
     try {
       // 0. Pre-validar inventario para no registrar venta si falta stock
+      // Sumamos cantidades de productos simples + componentes expandidos de paquetes
+      const qtyByProduct = new Map<string, number>();
+
+      // Productos simples directos
       const productoItems = summary.items.filter(
         (item) => item.tipo_concepto === 'producto' && !!item.producto_id && !item.producto_id.startsWith('coworking-')
       );
+      for (const item of productoItems) {
+        const productId = item.producto_id as string;
+        qtyByProduct.set(productId, (qtyByProduct.get(productId) ?? 0) + item.cantidad);
+      }
 
-      if (productoItems.length > 0) {
-        const qtyByProduct = new Map<string, number>();
-        for (const item of productoItems) {
-          const productId = item.producto_id as string;
-          qtyByProduct.set(productId, (qtyByProduct.get(productId) ?? 0) + item.cantidad);
+      // Componentes de paquetes (expandidos en cantidad)
+      const paqueteItems = summary.items.filter(item => item.tipo_concepto === 'paquete');
+      for (const pq of paqueteItems) {
+        for (const comp of (pq.componentes ?? [])) {
+          const totalQty = comp.cantidad * pq.cantidad;
+          qtyByProduct.set(comp.producto_id, (qtyByProduct.get(comp.producto_id) ?? 0) + totalQty);
         }
+      }
 
+      if (qtyByProduct.size > 0) {
         const { data: recetas, error: recetasErr } = await supabase
           .from('recetas')
           .select('producto_id, insumo_id, cantidad_necesaria')
@@ -129,22 +140,94 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         throw ventaErr || new Error('No se pudo crear la venta');
       }
 
-      // 2. Insert detalle_ventas
-      const detalles = summary.items.map(item => ({
-        venta_id: venta.id,
-        producto_id: item.tipo_concepto === 'coworking' ? null : item.producto_id,
-        cantidad: item.cantidad,
-        precio_unitario: item.precio_unitario,
-        subtotal: item.subtotal,
-        tipo_concepto: item.tipo_concepto as any,
-        coworking_session_id: item.coworking_session_id ?? null,
-        descripcion: item.descripcion ?? item.nombre,
-      }));
+      // 2. Build detalle_ventas — expanding packages into component lines
+      // Para paquetes: prorrateamos el precio del paquete entre componentes proporcional al costo
+      // Para productos simples y coworking/amenity: una línea cada uno
+      type DetalleRow = {
+        venta_id: string;
+        producto_id: string | null;
+        cantidad: number;
+        precio_unitario: number;
+        subtotal: number;
+        tipo_concepto: any;
+        coworking_session_id: string | null;
+        descripcion: string | null;
+        paquete_id?: string | null;
+        paquete_nombre?: string | null;
+      };
+      const detalles: DetalleRow[] = [];
 
-      // For coworking items without real producto_id, we need to handle differently
-      // detalle_ventas.producto_id has FK constraint — only insert real product IDs
+      // Cargar costos de componentes (para prorrateo) si hay paquetes
+      const componentProductIds = new Set<string>();
+      for (const pq of paqueteItems) {
+        for (const c of (pq.componentes ?? [])) componentProductIds.add(c.producto_id);
+      }
+      let costoMap = new Map<string, number>();
+      if (componentProductIds.size > 0) {
+        const { data: prods } = await supabase
+          .from('productos')
+          .select('id, costo_total')
+          .in('id', Array.from(componentProductIds));
+        for (const p of prods ?? []) costoMap.set(p.id, Number(p.costo_total) || 0);
+      }
+
+      for (const item of summary.items) {
+        if (item.tipo_concepto === 'paquete') {
+          const pq = item;
+          const componentes = pq.componentes ?? [];
+          if (componentes.length === 0) continue;
+
+          // Prorrateo proporcional al costo (con fallback a partes iguales si todos los costos = 0)
+          const costos = componentes.map(c => (costoMap.get(c.producto_id) ?? 0) * c.cantidad);
+          const sumaCostos = costos.reduce((s, c) => s + c, 0);
+          const totalPaquete = +(pq.subtotal).toFixed(2);
+
+          let precios: number[];
+          if (sumaCostos > 0) {
+            precios = costos.map(c => +(totalPaquete * (c / sumaCostos)).toFixed(2));
+          } else {
+            const equal = +(totalPaquete / componentes.length).toFixed(2);
+            precios = componentes.map(() => equal);
+          }
+          // Ajustar el último componente para cuadrar centavos
+          const sumaPrecios = precios.reduce((s, p) => s + p, 0);
+          const diff = +(totalPaquete - sumaPrecios).toFixed(2);
+          if (precios.length > 0) precios[precios.length - 1] = +(precios[precios.length - 1] + diff).toFixed(2);
+
+          componentes.forEach((c, idx) => {
+            const cantTotal = c.cantidad * pq.cantidad;
+            const subtotalLinea = precios[idx];
+            const precioUnitario = cantTotal > 0 ? +(subtotalLinea / cantTotal).toFixed(4) : 0;
+            detalles.push({
+              venta_id: venta.id,
+              producto_id: c.producto_id,
+              cantidad: cantTotal,
+              precio_unitario: precioUnitario,
+              subtotal: subtotalLinea,
+              tipo_concepto: 'producto',
+              coworking_session_id: null,
+              descripcion: c.nombre,
+              paquete_id: pq.paquete_id ?? pq.producto_id,
+              paquete_nombre: pq.nombre,
+            });
+          });
+        } else {
+          detalles.push({
+            venta_id: venta.id,
+            producto_id: item.tipo_concepto === 'coworking' ? null : (item.producto_id || null),
+            cantidad: item.cantidad,
+            precio_unitario: item.precio_unitario,
+            subtotal: item.subtotal,
+            tipo_concepto: item.tipo_concepto as any,
+            coworking_session_id: item.coworking_session_id ?? null,
+            descripcion: item.descripcion ?? item.nombre,
+          });
+        }
+      }
+
+      // detalle_ventas.producto_id has FK constraint — strip synthetic coworking IDs
       const realDetalles = detalles.map(d => {
-        if (d.producto_id?.startsWith('coworking-')) {
+        if (d.producto_id && d.producto_id.startsWith('coworking-')) {
           const { producto_id, ...rest } = d;
           return rest;
         }
@@ -181,9 +264,27 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
-      // 4. Create KDS order for kitchen (only product items)
-      const productoItemsForKds = summary.items.filter(i => i.tipo_concepto === 'producto');
-      if (productoItemsForKds.length > 0) {
+      // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
+      const kdsLines: Array<{ producto_id: string | null; nombre: string; cantidad: number; paquete_nombre?: string }> = [];
+      for (const item of summary.items) {
+        if (item.tipo_concepto === 'producto') {
+          kdsLines.push({
+            producto_id: item.producto_id?.startsWith('coworking-') ? null : item.producto_id,
+            nombre: item.nombre,
+            cantidad: item.cantidad,
+          });
+        } else if (item.tipo_concepto === 'paquete') {
+          for (const c of (item.componentes ?? [])) {
+            kdsLines.push({
+              producto_id: c.producto_id,
+              nombre: `📦 [${item.nombre.replace('📦 ', '')}] ${c.nombre}`,
+              cantidad: c.cantidad * item.cantidad,
+              paquete_nombre: item.nombre,
+            });
+          }
+        }
+      }
+      if (kdsLines.length > 0) {
         const { data: kdsOrder } = await supabase.from('kds_orders').insert({
           venta_id: venta.id,
           folio: venta.folio,
@@ -192,22 +293,29 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }).select('id').single();
 
         if (kdsOrder) {
-          const kdsItems = productoItemsForKds.map(item => ({
+          const kdsItems = kdsLines.map(l => ({
             kds_order_id: kdsOrder.id,
-            producto_id: item.producto_id?.startsWith('coworking-') ? null : item.producto_id,
-            nombre_producto: item.nombre,
-            cantidad: item.cantidad,
+            producto_id: l.producto_id,
+            nombre_producto: l.nombre,
+            cantidad: l.cantidad,
           }));
           await supabase.from('kds_order_items').insert(kdsItems as any);
         }
       }
 
       // 5. Audit log
+      const numPaquetes = paqueteItems.length;
       await supabase.from('audit_logs').insert({
         user_id: user.id,
-        accion: 'venta_completada',
-        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${summary.coworking_session_id ? ' + Coworking' : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}`,
-        metadata: { venta_id: venta.id, total: summary.total, propina: propinaAmount, items: summary.items.length },
+        accion: numPaquetes > 0 ? 'venta_completada_con_paquetes' : 'venta_completada',
+        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${summary.coworking_session_id ? ' + Coworking' : ''}${numPaquetes > 0 ? ` + ${numPaquetes} paquete(s)` : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}`,
+        metadata: {
+          venta_id: venta.id,
+          total: summary.total,
+          propina: propinaAmount,
+          items: summary.items.length,
+          paquetes: paqueteItems.map(p => ({ paquete_id: p.paquete_id ?? p.producto_id, nombre: p.nombre, cantidad: p.cantidad, componentes: p.componentes })),
+        } as any,
       });
 
       // Show ticket

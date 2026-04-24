@@ -27,6 +27,7 @@ interface Producto {
   precio_venta: number;
   precio_upsell_coworking: number | null;
   activo: boolean;
+  tipo: 'simple' | 'paquete';
 }
 
 interface Props {
@@ -42,11 +43,11 @@ export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
   
 
   useEffect(() => {
-    supabase.from('productos').select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo')
+    supabase.from('productos').select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo')
       .eq('activo', true)
       .then(({ data }) => {
         if (data) {
-          setProductos(data);
+          setProductos(data as Producto[]);
         }
       });
   }, []);
@@ -102,12 +103,16 @@ export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
           </TableHeader>
           <TableBody>
           {filtered.map(p => {
-              const hasSpecial = canUseSpecialPrice;
+              const isPaquete = p.tipo === 'paquete';
+              const hasSpecial = canUseSpecialPrice && !isPaquete;
 
               return (
                 <TableRow key={p.id} className="h-[60px]">
                   <TableCell className="font-medium py-2">
-                    <span className="line-clamp-2 leading-tight">{p.nombre}</span>
+                    <div className="flex items-center gap-1.5">
+                      {isPaquete && <Badge className="text-[10px] px-1.5 py-0 bg-primary/15 text-primary border-primary/30 hover:bg-primary/15">📦 Paquete</Badge>}
+                      <span className="line-clamp-2 leading-tight">{p.nombre}</span>
+                    </div>
                   </TableCell>
                   <TableCell className="py-2">
                     <Badge variant="outline" className="text-xs whitespace-nowrap">{p.categoria}</Badge>

@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users, RotateCcw } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users, RotateCcw, Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -38,6 +38,7 @@ export function CartPanel({
   const coworkingItems = items.filter(i => i.tipo_concepto === 'coworking');
   const amenityItems = items.filter(i => i.tipo_concepto === 'amenity');
   const productoItems = items.filter(i => i.tipo_concepto === 'producto');
+  const paqueteItems = items.filter(i => i.tipo_concepto === 'paquete');
 
   const totalConComision = subtotal + propina;
 
@@ -52,35 +53,49 @@ export function CartPanel({
   const renderItem = (item: CartItem) => {
     const isTarifa = item.tipo_concepto === 'coworking';
     const isAmenityIncluido = item.tipo_concepto === 'amenity' && item.precio_unitario === 0;
+    const isPaquete = item.tipo_concepto === 'paquete';
     const lockQty = isTarifa;
     return (
-      <div key={item.producto_id} className="flex items-center gap-2 rounded-md border border-border p-2 bg-card">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1">
-            {item.tipo_concepto === 'coworking' && <Users className="h-3 w-3 text-primary shrink-0" />}
-            {item.tipo_concepto === 'amenity' && <Coffee className="h-3 w-3 text-green-500 shrink-0" />}
-            <p className="text-sm font-medium truncate">{item.nombre}</p>
+      <div key={item.producto_id} className="rounded-md border border-border p-2 bg-card">
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1">
+              {item.tipo_concepto === 'coworking' && <Users className="h-3 w-3 text-primary shrink-0" />}
+              {item.tipo_concepto === 'amenity' && <Coffee className="h-3 w-3 text-green-500 shrink-0" />}
+              {isPaquete && <Package className="h-3 w-3 text-primary shrink-0" />}
+              <p className="text-sm font-medium truncate">{item.nombre}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isAmenityIncluido ? 'Incluido' : `$${item.precio_unitario.toFixed(2)} c/u`}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {isAmenityIncluido ? 'Incluido' : `$${item.precio_unitario.toFixed(2)} c/u`}
-          </p>
+          {!lockQty && (
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onUpdateQty(item.producto_id, -1)}>
+                <Minus className="h-3 w-3" />
+              </Button>
+              <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onUpdateQty(item.producto_id, 1)}>
+                <Plus className="h-3 w-3" />
+              </Button>
+            </div>
+          )}
+          {lockQty && <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>}
+          <p className="text-sm font-bold w-16 text-right">${item.subtotal.toFixed(2)}</p>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(item.producto_id)}>
+            <Trash2 className="h-3 w-3" />
+          </Button>
         </div>
-        {!lockQty && (
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onUpdateQty(item.producto_id, -1)}>
-              <Minus className="h-3 w-3" />
-            </Button>
-            <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>
-            <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onUpdateQty(item.producto_id, 1)}>
-              <Plus className="h-3 w-3" />
-            </Button>
-          </div>
+        {isPaquete && item.componentes && item.componentes.length > 0 && (
+          <ul className="mt-1.5 ml-5 space-y-0.5 border-l border-border pl-2">
+            {item.componentes.map((c, idx) => (
+              <li key={idx} className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <span className="font-mono">{c.cantidad * item.cantidad}x</span>
+                <span className="truncate">{c.nombre}</span>
+              </li>
+            ))}
+          </ul>
         )}
-        {lockQty && <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>}
-        <p className="text-sm font-bold w-16 text-right">${item.subtotal.toFixed(2)}</p>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(item.producto_id)}>
-          <Trash2 className="h-3 w-3" />
-        </Button>
       </div>
     );
   };
@@ -113,6 +128,12 @@ export function CartPanel({
               <div className="space-y-1">
                 <Badge variant="outline" className="text-xs mb-1 border-green-500 text-green-600">Amenities</Badge>
                 {amenityItems.map(renderItem)}
+              </div>
+            )}
+            {paqueteItems.length > 0 && (
+              <div className="space-y-1">
+                <Badge variant="outline" className="text-xs mb-1 border-primary text-primary">📦 Paquetes</Badge>
+                {paqueteItems.map(renderItem)}
               </div>
             )}
             {productoItems.length > 0 && (

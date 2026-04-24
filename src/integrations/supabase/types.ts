@@ -389,6 +389,8 @@ export type Database = {
           created_at: string
           descripcion: string | null
           id: string
+          paquete_id: string | null
+          paquete_nombre: string | null
           precio_unitario: number
           producto_id: string | null
           subtotal: number
@@ -401,6 +403,8 @@ export type Database = {
           created_at?: string
           descripcion?: string | null
           id?: string
+          paquete_id?: string | null
+          paquete_nombre?: string | null
           precio_unitario?: number
           producto_id?: string | null
           subtotal?: number
@@ -413,6 +417,8 @@ export type Database = {
           created_at?: string
           descripcion?: string | null
           id?: string
+          paquete_id?: string | null
+          paquete_nombre?: string | null
           precio_unitario?: number
           producto_id?: string | null
           subtotal?: number
@@ -647,6 +653,30 @@ export type Database = {
           },
         ]
       }
+      paquete_componentes: {
+        Row: {
+          cantidad: number
+          created_at: string
+          id: string
+          paquete_id: string
+          producto_id: string
+        }
+        Insert: {
+          cantidad?: number
+          created_at?: string
+          id?: string
+          paquete_id: string
+          producto_id: string
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string
+          id?: string
+          paquete_id?: string
+          producto_id?: string
+        }
+        Relationships: []
+      }
       productos: {
         Row: {
           activo: boolean
@@ -660,6 +690,7 @@ export type Database = {
           nombre: string
           precio_upsell_coworking: number | null
           precio_venta: number
+          tipo: string
           updated_at: string
         }
         Insert: {
@@ -674,6 +705,7 @@ export type Database = {
           nombre: string
           precio_upsell_coworking?: number | null
           precio_venta?: number
+          tipo?: string
           updated_at?: string
         }
         Update: {
@@ -688,6 +720,7 @@ export type Database = {
           nombre?: string
           precio_upsell_coworking?: number | null
           precio_venta?: number
+          tipo?: string
           updated_at?: string
         }
         Relationships: []
@@ -1080,6 +1113,10 @@ export type Database = {
       }
       validar_stock_disponible: {
         Args: { p_cantidad: number; p_producto_id: string }
+        Returns: Json
+      }
+      validar_stock_paquete: {
+        Args: { p_cantidad: number; p_paquete_id: string }
         Returns: Json
       }
     }
