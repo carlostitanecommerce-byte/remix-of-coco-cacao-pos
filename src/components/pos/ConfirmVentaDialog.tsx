@@ -315,7 +315,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
           propina: propinaAmount,
           items: summary.items.length,
           paquetes: paqueteItems.map(p => ({ paquete_id: p.paquete_id ?? p.producto_id, nombre: p.nombre, cantidad: p.cantidad, componentes: p.componentes })),
-        },
+        } as any,
       });
 
       // Show ticket
