@@ -1,120 +1,94 @@
 
 
-# Plan: Paquetes de Productos en Inventarios + POS
+# Plan: Corrección de errores en Paquetes (v2)
 
-## Objetivo
-Permitir crear, editar, duplicar y eliminar **paquetes** (combos) compuestos de productos ya existentes, y venderlos desde el POS descontando correctamente el inventario de los insumos de cada producto componente.
+## Aclaración de alcance
+**Los paquetes son exclusivos para venta directa al público en el POS.** No deben aparecer en ningún flujo de Coworking (amenities de tarifa, upsells de sesión, check-in). Esto refuerza la necesidad de filtrar `tipo='simple'` en todos los selectores de productos del módulo de coworking.
 
-## Decisión de arquitectura
+---
 
-Un paquete **es un producto especial** (`tipo = 'paquete'`) que apunta a uno o más productos hijos. No tiene receta propia. Al venderse, el sistema **expande** el paquete en líneas de detalle por cada producto componente, reutilizando todos los flujos existentes (descuento de inventario por trigger, KDS, reportes, validación de stock).
+## Bugs a corregir
 
-**Ventaja:** No tocamos el trigger `descontar_inventario_venta` ni la lógica de KDS, reportes o validación. El paquete fluye de manera transparente.
+### 🔴 B1 — Paquetes contaminan selectores de Coworking
+Hoy `CheckInDialog.tsx`, `TarifasConfig.tsx` y cualquier otro selector de productos del módulo de coworking consultan `productos` sin filtrar por tipo. Esto permitiría seleccionar un paquete como amenity / upsell, y al consumirse en sesión **no descontaría inventario** (los paquetes no tienen receta directa).
+**Fix:** agregar `.eq('tipo', 'simple')` en todas las consultas de productos dentro de `src/components/coworking/*` y `src/pages/CoworkingPage.tsx`. Auditar también `ManageSessionAccountDialog.tsx` y cualquier otro sitio donde se listen productos para sesiones.
 
-```text
-PAQUETE "Combo Desayuno" ($120)
-   ├─ 1x Café Americano   → receta → insumos
-   ├─ 1x Pan de Chocolate → receta → insumos
-   └─ 1x Jugo Natural     → receta → insumos
-```
+### 🔴 B2 — Reportes incluyen paquetes como producto vendible huérfano
+`MenuTab.tsx` y posibles `GeneralTab.tsx` / `InventarioTab.tsx` leen `productos` sin filtrar. Como las ventas se persisten expandidas en componentes simples, el paquete aparece con 0 ventas distorsionando popularidad/rentabilidad.
+**Fix:** filtrar `tipo='simple'` en consultas de catálogo de productos en reportes.
 
-## Cambios en Base de Datos (migración)
+### 🔴 B3 — Clave React duplicada en filas expandidas
+`PaquetesTab.tsx` usa `<>...</>` con dos `<TableRow>` internos sin key en el Fragment.
+**Fix:** usar `<Fragment key={p.id}>` explícito.
 
-1. **`productos`**: añadir columna `tipo text NOT NULL DEFAULT 'simple'` con valores `'simple' | 'paquete'`.
-2. **Nueva tabla `paquete_componentes`**:
-   - `id uuid PK`
-   - `paquete_id uuid` (referencia lógica a `productos.id`, tipo = paquete)
-   - `producto_id uuid` (referencia lógica a `productos.id`, tipo = simple)
-   - `cantidad numeric NOT NULL DEFAULT 1`
-   - `created_at timestamptz`
-   - RLS: SELECT a `authenticated`; ALL a `administrador`.
-3. **`detalle_ventas`**: añadir columnas opcionales para trazabilidad de paquete:
-   - `paquete_id uuid NULL` — cuando esta línea es un componente expandido de un paquete
-   - `paquete_nombre text NULL`
-   - El trigger `descontar_inventario_venta` sigue funcionando idéntico porque cada línea sigue teniendo su `producto_id` real.
-4. **Función `validar_stock_paquete(p_paquete_id, p_cantidad)`** (security definer): itera componentes y reusa la lógica de `validar_stock_disponible` por cada componente; devuelve `{valido, error}` con el primer faltante.
+### 🔴 B4 — Componente eliminado/desactivado rompe la venta
+Si un producto componente se desactiva tras crear el paquete, la venta falla con mensaje técnico.
+**Fix:**
+- En `PaquetesTab` mostrar badge "⚠ Componente inactivo" cuando aplique.
+- En `addProduct` (POS) prevalidar componentes y abortar con toast claro.
+- En `ProductosTab` bloquear eliminación de productos simples que estén en algún paquete (con mensaje listando paquetes afectados).
 
-## Cambios en el módulo Inventarios
+### 🔴 B5 — Cantidades decimales en componentes desincronizan validación y descuento
+`paquete_componentes.cantidad` es `numeric` pero `detalle_ventas.cantidad` es `integer`. Decimales generan truncado silencioso.
+**Fix:** forzar enteros (`type=number step=1 min=1`) en el constructor de paquetes y validación al guardar. Ajustar RPC para asumir enteros.
 
-### Nueva pestaña "Paquetes" (`src/pages/InventariosPage.tsx`)
-- Añadir `<TabsTrigger value="paquetes">Paquetes</TabsTrigger>` y su `<TabsContent>`.
-- Visible para admin y supervisor (mismo gating que Compras).
+### 🔴 B6 — Prorrateo puede generar `precio_unitario` negativo
+En paquetes promocionales (precio < suma de costos), el ajuste de centavos del último componente puede quedar negativo.
+**Fix:** en `ConfirmVentaDialog.tsx` validar `precios[i] >= 0` y redistribuir si negativo.
 
-### Nuevo componente `src/components/inventarios/PaquetesTab.tsx`
-Estructura calcada de `ProductosTab.tsx` para mantener consistencia visual y de UX:
+---
 
-- **Tabla principal** con columnas: Nombre · Categoría · Precio venta · Costo (suma de costos de componentes) · Margen · Componentes (expandible) · Acciones.
-- **Búsqueda en tiempo real** y filtro por categoría.
-- **Acciones**: Nuevo, Editar, Duplicar (con audit_log "duplicar_paquete"), Eliminar.
-- **Diálogo de edición** con:
-  - Datos generales: nombre, categoría, precio_venta, imagen_url, instrucciones (opcional).
-  - **Constructor de componentes**: dropdown con productos `tipo='simple'` activos + input de cantidad + botón añadir. Lista debajo con eliminar línea.
-  - **Cálculo en vivo**: costo_total = Σ (componente.costo_total × cantidad); margen con código de color (verde/amarillo/rojo).
-  - Validaciones: nombre obligatorio, mínimo 1 componente, no permitir agregar el mismo producto dos veces (sumar cantidad si ya existe).
-- **Persistencia**:
-  - Insert/update en `productos` con `tipo='paquete'` y `costo_total`/`margen` calculados.
-  - Borrar y reinsertar `paquete_componentes`.
-  - Audit log: `crear_paquete` / `actualizar_paquete` / `eliminar_paquete`.
+## Mejoras de robustez
 
-### Aislar productos simples en otras vistas
-- En `ProductosTab.tsx`: filtrar consultas con `.eq('tipo', 'simple')` para no mezclar paquetes.
-- En `useCategorias` y demás: sin cambios.
+### 🟡 M1 — CHECK constraint en `productos.tipo`
+Agregar `CHECK (tipo IN ('simple','paquete'))` y backfill defensivo.
 
-## Cambios en el POS
+### 🟡 M2 — Reemplazar `window.confirm` por `AlertDialog`
+`PaquetesTab.tsx` usa `confirm()` nativo, inconsistente con el resto del app.
 
-### `ProductGrid.tsx`
-- Cambiar query a `select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo').eq('activo', true)`.
-- Añadir badge visual "📦 Paquete" en filas con `tipo='paquete'`.
-- Pestañas de categoría incluyen automáticamente las categorías de paquetes.
+### 🟡 M3 — Atomicidad en `handleSave`
+Si falla la inserción de `paquete_componentes` tras crear el producto, queda un paquete vacío.
+**Fix:** rollback eliminando el producto recién creado si falla la inserción de componentes.
 
-### `types.ts` (CartItem)
-- Añadir `tipo_concepto: 'producto' | 'coworking' | 'amenity' | 'paquete'`.
-- Añadir campos opcionales: `paquete_id?: string`, `componentes?: Array<{producto_id, nombre, cantidad}>` para trazabilidad en el carrito.
+---
 
-### `PosPage.tsx` — `addProduct`
-1. Si `producto.tipo === 'paquete'`:
-   - Cargar componentes desde `paquete_componentes` con join a `productos` (id, nombre).
-   - Validar stock llamando a `validar_stock_paquete` RPC.
-   - Insertar **una sola línea visual** en el carrito con `tipo_concepto='paquete'`, `paquete_id`, precio total del paquete y array `componentes`.
-2. Si `tipo === 'simple'`: comportamiento actual (sin cambios).
-3. Bloquear precio especial / promoción para paquetes en esta primera versión (el menú de estrella solo aparece para simples).
+## Cambios concretos (orden de ejecución)
 
-### `CartPanel.tsx`
-- Renderizar paquetes en una sección propia con badge "📦 Paquetes".
-- Mostrar componentes como sub-líneas indentadas (solo lectura).
-- Cantidad +/- aplica al paquete completo (multiplica componentes al confirmar).
-- Eliminar borra la línea entera.
+1. **Migración SQL**:
+   - `ALTER TABLE productos ADD CONSTRAINT productos_tipo_check CHECK (tipo IN ('simple','paquete'));`
+   - Backfill: `UPDATE productos SET tipo='simple' WHERE tipo IS NULL OR tipo NOT IN ('simple','paquete');`
+   - Refactorizar `validar_stock_paquete` para asumir cantidades enteras.
 
-### `ConfirmVentaDialog.tsx` — pre-validación y persistencia
+2. **Aislar paquetes en Coworking** (regla de negocio: paquetes solo POS):
+   - `src/components/coworking/CheckInDialog.tsx` → `.eq('tipo','simple')` en consulta de productos.
+   - `src/components/coworking/TarifasConfig.tsx` → `.eq('tipo','simple')` en consulta de productos.
+   - `src/components/coworking/ManageSessionAccountDialog.tsx` → `.eq('tipo','simple')` si lista productos.
+   - Auditar `src/components/coworking/ConfiguracionTab.tsx` y `useCoworkingData.ts` por consultas similares.
 
-**Pre-validación de stock (paquetes):** además del cálculo actual, sumar al `requiredByInsumo` los insumos de los componentes de cada paquete (cantidad_paquete × cantidad_componente × cantidad_componente_receta).
+3. **Aislar paquetes en Reportes**:
+   - `src/components/reportes/MenuTab.tsx` → `.eq('tipo','simple')`.
+   - Revisar `GeneralTab.tsx` e `InventarioTab.tsx` por coherencia.
 
-**Inserción en `detalle_ventas`:** cuando una línea del carrito es paquete, **expandirla en N líneas**:
-- Cada línea componente tiene:
-  - `producto_id` = id real del producto componente (clave para que el trigger descuente inventario)
-  - `cantidad` = cantidad_paquete × cantidad_componente
-  - `precio_unitario` = 0 (el cobro va prorrateado en una línea adicional, ver abajo) **o** se prorratea proporcionalmente al costo
-  - `subtotal` proporcional
-  - `paquete_id` y `paquete_nombre` para trazabilidad
-  - `tipo_concepto` = `'producto'` (para que el trigger actúe normal)
-- **Estrategia de prorrateo recomendada (más limpia para reportes):** distribuir `precio_paquete` entre componentes proporcionalmente al `costo_total` de cada uno; la suma debe coincidir con el precio del paquete (ajustar el último para evitar errores de redondeo).
+4. **`PaquetesTab.tsx`**:
+   - Importar `Fragment` y reemplazar `<>` por `<Fragment key={p.id}>`.
+   - Forzar `cantidad` entera en `newLine` y `addLine`.
+   - Reemplazar `confirm()` por `AlertDialog` shadcn para eliminar.
+   - Mostrar badge "⚠ Componente inactivo" cuando `loadComponentes` devuelva `producto: null`.
+   - Rollback del producto si falla la inserción de componentes.
 
-**KDS:** los items componentes se insertan como antes en `kds_order_items`; opcionalmente prefijar `nombre_producto` con "📦 [Combo]" para que cocina identifique que vienen de un paquete.
+5. **`ProductosTab.tsx`**:
+   - Antes de eliminar un producto simple, consultar `paquete_componentes` por `producto_id`. Si hay coincidencias, bloquear con mensaje listando los paquetes afectados.
 
-**Audit log:** registrar `venta_paquete` con metadata `{paquete_id, componentes, cantidad}`.
+6. **`PosPage.tsx` `addProduct`**:
+   - Prevalidar que todos los `componentes[].productos` no sean null antes de añadir al carrito; sino toast: "Paquete con componentes inválidos, contacta al administrador".
 
-## Reportes
-- `reportes/MenuTab.tsx` y demás se basan en `detalle_ventas` con `producto_id` real → siguen funcionando para análisis de insumos y popularidad de productos.
-- Para análisis específico de paquetes se puede agrupar por `paquete_id` en una iteración futura (no incluido aquí).
+7. **`ConfirmVentaDialog.tsx`**:
+   - Validar `precios[i] >= 0` después del ajuste de centavos; redistribuir si negativo.
+   - `Math.round` defensivo en `cantidad` de líneas expandidas.
 
-## Plan de tareas (orden de ejecución)
-
-1. Migración SQL: columna `productos.tipo`, tabla `paquete_componentes` con RLS, columnas `paquete_id`/`paquete_nombre` en `detalle_ventas`, función `validar_stock_paquete`. Backfill `productos.tipo='simple'` para registros existentes.
-2. Filtrar `tipo='simple'` en `ProductosTab.tsx`, `useCategorias` y consultas existentes que no deban mezclar paquetes.
-3. Crear `PaquetesTab.tsx` con CRUD completo (crear, editar, duplicar, eliminar, expandir componentes) y registrarlo en `InventariosPage.tsx`.
-4. Extender `CartItem` y `ProductGrid` para reconocer paquetes.
-5. Adaptar `addProduct` en `PosPage.tsx`: cargar componentes, validar stock con RPC, insertar línea de paquete.
-6. Renderizado de paquetes en `CartPanel.tsx` (sección + sub-líneas).
-7. Adaptar `ConfirmVentaDialog.tsx`: pre-validación con componentes, expansión a `detalle_ventas` con prorrateo de precio, KDS, audit log.
-8. Smoke test end-to-end: crear paquete → venderlo → verificar descuento de stock por componente, ticket correcto, KDS muestra cada componente, reportes consistentes.
+8. **Smoke test end-to-end**:
+   - Crear paquete con 3 componentes, vender 2 unidades → verificar `detalle_ventas` (3 filas con `paquete_id`, cantidades correctas), descuento de stock por componente, KDS muestra los 3 componentes, reporte Menú no incluye paquete huérfano.
+   - Confirmar que **paquetes NO aparecen** en check-in de coworking, en upsells de tarifa, ni en gestión de cuenta de sesión.
+   - Intentar agregar paquete con componente desactivado → debe abortar con toast claro.
+   - Intentar eliminar producto simple en uso por paquete → debe bloquearse con mensaje informativo.
 
