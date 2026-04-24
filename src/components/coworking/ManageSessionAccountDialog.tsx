@@ -150,6 +150,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           .from('productos')
           .select('id, nombre, categoria, precio_venta')
           .eq('activo', true)
+          .eq('tipo', 'simple')
           .order('nombre'),
         supabase
           .from('coworking_session_upsells')

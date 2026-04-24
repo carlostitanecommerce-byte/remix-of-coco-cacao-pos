@@ -80,7 +80,7 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
   const fetchData = useCallback(async () => {
     const [tarifasRes, productosRes] = await Promise.all([
       supabase.from('tarifas_coworking').select('*').order('nombre'),
-      supabase.from('productos').select('id, nombre, categoria, precio_venta, precio_upsell_coworking').eq('activo', true).order('nombre'),
+      supabase.from('productos').select('id, nombre, categoria, precio_venta, precio_upsell_coworking').eq('activo', true).eq('tipo', 'simple').order('nombre'),
     ]);
     const allProds = (productosRes.data as Producto[]) ?? [];
     setAllProductos(allProds);
