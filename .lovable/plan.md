@@ -1,90 +1,120 @@
 
 
-## Diagnóstico raíz
+# Plan: Paquetes de Productos en Inventarios + POS
 
-El error `function extensions.http_post(url => text, body => text, headers => jsonb) does not exist` proviene de la función `replicate_to_destination()` (líneas 39-46 de su definición), que llama:
+## Objetivo
+Permitir crear, editar, duplicar y eliminar **paquetes** (combos) compuestos de productos ya existentes, y venderlos desde el POS descontando correctamente el inventario de los insumos de cada producto componente.
 
-```sql
-PERFORM extensions.http_post(...)
+## Decisión de arquitectura
+
+Un paquete **es un producto especial** (`tipo = 'paquete'`) que apunta a uno o más productos hijos. No tiene receta propia. Al venderse, el sistema **expande** el paquete en líneas de detalle por cada producto componente, reutilizando todos los flujos existentes (descuento de inventario por trigger, KDS, reportes, validación de stock).
+
+**Ventaja:** No tocamos el trigger `descontar_inventario_venta` ni la lógica de KDS, reportes o validación. El paquete fluye de manera transparente.
+
+```text
+PAQUETE "Combo Desayuno" ($120)
+   ├─ 1x Café Americano   → receta → insumos
+   ├─ 1x Pan de Chocolate → receta → insumos
+   └─ 1x Jugo Natural     → receta → insumos
 ```
 
-Pero la extensión `pg_net` instala su función en el schema **`net`**, no `extensions`. Verificado en BD:
+## Cambios en Base de Datos (migración)
 
-```
-schema | function
--------+-----------
-net    | http_post
-net    | http_get
-```
+1. **`productos`**: añadir columna `tipo text NOT NULL DEFAULT 'simple'` con valores `'simple' | 'paquete'`.
+2. **Nueva tabla `paquete_componentes`**:
+   - `id uuid PK`
+   - `paquete_id uuid` (referencia lógica a `productos.id`, tipo = paquete)
+   - `producto_id uuid` (referencia lógica a `productos.id`, tipo = simple)
+   - `cantidad numeric NOT NULL DEFAULT 1`
+   - `created_at timestamptz`
+   - RLS: SELECT a `authenticated`; ALL a `administrador`.
+3. **`detalle_ventas`**: añadir columnas opcionales para trazabilidad de paquete:
+   - `paquete_id uuid NULL` — cuando esta línea es un componente expandido de un paquete
+   - `paquete_nombre text NULL`
+   - El trigger `descontar_inventario_venta` sigue funcionando idéntico porque cada línea sigue teniendo su `producto_id` real.
+4. **Función `validar_stock_paquete(p_paquete_id, p_cantidad)`** (security definer): itera componentes y reusa la lógica de `validar_stock_disponible` por cada componente; devuelve `{valido, error}` con el primer faltante.
 
-Este trigger está colgado en **22 tablas críticas** (`coworking_sessions`, `ventas`, `detalle_ventas`, `kds_orders`, `compras_insumos`, `mermas`, `profiles`, `audit_logs`, etc.). Por eso el check-in falla — al insertar en `coworking_sessions` se dispara `replicate_coworking_sessions`, que llama la función inexistente y aborta la transacción.
+## Cambios en el módulo Inventarios
 
-**Impacto:** TODA operación de escritura en el sistema está rota, no solo coworking.
+### Nueva pestaña "Paquetes" (`src/pages/InventariosPage.tsx`)
+- Añadir `<TabsTrigger value="paquetes">Paquetes</TabsTrigger>` y su `<TabsContent>`.
+- Visible para admin y supervisor (mismo gating que Compras).
 
-## Solución
+### Nuevo componente `src/components/inventarios/PaquetesTab.tsx`
+Estructura calcada de `ProductosTab.tsx` para mantener consistencia visual y de UX:
 
-Una migración que reemplace la función `replicate_to_destination()` cambiando `extensions.http_post` → `net.http_post`. Es un fix de una sola línea, sin tocar triggers ni tablas.
+- **Tabla principal** con columnas: Nombre · Categoría · Precio venta · Costo (suma de costos de componentes) · Margen · Componentes (expandible) · Acciones.
+- **Búsqueda en tiempo real** y filtro por categoría.
+- **Acciones**: Nuevo, Editar, Duplicar (con audit_log "duplicar_paquete"), Eliminar.
+- **Diálogo de edición** con:
+  - Datos generales: nombre, categoría, precio_venta, imagen_url, instrucciones (opcional).
+  - **Constructor de componentes**: dropdown con productos `tipo='simple'` activos + input de cantidad + botón añadir. Lista debajo con eliminar línea.
+  - **Cálculo en vivo**: costo_total = Σ (componente.costo_total × cantidad); margen con código de color (verde/amarillo/rojo).
+  - Validaciones: nombre obligatorio, mínimo 1 componente, no permitir agregar el mismo producto dos veces (sumar cantidad si ya existe).
+- **Persistencia**:
+  - Insert/update en `productos` con `tipo='paquete'` y `costo_total`/`margen` calculados.
+  - Borrar y reinsertar `paquete_componentes`.
+  - Audit log: `crear_paquete` / `actualizar_paquete` / `eliminar_paquete`.
 
-### Cambio (migración)
+### Aislar productos simples en otras vistas
+- En `ProductosTab.tsx`: filtrar consultas con `.eq('tipo', 'simple')` para no mezclar paquetes.
+- En `useCategorias` y demás: sin cambios.
 
-```sql
-CREATE OR REPLACE FUNCTION public.replicate_to_destination()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  payload jsonb;
-  edge_function_url text;
-  anon_key text;
-BEGIN
-  edge_function_url := 'https://kswzpteyqiughimtmxal.supabase.co/functions/v1/replicate-data';
-  anon_key := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtzd3pwdGV5cWl1Z2hpbXRteGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMzUyOTAsImV4cCI6MjA5MTYxMTI5MH0.Sc6hqMScaKZTi4cBrGXDx_fPZoa6V4bYefSoxkkyZtI';
+## Cambios en el POS
 
-  payload := jsonb_build_object(
-    'table', TG_TABLE_NAME,
-    'type', TG_OP,
-    'record', CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END,
-    'old_record', CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE to_jsonb(OLD) END
-  );
+### `ProductGrid.tsx`
+- Cambiar query a `select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo').eq('activo', true)`.
+- Añadir badge visual "📦 Paquete" en filas con `tipo='paquete'`.
+- Pestañas de categoría incluyen automáticamente las categorías de paquetes.
 
-  -- Fire-and-forget vía pg_net (schema correcto: net, no extensions)
-  BEGIN
-    PERFORM net.http_post(
-      url := edge_function_url,
-      body := payload,
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || anon_key,
-        'apikey', anon_key
-      )
-    );
-  EXCEPTION WHEN OTHERS THEN
-    -- Nunca abortar la transacción de negocio si la replicación falla
-    RAISE WARNING 'Replicación falló para tabla %: %', TG_TABLE_NAME, SQLERRM;
-  END;
+### `types.ts` (CartItem)
+- Añadir `tipo_concepto: 'producto' | 'coworking' | 'amenity' | 'paquete'`.
+- Añadir campos opcionales: `paquete_id?: string`, `componentes?: Array<{producto_id, nombre, cantidad}>` para trazabilidad en el carrito.
 
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END;
-$$;
-```
+### `PosPage.tsx` — `addProduct`
+1. Si `producto.tipo === 'paquete'`:
+   - Cargar componentes desde `paquete_componentes` con join a `productos` (id, nombre).
+   - Validar stock llamando a `validar_stock_paquete` RPC.
+   - Insertar **una sola línea visual** en el carrito con `tipo_concepto='paquete'`, `paquete_id`, precio total del paquete y array `componentes`.
+2. Si `tipo === 'simple'`: comportamiento actual (sin cambios).
+3. Bloquear precio especial / promoción para paquetes en esta primera versión (el menú de estrella solo aparece para simples).
 
-### Mejoras adicionales en el mismo cambio
+### `CartPanel.tsx`
+- Renderizar paquetes en una sección propia con badge "📦 Paquetes".
+- Mostrar componentes como sub-líneas indentadas (solo lectura).
+- Cantidad +/- aplica al paquete completo (multiplica componentes al confirmar).
+- Eliminar borra la línea entera.
 
-1. **`net.http_post` (correcto)** en lugar de `extensions.http_post`.
-2. **`body := payload`** como `jsonb` (firma correcta de `net.http_post`), no `payload::text`.
-3. **`BEGIN/EXCEPTION/END`** alrededor de la llamada HTTP: si la replicación falla por cualquier motivo (red, edge function caída, etc.), la transacción de negocio **no se aborta** — solo se loguea un WARNING. Esto previene que en el futuro un fallo de la BD destino bloquee toda la operación del POS.
+### `ConfirmVentaDialog.tsx` — pre-validación y persistencia
 
-## Archivos afectados
+**Pre-validación de stock (paquetes):** además del cálculo actual, sumar al `requiredByInsumo` los insumos de los componentes de cada paquete (cantidad_paquete × cantidad_componente × cantidad_componente_receta).
 
-- **Migración SQL nueva**: `supabase/migrations/<timestamp>_fix_replicate_function.sql` con el `CREATE OR REPLACE FUNCTION` de arriba.
-- No se tocan triggers, tablas, ni código de aplicación.
+**Inserción en `detalle_ventas`:** cuando una línea del carrito es paquete, **expandirla en N líneas**:
+- Cada línea componente tiene:
+  - `producto_id` = id real del producto componente (clave para que el trigger descuente inventario)
+  - `cantidad` = cantidad_paquete × cantidad_componente
+  - `precio_unitario` = 0 (el cobro va prorrateado en una línea adicional, ver abajo) **o** se prorratea proporcionalmente al costo
+  - `subtotal` proporcional
+  - `paquete_id` y `paquete_nombre` para trazabilidad
+  - `tipo_concepto` = `'producto'` (para que el trigger actúe normal)
+- **Estrategia de prorrateo recomendada (más limpia para reportes):** distribuir `precio_paquete` entre componentes proporcionalmente al `costo_total` de cada uno; la suma debe coincidir con el precio del paquete (ajustar el último para evitar errores de redondeo).
 
-## Verificación esperada tras aplicar
+**KDS:** los items componentes se insertan como antes en `kds_order_items`; opcionalmente prefijar `nombre_producto` con "📦 [Combo]" para que cocina identifique que vienen de un paquete.
 
-1. Check-in en /coworking funciona y crea la sesión.
-2. Cualquier otra escritura (venta, compra, merma, etc.) deja de fallar con el mismo error.
-3. Si la edge function `replicate-data` está caída o la BD destino no responde, las operaciones siguen funcionando (solo se pierde la replicación de ese registro, con WARNING en logs).
+**Audit log:** registrar `venta_paquete` con metadata `{paquete_id, componentes, cantidad}`.
+
+## Reportes
+- `reportes/MenuTab.tsx` y demás se basan en `detalle_ventas` con `producto_id` real → siguen funcionando para análisis de insumos y popularidad de productos.
+- Para análisis específico de paquetes se puede agrupar por `paquete_id` en una iteración futura (no incluido aquí).
+
+## Plan de tareas (orden de ejecución)
+
+1. Migración SQL: columna `productos.tipo`, tabla `paquete_componentes` con RLS, columnas `paquete_id`/`paquete_nombre` en `detalle_ventas`, función `validar_stock_paquete`. Backfill `productos.tipo='simple'` para registros existentes.
+2. Filtrar `tipo='simple'` en `ProductosTab.tsx`, `useCategorias` y consultas existentes que no deban mezclar paquetes.
+3. Crear `PaquetesTab.tsx` con CRUD completo (crear, editar, duplicar, eliminar, expandir componentes) y registrarlo en `InventariosPage.tsx`.
+4. Extender `CartItem` y `ProductGrid` para reconocer paquetes.
+5. Adaptar `addProduct` en `PosPage.tsx`: cargar componentes, validar stock con RPC, insertar línea de paquete.
+6. Renderizado de paquetes en `CartPanel.tsx` (sección + sub-líneas).
+7. Adaptar `ConfirmVentaDialog.tsx`: pre-validación con componentes, expansión a `detalle_ventas` con prorrateo de precio, KDS, audit log.
+8. Smoke test end-to-end: crear paquete → venderlo → verificar descuento de stock por componente, ticket correcto, KDS muestra cada componente, reportes consistentes.
 
