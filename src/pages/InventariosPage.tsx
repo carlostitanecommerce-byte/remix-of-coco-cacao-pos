@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import CategoriasTab from '@/components/inventarios/CategoriasTab';
 import InsumosTab from '@/components/inventarios/InsumosTab';
 import ProductosTab from '@/components/inventarios/ProductosTab';
+import PaquetesTab from '@/components/inventarios/PaquetesTab';
 import ComprasTab from '@/components/inventarios/ComprasTab';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -25,6 +25,7 @@ const InventariosPage = () => {
           <TabsTrigger value="categorias">Categorías</TabsTrigger>
           <TabsTrigger value="insumos">Insumos</TabsTrigger>
           <TabsTrigger value="productos">Productos & Recetas</TabsTrigger>
+          <TabsTrigger value="paquetes">Paquetes</TabsTrigger>
           {(isAdmin || roles.includes('supervisor')) && (
             <TabsTrigger value="compras">Compras</TabsTrigger>
           )}
@@ -40,6 +41,10 @@ const InventariosPage = () => {
 
         <TabsContent value="productos" className="mt-4">
           <ProductosTab isAdmin={isAdmin} roles={roles} />
+        </TabsContent>
+
+        <TabsContent value="paquetes" className="mt-4">
+          <PaquetesTab isAdmin={isAdmin} />
         </TabsContent>
 
         {(isAdmin || roles.includes('supervisor')) && (
