@@ -224,15 +224,17 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     // Bloquear si el producto está usado en algún paquete
     const { data: enPaquetes } = await supabase
       .from('paquete_componentes')
-      .select('paquete_id, productos:paquete_id(nombre)')
+      .select('paquete_id')
       .eq('producto_id', p.id);
 
     if (enPaquetes && enPaquetes.length > 0) {
-      const nombres = enPaquetes
-        .map((r: any) => r.productos?.nombre)
-        .filter(Boolean)
-        .join(', ');
-      toast.error(`No se puede eliminar: forma parte de ${enPaquetes.length} paquete(s)${nombres ? `: ${nombres}` : ''}`);
+      const paqueteIds = [...new Set(enPaquetes.map((r: any) => r.paquete_id))];
+      const { data: paqs } = await supabase
+        .from('productos')
+        .select('nombre')
+        .in('id', paqueteIds);
+      const nombres = (paqs ?? []).map((r: any) => r.nombre).join(', ');
+      toast.error(`No se puede eliminar: forma parte de ${paqueteIds.length} paquete(s)${nombres ? `: ${nombres}` : ''}`);
       return;
     }
 
