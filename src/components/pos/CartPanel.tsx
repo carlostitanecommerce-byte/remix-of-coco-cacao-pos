@@ -130,6 +130,12 @@ export function CartPanel({
                 {amenityItems.map(renderItem)}
               </div>
             )}
+            {paqueteItems.length > 0 && (
+              <div className="space-y-1">
+                <Badge variant="outline" className="text-xs mb-1 border-primary text-primary">📦 Paquetes</Badge>
+                {paqueteItems.map(renderItem)}
+              </div>
+            )}
             {productoItems.length > 0 && (
               <div className="space-y-1">
                 <Badge variant="outline" className="text-xs mb-1">Productos</Badge>
