@@ -69,11 +69,22 @@ const PosPage = () => {
         return;
       }
 
-      // Cargar componentes
+      // Cargar componentes con estado activo para validación
       const { data: comps } = await supabase
         .from('paquete_componentes')
-        .select('producto_id, cantidad, productos:producto_id(nombre)')
+        .select('producto_id, cantidad, productos:producto_id(nombre, activo)')
         .eq('paquete_id', p.id);
+
+      if (!comps || comps.length === 0) {
+        toast.error('Este paquete no tiene componentes configurados. Contacta al administrador.');
+        return;
+      }
+
+      const invalid = (comps as any[]).filter(c => !c.productos || c.productos.activo === false);
+      if (invalid.length > 0) {
+        toast.error('Paquete con componentes inválidos o inactivos. Contacta al administrador.');
+        return;
+      }
 
       const componentes = (comps ?? []).map((c: any) => ({
         producto_id: c.producto_id,

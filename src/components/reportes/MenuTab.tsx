@@ -67,7 +67,7 @@ export default function MenuTab() {
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
     const [productosRes, ventasRes] = await Promise.all([
-      supabase.from('productos').select('id, nombre, categoria, precio_venta, costo_total, precio_upsell_coworking, activo').eq('activo', true),
+      supabase.from('productos').select('id, nombre, categoria, precio_venta, costo_total, precio_upsell_coworking, activo').eq('activo', true).eq('tipo', 'simple'),
       supabase.from('ventas').select('id').eq('estado', 'completada').gte('fecha', desdeISO).lte('fecha', hastaISO),
     ]);
 

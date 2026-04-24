@@ -189,13 +189,31 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             const equal = +(totalPaquete / componentes.length).toFixed(2);
             precios = componentes.map(() => equal);
           }
-          // Ajustar el último componente para cuadrar centavos
+          // Ajustar el último componente para cuadrar centavos, evitando negativos
           const sumaPrecios = precios.reduce((s, p) => s + p, 0);
           const diff = +(totalPaquete - sumaPrecios).toFixed(2);
-          if (precios.length > 0) precios[precios.length - 1] = +(precios[precios.length - 1] + diff).toFixed(2);
+          if (precios.length > 0) {
+            const lastIdx = precios.length - 1;
+            const adjusted = +(precios[lastIdx] + diff).toFixed(2);
+            if (adjusted >= 0) {
+              precios[lastIdx] = adjusted;
+            } else {
+              // Si el ajuste haría negativo el último, distribuir la diferencia entre todos los componentes
+              precios[lastIdx] = 0;
+              const remainder = +(totalPaquete - precios.reduce((s, p) => s + p, 0)).toFixed(2);
+              if (remainder !== 0 && precios.length > 1) {
+                // Buscar el componente con mayor precio para absorber el residuo
+                let maxIdx = 0;
+                for (let i = 1; i < precios.length - 1; i++) if (precios[i] > precios[maxIdx]) maxIdx = i;
+                precios[maxIdx] = +Math.max(0, precios[maxIdx] + remainder).toFixed(2);
+              }
+            }
+          }
+          // Asegurar que ningún precio quede negativo
+          precios = precios.map(v => v < 0 ? 0 : v);
 
           componentes.forEach((c, idx) => {
-            const cantTotal = c.cantidad * pq.cantidad;
+            const cantTotal = Math.round(c.cantidad * pq.cantidad);
             const subtotalLinea = precios[idx];
             const precioUnitario = cantTotal > 0 ? +(subtotalLinea / cantTotal).toFixed(4) : 0;
             detalles.push({

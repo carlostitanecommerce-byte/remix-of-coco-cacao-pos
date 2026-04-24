@@ -95,7 +95,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     const fetchOpenData = async () => {
       const [tarifasRes, prodRes] = await Promise.all([
         supabase.from('tarifas_coworking').select('*').eq('activo', true),
-        supabase.from('productos').select('id, nombre, categoria, precio_venta').eq('activo', true).order('nombre'),
+        supabase.from('productos').select('id, nombre, categoria, precio_venta').eq('activo', true).eq('tipo', 'simple').order('nombre'),
       ]);
       setTarifas((tarifasRes.data as Tarifa[]) ?? []);
       setProductos((prodRes.data as Producto[]) ?? []);

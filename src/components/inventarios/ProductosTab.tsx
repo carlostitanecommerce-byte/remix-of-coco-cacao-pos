@@ -220,6 +220,24 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
 
   const handleDelete = async (p: Producto) => {
     if (!confirm(`¿Eliminar "${p.nombre}"?`)) return;
+
+    // Bloquear si el producto está usado en algún paquete
+    const { data: enPaquetes } = await supabase
+      .from('paquete_componentes')
+      .select('paquete_id')
+      .eq('producto_id', p.id);
+
+    if (enPaquetes && enPaquetes.length > 0) {
+      const paqueteIds = [...new Set(enPaquetes.map((r: any) => r.paquete_id))];
+      const { data: paqs } = await supabase
+        .from('productos')
+        .select('nombre')
+        .in('id', paqueteIds);
+      const nombres = (paqs ?? []).map((r: any) => r.nombre).join(', ');
+      toast.error(`No se puede eliminar: forma parte de ${paqueteIds.length} paquete(s)${nombres ? `: ${nombres}` : ''}`);
+      return;
+    }
+
     const { error } = await supabase.from('productos').delete().eq('id', p.id);
     if (error) toast.error('Error al eliminar producto');
     else { toast.success('Producto eliminado'); fetchProductos(); }

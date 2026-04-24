@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,9 +16,13 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Package, Copy, Search, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Package, Copy, Search, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ProductoSimple {
@@ -160,8 +164,8 @@ const PaquetesTab = ({ isAdmin }: Props) => {
       toast.error('Selecciona producto y cantidad');
       return;
     }
-    const cantidad = parseFloat(newLine.cantidad);
-    if (cantidad <= 0) { toast.error('La cantidad debe ser mayor a 0'); return; }
+    const cantidad = parseInt(newLine.cantidad, 10);
+    if (isNaN(cantidad) || cantidad <= 0) { toast.error('La cantidad debe ser un entero mayor a 0'); return; }
     const prod = productosSimples.find(p => p.id === newLine.producto_id)!;
 
     setComponentes(c => {
@@ -181,6 +185,18 @@ const PaquetesTab = ({ isAdmin }: Props) => {
   const handleSave = async () => {
     if (!form.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
     if (componentes.length === 0) { toast.error('Agrega al menos un producto al paquete'); return; }
+    // Validar enteros y componentes activos
+    for (const c of componentes) {
+      if (!Number.isInteger(c.cantidad) || c.cantidad <= 0) {
+        toast.error(`Cantidad inválida en componente: ${c.producto?.nombre ?? c.producto_id}`);
+        return;
+      }
+      const prod = productosSimples.find(p => p.id === c.producto_id);
+      if (!prod || !prod.activo) {
+        toast.error(`El componente "${c.producto?.nombre ?? '—'}" está inactivo o eliminado. Elimínalo del paquete.`);
+        return;
+      }
+    }
 
     setSaving(true);
     const precio = parseFloat(form.precio_venta) || 0;
@@ -199,6 +215,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
     };
 
     let paqueteId = editingId;
+    const isNew = !editingId;
 
     if (editingId) {
       const { error } = await supabase.from('productos').update(payload as any).eq('id', editingId);
@@ -217,7 +234,15 @@ const PaquetesTab = ({ isAdmin }: Props) => {
         cantidad: c.cantidad,
       }))
     );
-    if (compErr) { toast.error('Error al guardar componentes del paquete'); setSaving(false); return; }
+    if (compErr) {
+      toast.error('Error al guardar componentes del paquete');
+      // Rollback: si era un paquete nuevo, eliminar el producto huérfano
+      if (isNew && paqueteId) {
+        await supabase.from('productos').delete().eq('id', paqueteId);
+      }
+      setSaving(false);
+      return;
+    }
 
     if (user) {
       await supabase.from('audit_logs').insert({
@@ -234,8 +259,9 @@ const PaquetesTab = ({ isAdmin }: Props) => {
     fetchPaquetes();
   };
 
+  const [deleteCandidate, setDeleteCandidate] = useState<Paquete | null>(null);
+
   const handleDelete = async (p: Paquete) => {
-    if (!confirm(`¿Eliminar el paquete "${p.nombre}"?`)) return;
     await supabase.from('paquete_componentes').delete().eq('paquete_id', p.id);
     const { error } = await supabase.from('productos').delete().eq('id', p.id);
     if (error) {
@@ -315,10 +341,22 @@ const PaquetesTab = ({ isAdmin }: Props) => {
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
               ) : filtrados.length === 0 ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados' : 'Sin paquetes registrados'}</TableCell></TableRow>
-              ) : filtrados.map(p => (
-                <>
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium">{p.nombre}</TableCell>
+              ) : filtrados.map(p => {
+                const compsExp = expandedComponentes[p.id];
+                const hasInactive = compsExp?.some(c => !c.producto || c.producto.activo === false);
+                return (
+                <Fragment key={p.id}>
+                  <TableRow>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {p.nombre}
+                        {hasInactive && (
+                          <Badge variant="destructive" className="gap-1 text-[10px]">
+                            <AlertTriangle className="h-3 w-3" /> Componente inactivo
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell><Badge variant="secondary">{p.categoria}</Badge></TableCell>
                     <TableCell className="text-right font-mono">${p.precio_venta.toFixed(2)}</TableCell>
                     {isAdmin && <TableCell className="text-right font-mono text-muted-foreground">${p.costo_total.toFixed(2)}</TableCell>}
@@ -342,7 +380,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(p)} title="Eliminar">
+                          <Button variant="ghost" size="icon" onClick={() => setDeleteCandidate(p)} title="Eliminar">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
@@ -350,31 +388,36 @@ const PaquetesTab = ({ isAdmin }: Props) => {
                     )}
                   </TableRow>
                   {expandedId === p.id && (
-                    <TableRow key={`${p.id}-comp`}>
+                    <TableRow>
                       <TableCell colSpan={7} className="bg-muted/30 py-3 px-6">
                         <p className="text-xs font-semibold text-muted-foreground mb-2">Componentes del paquete:</p>
                         {(expandedComponentes[p.id] ?? []).length === 0 ? (
                           <p className="text-xs text-muted-foreground italic">Sin componentes</p>
                         ) : (
                           <ul className="space-y-1">
-                            {(expandedComponentes[p.id] ?? []).map((c, i) => (
-                              <li key={i} className="text-sm flex items-center gap-2">
-                                <Badge variant="outline" className="font-mono text-[10px]">{c.cantidad}x</Badge>
-                                <span>{c.producto?.nombre ?? '—'}</span>
-                                {isAdmin && c.producto && (
-                                  <span className="text-xs text-muted-foreground ml-auto font-mono">
-                                    Costo: ${(c.producto.costo_total * c.cantidad).toFixed(2)}
-                                  </span>
-                                )}
-                              </li>
-                            ))}
+                            {(expandedComponentes[p.id] ?? []).map((c, i) => {
+                              const isInactive = !c.producto || c.producto.activo === false;
+                              return (
+                                <li key={i} className="text-sm flex items-center gap-2">
+                                  <Badge variant="outline" className="font-mono text-[10px]">{c.cantidad}x</Badge>
+                                  <span className={isInactive ? 'text-destructive' : ''}>{c.producto?.nombre ?? '— (eliminado)'}</span>
+                                  {isInactive && <Badge variant="destructive" className="text-[10px]">Inactivo</Badge>}
+                                  {isAdmin && c.producto && (
+                                    <span className="text-xs text-muted-foreground ml-auto font-mono">
+                                      Costo: ${(c.producto.costo_total * c.cantidad).toFixed(2)}
+                                    </span>
+                                  )}
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </TableCell>
                     </TableRow>
                   )}
-                </>
-              ))}
+                </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
@@ -504,6 +547,29 @@ const PaquetesTab = ({ isAdmin }: Props) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => !o && setDeleteCandidate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar paquete</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Eliminar el paquete "{deleteCandidate?.nombre}"? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (deleteCandidate) await handleDelete(deleteCandidate);
+                setDeleteCandidate(null);
+              }}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

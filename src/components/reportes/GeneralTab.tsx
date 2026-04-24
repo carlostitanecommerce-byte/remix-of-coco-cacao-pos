@@ -94,7 +94,7 @@ export default function GeneralTab() {
         .gte('fecha', desdeISO)
         .lte('fecha', hastaISO)
         .eq('estado', 'completada'),
-      supabase.from('productos').select('id, nombre, categoria'),
+      supabase.from('productos').select('id, nombre, categoria').eq('tipo', 'simple'),
       supabase.from('recetas').select('producto_id, insumo_id, cantidad_necesaria'),
       supabase.from('insumos').select('id, nombre, categoria, unidad_medida, costo_unitario'),
     ]);
