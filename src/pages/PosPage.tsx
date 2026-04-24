@@ -51,7 +51,59 @@ const PosPage = () => {
     }
   }, [searchParams, cajaAbierta, cajaLoading, setSearchParams]);
 
-  const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; precio_upsell_coworking?: number | null }, tipoPrecio?: 'especial' | 'promocion') => {
+  const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; precio_upsell_coworking?: number | null; tipo?: 'simple' | 'paquete' }, tipoPrecio?: 'especial' | 'promocion') => {
+    // === PAQUETE ===
+    if (p.tipo === 'paquete') {
+      // Validar stock de todos los componentes
+      const { data: validacionPaquete, error: rpcErr } = await supabase.rpc(
+        'validar_stock_paquete' as any,
+        { p_paquete_id: p.id, p_cantidad: 1 }
+      );
+      if (rpcErr) {
+        toast.error('Error al validar stock del paquete');
+        return;
+      }
+      const resultado = validacionPaquete as { valido: boolean; error?: string };
+      if (!resultado?.valido) {
+        toast.error(resultado?.error || 'Stock insuficiente para este paquete');
+        return;
+      }
+
+      // Cargar componentes
+      const { data: comps } = await supabase
+        .from('paquete_componentes')
+        .select('producto_id, cantidad, productos:producto_id(nombre)')
+        .eq('paquete_id', p.id);
+
+      const componentes = (comps ?? []).map((c: any) => ({
+        producto_id: c.producto_id,
+        nombre: c.productos?.nombre ?? '—',
+        cantidad: Number(c.cantidad),
+      }));
+
+      setItems(prev => {
+        const existing = prev.find(i => i.producto_id === p.id && i.tipo_concepto === 'paquete');
+        if (existing) {
+          return prev.map(i => i.producto_id === p.id && i.tipo_concepto === 'paquete'
+            ? { ...i, cantidad: i.cantidad + 1, subtotal: (i.cantidad + 1) * i.precio_unitario }
+            : i
+          );
+        }
+        return [...prev, {
+          producto_id: p.id,
+          nombre: `📦 ${p.nombre}`,
+          precio_unitario: p.precio_venta,
+          cantidad: 1,
+          subtotal: p.precio_venta,
+          tipo_concepto: 'paquete' as const,
+          paquete_id: p.id,
+          componentes,
+        }];
+      });
+      return;
+    }
+
+    // === PRODUCTO SIMPLE ===
     const validacion = await verificarStock(p.id, 1);
     if (!validacion.valido) {
       toast.error(validacion.error);
