@@ -67,6 +67,8 @@ export function KdsOrderCard({ order, onMarkReady, marking }: Props) {
 
   return (
     <Card
+      role="article"
+      aria-label={`Orden #${String(order.folio).padStart(4, '0')}, ${tipoLabel[order.tipo_consumo] || order.tipo_consumo}, ${isReady ? 'lista' : `pendiente, ${minutes} minutos ${seconds} segundos`}`}
       className={cn(
         'border-2 transition-all duration-300',
         isReady
