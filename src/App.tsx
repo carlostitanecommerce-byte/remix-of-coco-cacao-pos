@@ -8,7 +8,6 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import DashboardLayout from "@/components/DashboardLayout";
 import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
-import PlaceholderPage from "@/pages/PlaceholderPage";
 import PosPage from "@/pages/PosPage";
 import UsersPage from "@/pages/UsersPage";
 import ReportesPage from "@/pages/ReportesPage";
@@ -16,32 +15,25 @@ import CoworkingPage from "@/pages/CoworkingPage";
 import InventariosPage from "@/pages/InventariosPage";
 import CocinaPage from "@/pages/CocinaPage";
 import NotFound from "./pages/NotFound";
-import { isKitchenOnlyMode } from "@/lib/roles";
 
 const queryClient = new QueryClient();
 
-/** Redirects kitchen-only users to /cocina */
+/**
+ * En "/" decide a dónde aterriza el usuario según su rol:
+ * - barista (sin rol de gestión) → /cocina
+ * - resto → Dashboard estándar
+ *
+ * En ambos casos el layout (sidebar) es el mismo, así que no hay destello
+ * visual aunque pase un instante por aquí.
+ */
 function HomeRedirect() {
   const { roles, loading } = useAuth();
-  if (loading) return null;
-  if (isKitchenOnlyMode(roles)) return <Navigate to="/cocina" replace />;
-  return (
-    <DashboardLayout>
-      <DashboardPage />
-    </DashboardLayout>
-  );
-}
-
-/** Renders CocinaPage fullscreen for kitchen-only users, with sidebar for others */
-function CocinaRoute() {
-  const { roles, loading } = useAuth();
-  if (loading) return null;
-  if (isKitchenOnlyMode(roles)) return <CocinaPage />;
-  return (
-    <DashboardLayout>
-      <CocinaPage />
-    </DashboardLayout>
-  );
+  if (loading) return null; // ProtectedRoute ya muestra "Cargando..."
+  const isBaristaOnly =
+    roles.includes('barista') &&
+    !roles.some((r) => ['administrador', 'supervisor', 'caja', 'recepcion'].includes(r));
+  if (isBaristaOnly) return <Navigate to="/cocina" replace />;
+  return <DashboardPage />;
 }
 
 const App = () => (
@@ -57,7 +49,9 @@ const App = () => (
               path="/"
               element={
                 <ProtectedRoute>
-                  <HomeRedirect />
+                  <DashboardLayout>
+                    <HomeRedirect />
+                  </DashboardLayout>
                 </ProtectedRoute>
               }
             />
@@ -75,7 +69,9 @@ const App = () => (
               path="/cocina"
               element={
                 <ProtectedRoute allowedRoles={['administrador', 'barista']}>
-                  <CocinaRoute />
+                  <DashboardLayout>
+                    <CocinaPage />
+                  </DashboardLayout>
                 </ProtectedRoute>
               }
             />

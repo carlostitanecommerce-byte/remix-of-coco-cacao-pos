@@ -50,21 +50,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRoles((data as UserRole[] | null)?.map(r => r.role) ?? []);
   };
 
+  /**
+   * Carga profile + roles en paralelo. CRÍTICO: `loading` no debe pasar a
+   * `false` hasta que ambos terminen, de lo contrario los consumidores
+   * (App.tsx, ProtectedRoute) renderizan UI con `roles=[]` y producen
+   * destellos visuales (p.ej. el "sidebar fantasma" del barista).
+   */
+  const loadUserContext = async (userId: string) => {
+    await Promise.all([fetchProfile(userId), fetchRoles(userId)]);
+  };
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
+          // Defer Supabase calls fuera del listener para evitar deadlocks,
+          // pero mantener `loading=true` hasta que roles+profile estén listos.
+          setLoading(true);
           setTimeout(() => {
-            fetchProfile(session.user.id);
-            fetchRoles(session.user.id);
+            loadUserContext(session.user.id).finally(() => setLoading(false));
           }, 0);
         } else {
           setProfile(null);
           setRoles([]);
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
@@ -72,10 +84,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
-        fetchRoles(session.user.id);
+        loadUserContext(session.user.id).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
