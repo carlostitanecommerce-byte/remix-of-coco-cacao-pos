@@ -382,8 +382,17 @@ export default function CocinaPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground">Cocina</h1>
-            <p className="text-xs text-muted-foreground">
-              {activeCount} {activeCount === 1 ? 'orden activa' : 'órdenes activas'}
+            <p className="text-xs text-muted-foreground flex items-center gap-2">
+              <span>{activeCount} {activeCount === 1 ? 'orden activa' : 'órdenes activas'}</span>
+              {avgPrepMin !== null && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="flex items-center gap-1">
+                    <Timer className="h-3 w-3" />
+                    Prom. {avgPrepMin.toFixed(1)} min
+                  </span>
+                </>
+              )}
             </p>
           </div>
         </div>
