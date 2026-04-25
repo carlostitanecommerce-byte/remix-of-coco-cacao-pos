@@ -30,6 +30,10 @@ export default function CocinaPage() {
   const knownIds = useRef<Set<string>>(new Set());
   const initialLoad = useRef(true);
   const listoTimestamps = useRef<Record<string, number>>({});
+  // Token monotónico que descarta resultados de fetchOrders obsoletos
+  // (evita que un fetch lento sobreescriba al estado actual y produzca el
+  // "parpadeo" reportado en la lista de Listos).
+  const fetchTokenRef = useRef(0);
   // Mide cuánto tarda cada orden en pasar de creada → listo (calculado en cliente)
   const prepDurations = useRef<number[]>([]);
   const startedAt = useRef<Record<string, number>>({});
