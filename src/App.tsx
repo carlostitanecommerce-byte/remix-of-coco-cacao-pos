@@ -68,7 +68,7 @@ const App = () => (
             <Route
               path="/cocina"
               element={
-                <ProtectedRoute allowedRoles={['administrador', 'barista']}>
+                <ProtectedRoute allowedRoles={['administrador', 'supervisor', 'barista']}>
                   <DashboardLayout>
                     <CocinaPage />
                   </DashboardLayout>

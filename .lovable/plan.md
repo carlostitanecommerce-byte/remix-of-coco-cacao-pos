@@ -1,38 +1,21 @@
-## Correcciones rol Barista
+# Cocina: acceso para supervisor y diálogo solo para barista
 
-### Problema 1 — Sidebar muestra POS y Coworking al barista
-El sidebar filtra solo los items que tienen `allowedRoles`. Como POS y Coworking no tienen restricción, se muestran a todos, incluido el barista que no debe operarlos.
+## Cambios
 
-**Solución:** Restringir explícitamente cada item del menú con `allowedRoles`, dejando al barista únicamente con acceso a "Cocina".
+### 1. Permitir acceso a supervisor (`src/App.tsx` y `src/components/AppSidebar.tsx`)
+- Agregar `'supervisor'` a `allowedRoles` de la ruta `/cocina` y del item del sidebar "Cocina".
+- Roles con acceso a Cocina quedan: `administrador`, `supervisor`, `barista`.
 
-Visibilidad final por rol:
+### 2. Omitir diálogo "Iniciar turno" para administrador y supervisor (`src/pages/CocinaPage.tsx`)
+La activación de audio (y por tanto el diálogo) solo tiene sentido para el barista, que es quien necesita las alertas sonoras. Los roles administrativos solo entran a observar.
 
-| Item        | administrador | supervisor | caja | recepción | barista |
-|-------------|:-------------:|:----------:|:----:|:---------:|:-------:|
-| POS         | ✓             | ✓          | ✓    | ✓         |         |
-| Cocina      | ✓             |            |      |           | ✓       |
-| Coworking   | ✓             | ✓          | ✓    | ✓         |         |
-| Inventarios | ✓             | ✓          |      |           |         |
-| Usuarios    | ✓             |            |      |           |         |
-| Reportes    | ✓             | ✓          |      |           |         |
+- Calcular `isBarista = roles.includes('barista') && !roles.some(r => ['administrador','supervisor'].includes(r))`. Es decir: si el usuario tiene rol administrativo (aunque también sea barista), se considera supervisor/admin y no se le pide el diálogo.
+- El `<StartShiftDialog open={!shiftStarted && isBarista} ... />` solo se muestra cuando el usuario es barista puro.
+- Para no-baristas: `shiftStarted` se considera implícitamente `true` (no se intenta crear `AudioContext`, no se reproduce sonido, no se persiste en `sessionStorage`).
+- En `playNewOrderSound` y el timbre repetitivo de urgentes: ya están protegidos por `audioCtxRef.current?.state !== 'running'`, así que para admin/supervisor (sin AudioContext) no sonará nada — comportamiento deseado.
+- Rehidratación desde `sessionStorage` y `startShift` se ejecutan solo si `isBarista`.
 
-Además, blindar la ruta `/coworking` y `/pos` con `allowedRoles` para que el barista no pueda entrar escribiendo la URL manualmente.
-
-### Problema 2 — Diálogo "Iniciar turno" reaparece al cambiar de pestaña/sección
-El estado `shiftStarted` vive en el componente `CocinaPage`, así que se reinicia cada vez que el usuario sale y vuelve a `/cocina` (o cuando React desmonta el componente al cambiar de tab del navegador y volver). 
-
-**Solución:** Persistir el inicio de turno por sesión usando `sessionStorage` con una clave ligada al usuario y al día (CDMX). El diálogo se mostrará **una sola vez por sesión de navegador y por día**:
-
-- Mientras la pestaña/ventana siga abierta → no vuelve a pedirlo aunque navegue entre módulos o minimice.
-- Si cierra el navegador y vuelve a entrar → pide turno otra vez (correcto: cada nuevo arranque del navegador requiere un gesto del usuario para desbloquear `AudioContext`, es una restricción del navegador, no nuestra).
-- Si cambia de día (turno nuevo) → pide turno otra vez (estándar profesional).
-
-Clave: `kds:shift-started:<user_id>:<YYYY-MM-DD CDMX>`.
-
-Al montar `CocinaPage`, si la clave existe, se restaura `shiftStarted=true` y se intenta recrear/resumir el `AudioContext` automáticamente (ya está autorizado dentro de la misma sesión del navegador).
-
-### Archivos a modificar
-
-- `src/components/AppSidebar.tsx` — añadir `allowedRoles` a POS, Coworking y Usuarios (corregir además que Usuarios estaba sin restricción en la ruta).
-- `src/App.tsx` — añadir `allowedRoles` a las rutas `/pos`, `/coworking`, `/usuarios`, `/reportes` para defensa en profundidad.
-- `src/pages/CocinaPage.tsx` — leer/guardar `shiftStarted` desde `sessionStorage` con clave por usuario y día CDMX; recrear `AudioContext` al rehidratar.
+## Resultado
+- Supervisor ve "Cocina" en el sidebar y puede entrar a la pantalla.
+- Admin y supervisor entran directo al tablero, sin diálogo, sin sonido.
+- Barista mantiene el flujo actual: diálogo obligatorio una vez por sesión/día y alertas sonoras activas.
