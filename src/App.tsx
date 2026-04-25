@@ -16,15 +16,15 @@ import CoworkingPage from "@/pages/CoworkingPage";
 import InventariosPage from "@/pages/InventariosPage";
 import CocinaPage from "@/pages/CocinaPage";
 import NotFound from "./pages/NotFound";
+import { isKitchenOnlyMode } from "@/lib/roles";
 
 const queryClient = new QueryClient();
 
-/** Redirects barista-only users to /cocina */
+/** Redirects kitchen-only users to /cocina */
 function HomeRedirect() {
   const { roles, loading } = useAuth();
   if (loading) return null;
-  const isBaristaOnly = roles.length === 1 && roles[0] === 'barista';
-  if (isBaristaOnly) return <Navigate to="/cocina" replace />;
+  if (isKitchenOnlyMode(roles)) return <Navigate to="/cocina" replace />;
   return (
     <DashboardLayout>
       <DashboardPage />
@@ -32,12 +32,11 @@ function HomeRedirect() {
   );
 }
 
-/** Renders CocinaPage fullscreen for barista, with sidebar for others */
+/** Renders CocinaPage fullscreen for kitchen-only users, with sidebar for others */
 function CocinaRoute() {
   const { roles, loading } = useAuth();
   if (loading) return null;
-  const isBaristaOnly = roles.length === 1 && roles[0] === 'barista';
-  if (isBaristaOnly) return <CocinaPage />;
+  if (isKitchenOnlyMode(roles)) return <CocinaPage />;
   return (
     <DashboardLayout>
       <CocinaPage />
