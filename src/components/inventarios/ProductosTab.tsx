@@ -111,6 +111,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       imagen_url: producto.imagen_url ?? '',
       instrucciones_preparacion: producto.instrucciones_preparacion ?? '',
       precio_upsell_coworking: producto.precio_upsell_coworking != null ? String(producto.precio_upsell_coworking) : '',
+      requiere_preparacion: producto.requiere_preparacion !== false,
     });
     const { data } = await supabase
       .from('recetas')
