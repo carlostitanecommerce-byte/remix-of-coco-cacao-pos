@@ -16,7 +16,13 @@ const URGENT_THRESHOLD_MIN = 10; // órdenes con >10 min se consideran urgentes
 const URGENT_REPEAT_MS = 30000; // re-toca timbre cada 30s mientras haya urgentes
 
 export default function CocinaPage() {
-  const { user } = useAuth();
+  const { user, roles } = useAuth();
+  // El diálogo de "Iniciar turno" y las alertas sonoras solo aplican al
+  // barista. Admin/supervisor entran a Cocina únicamente a observar, sin
+  // necesidad de gesto de audio ni notificaciones acústicas.
+  const isBarista =
+    roles.includes('barista') &&
+    !roles.some((r) => ['administrador', 'supervisor'].includes(r));
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
@@ -51,16 +57,20 @@ export default function CocinaPage() {
     return `kds:shift-started:${user.id}:${ymd}`;
   }, [user?.id]);
 
-  const [shiftStarted, setShiftStarted] = useState(false);
+  // Para admin/supervisor consideramos el turno "iniciado" implícitamente:
+  // no se les muestra el diálogo y no se intenta crear AudioContext.
+  const [shiftStarted, setShiftStarted] = useState(!isBarista);
 
-  // Rehidratar el estado de turno al montar (o cuando cambia el usuario)
+  // Rehidratar el estado de turno al montar (o cuando cambia el usuario).
+  // Solo aplica al barista — los demás roles arrancan con shiftStarted=true.
   useEffect(() => {
+    if (!isBarista) {
+      setShiftStarted(true);
+      return;
+    }
     const key = shiftStorageKey();
     if (!key) return;
     if (sessionStorage.getItem(key) === '1') {
-      // El usuario ya inició turno en esta sesión del navegador.
-      // Recreamos el AudioContext (sigue autorizado dentro de la misma
-      // sesión porque el gesto original ya fue otorgado).
       try {
         const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
         if (Ctx && !audioCtxRef.current) audioCtxRef.current = new Ctx();
@@ -72,7 +82,7 @@ export default function CocinaPage() {
     } else {
       setShiftStarted(false);
     }
-  }, [shiftStorageKey]);
+  }, [shiftStorageKey, isBarista]);
 
   const startShift = useCallback(() => {
     try {
