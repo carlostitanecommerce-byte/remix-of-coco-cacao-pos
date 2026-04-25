@@ -146,6 +146,7 @@ export default function CocinaPage() {
   }, []);
 
   const fetchOrders = useCallback(async () => {
+    const myToken = ++fetchTokenRef.current;
     const { data: rawOrders, error } = await supabase
       .from('kds_orders')
       .select('*')
@@ -157,6 +158,8 @@ export default function CocinaPage() {
       console.error('Error fetching kds_orders', error);
       return;
     }
+    // Si llegó otro fetch después de este, descartamos el resultado.
+    if (myToken !== fetchTokenRef.current) return;
 
     if (!rawOrders || rawOrders.length === 0) {
       setOrders([]);
@@ -174,6 +177,7 @@ export default function CocinaPage() {
     if (itemsError) {
       console.error('Error fetching kds_order_items', itemsError);
     }
+    if (myToken !== fetchTokenRef.current) return;
 
     const itemsByOrder: Record<string, KdsOrderItem[]> = {};
     (rawItems || []).forEach((item: any) => {
@@ -208,6 +212,46 @@ export default function CocinaPage() {
     initialLoad.current = false;
     setOrders(mapped);
   }, [playNewOrderSound, todayStartIso]);
+
+  // Carga puntual de un solo order (cuando llega un item realtime para un
+  // order que aún no tenemos en memoria — evita un refetch global).
+  const fetchSingleOrder = useCallback(async (orderId: string) => {
+    const { data: o } = await supabase
+      .from('kds_orders')
+      .select('*')
+      .eq('id', orderId)
+      .maybeSingle();
+    if (!o || !ACTIVE_STATES.includes(o.estado as KdsEstado)) return;
+    const { data: rawItems } = await supabase
+      .from('kds_order_items')
+      .select('*')
+      .eq('kds_order_id', orderId);
+    const items: KdsOrderItem[] = (rawItems || []).map((it: any) => ({
+      id: it.id,
+      nombre_producto: it.nombre_producto,
+      cantidad: it.cantidad,
+      notas: it.notas,
+    }));
+    setOrders((prev) => {
+      if (prev.some((x) => x.id === o.id)) {
+        // Ya existe (insert optimista anterior); reemplaza items
+        return prev.map((x) => (x.id === o.id ? { ...x, items } : x));
+      }
+      const next: KdsOrder = {
+        id: o.id,
+        venta_id: (o as any).venta_id,
+        folio: (o as any).folio,
+        tipo_consumo: (o as any).tipo_consumo,
+        estado: o.estado as KdsEstado,
+        created_at: (o as any).created_at,
+        items,
+      };
+      knownIds.current.add(o.id);
+      return [...prev, next].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    });
+  }, []);
 
   useEffect(() => {
     fetchOrders();
