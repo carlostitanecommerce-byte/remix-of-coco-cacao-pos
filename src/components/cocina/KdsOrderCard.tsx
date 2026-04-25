@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, Clock, UtensilsCrossed } from 'lucide-react';
+import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface KdsOrderItem {
@@ -12,20 +12,24 @@ export interface KdsOrderItem {
   notas: string | null;
 }
 
+export type KdsEstado = 'pendiente' | 'en_preparacion' | 'listo';
+
 export interface KdsOrder {
   id: string;
   venta_id: string;
   folio: number;
   tipo_consumo: string;
-  estado: 'pendiente' | 'listo';
+  estado: KdsEstado;
   created_at: string;
   items: KdsOrderItem[];
 }
 
 interface Props {
   order: KdsOrder;
-  onMarkReady: (orderId: string) => void;
-  marking?: boolean;
+  onStart?: (orderId: string) => void;
+  onMarkReady?: (orderId: string) => void;
+  onRevert?: (orderId: string) => void;
+  busy?: boolean;
 }
 
 const tipoLabel: Record<string, string> = {
@@ -34,7 +38,13 @@ const tipoLabel: Record<string, string> = {
   delivery: 'Delivery',
 };
 
-export function KdsOrderCard({ order, onMarkReady, marking }: Props) {
+const ConsumoIcon = ({ tipo }: { tipo: string }) => {
+  if (tipo === 'delivery') return <Bike className="h-3 w-3" />;
+  if (tipo === 'para_llevar') return <ShoppingBag className="h-3 w-3" />;
+  return <Coffee className="h-3 w-3" />;
+};
+
+export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, busy }: Props) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -64,41 +74,42 @@ export function KdsOrderCard({ order, onMarkReady, marking }: Props) {
   };
 
   const isReady = order.estado === 'listo';
+  const isInProgress = order.estado === 'en_preparacion';
+  const isPending = order.estado === 'pendiente';
+
+  const cardStyle = isReady
+    ? 'border-muted bg-muted/40 opacity-85'
+    : isInProgress
+      ? 'border-primary/60 bg-primary/5'
+      : urgencyStyles[urgency];
 
   return (
     <Card
       role="article"
-      aria-label={`Orden #${String(order.folio).padStart(4, '0')}, ${tipoLabel[order.tipo_consumo] || order.tipo_consumo}, ${isReady ? 'lista' : `pendiente, ${minutes} minutos ${seconds} segundos`}`}
-      className={cn(
-        'border-2 transition-all duration-300',
-        isReady
-          ? 'border-primary/30 bg-primary/5 opacity-80'
-          : urgencyStyles[urgency]
-      )}
+      aria-label={`Orden #${String(order.folio).padStart(4, '0')}, ${tipoLabel[order.tipo_consumo] || order.tipo_consumo}, ${order.estado}, ${minutes} minutos ${seconds} segundos`}
+      className={cn('border-2 transition-all duration-300', cardStyle)}
     >
       <CardHeader className="pb-2 pt-3 px-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span className="text-lg font-bold font-mono text-foreground">
               #{String(order.folio).padStart(4, '0')}
             </span>
-            <Badge
-              variant="outline"
-              className="text-xs font-normal"
-            >
+            <Badge variant="outline" className="text-xs font-normal gap-1">
+              <ConsumoIcon tipo={order.tipo_consumo} />
               {tipoLabel[order.tipo_consumo] || order.tipo_consumo}
             </Badge>
           </div>
           {!isReady && (
-            <div className={cn('flex items-center gap-1 text-sm', timerColor[urgency])}>
-              <Clock className="h-3.5 w-3.5" />
+            <div className={cn('flex items-center gap-1 text-sm shrink-0', timerColor[urgency])}>
+              <ClockIcon className="h-3.5 w-3.5" />
               <span className="font-mono tabular-nums">
                 {minutes}:{String(seconds).padStart(2, '0')}
               </span>
             </div>
           )}
           {isReady && (
-            <Badge className="bg-primary text-primary-foreground">
+            <Badge className="bg-primary text-primary-foreground shrink-0">
               <Check className="h-3 w-3 mr-1" /> Listo
             </Badge>
           )}
@@ -115,8 +126,8 @@ export function KdsOrderCard({ order, onMarkReady, marking }: Props) {
               <div className="flex-1 min-w-0">
                 <span className="text-sm text-foreground">{item.nombre_producto}</span>
                 {item.notas && (
-                  <p className="text-xs text-muted-foreground italic mt-0.5">
-                    {item.notas}
+                  <p className="text-xs text-accent-foreground italic mt-0.5 font-medium bg-accent/40 rounded px-1.5 py-0.5 inline-block">
+                    📝 {item.notas}
                   </p>
                 )}
               </div>
@@ -124,15 +135,41 @@ export function KdsOrderCard({ order, onMarkReady, marking }: Props) {
           ))}
         </div>
 
-        {!isReady && (
+        {isPending && onStart && (
+          <Button
+            size="lg"
+            variant="outline"
+            className="w-full mt-2 h-11 text-base font-semibold border-primary/40 text-primary hover:bg-primary/10"
+            onClick={() => onStart(order.id)}
+            disabled={busy}
+          >
+            <Play className="h-4 w-4 mr-2" />
+            Iniciar
+          </Button>
+        )}
+
+        {isInProgress && onMarkReady && (
           <Button
             size="lg"
             className="w-full mt-2 h-12 text-base font-semibold"
             onClick={() => onMarkReady(order.id)}
-            disabled={marking}
+            disabled={busy}
           >
             <UtensilsCrossed className="h-5 w-5 mr-2" />
             Marcar Listo
+          </Button>
+        )}
+
+        {isReady && onRevert && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full mt-1 h-8 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => onRevert(order.id)}
+            disabled={busy}
+          >
+            <Undo2 className="h-3 w-3 mr-1.5" />
+            Revertir a "En preparación"
           </Button>
         )}
       </CardContent>

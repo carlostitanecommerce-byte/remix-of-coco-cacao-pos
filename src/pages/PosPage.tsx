@@ -290,6 +290,12 @@ const PosPage = () => {
     setItems(prev => prev.filter(i => i.producto_id !== productoId));
   }, [items]);
 
+  const updateNotas = useCallback((productoId: string, notas: string) => {
+    setItems(prev => prev.map(i =>
+      i.producto_id === productoId ? { ...i, notas: notas.trim() || undefined } : i
+    ));
+  }, []);
+
   const missingImportedItems = useMemo(() => {
     if (!importedSessionId || originalSessionItems.length === 0) return [];
     const result: (CartItem & { cantidad_faltante: number })[] = [];
@@ -486,6 +492,7 @@ const PosPage = () => {
             onSetPropina={setPropina}
             onSetPropinaEnDigital={setPropinaEnDigital}
             onUpdateQty={updateQty}
+            onUpdateNotas={updateNotas}
             onRemove={removeItem}
             onClear={handleClearCart}
             onConfirm={handleConfirm}

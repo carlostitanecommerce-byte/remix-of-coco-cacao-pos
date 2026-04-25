@@ -1,95 +1,75 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { KdsBoard } from '@/components/cocina/KdsBoard';
-import type { KdsOrder, KdsOrderItem } from '@/components/cocina/KdsOrderCard';
+import { Clock as KdsClock } from '@/components/cocina/Clock';
+import { SoundEnabler } from '@/components/cocina/SoundEnabler';
+import type { KdsOrder, KdsOrderItem, KdsEstado } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
-import { ChefHat, LogOut, Volume2 } from 'lucide-react';
+import { ChefHat, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
-const READY_RETENTION_MS = 30_000;
-
-// Persistent AudioContext (only one per session, primed by user gesture)
-let audioCtx: AudioContext | null = null;
-const ensureAudio = () => {
-  if (!audioCtx) {
-    try {
-      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    } catch {
-      return null;
-    }
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {});
-  }
-  return audioCtx;
-};
-
-const playNewOrderSound = () => {
-  const ctx = audioCtx;
-  if (!ctx || ctx.state !== 'running') return;
-  try {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    osc.type = 'sine';
-    gain.gain.value = 0.3;
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-    osc.stop(ctx.currentTime + 0.3);
-  } catch {}
-};
+const ACTIVE_STATES: KdsEstado[] = ['pendiente', 'en_preparacion', 'listo'];
 
 export default function CocinaPage() {
   const { roles, signOut } = useAuth();
   const isBaristaOnly = roles.length === 1 && roles[0] === 'barista';
   const [orders, setOrders] = useState<KdsOrder[]>([]);
-  const [markingId, setMarkingId] = useState<string | null>(null);
-  const [now, setNow] = useState(new Date());
-  const [audioReady, setAudioReady] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
   const initialLoad = useRef(true);
+  const listoTimestamps = useRef<Record<string, number>>({});
 
-  // Clock
-  useEffect(() => {
-    const iv = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(iv);
+  // ------- Audio context (single, gated by user gesture) -------
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+
+  const enableSound = useCallback(() => {
+    try {
+      const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
+      if (!Ctx) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
+      audioCtxRef.current.resume?.();
+      setSoundEnabled(true);
+      toast.success('Sonido activado');
+    } catch (e) {
+      console.error('No se pudo activar audio', e);
+      toast.error('No se pudo activar el sonido');
+    }
   }, []);
 
-  // Activate audio on first user gesture
-  useEffect(() => {
-    const activate = () => {
-      const ctx = ensureAudio();
-      if (ctx && ctx.state === 'running') {
-        setAudioReady(true);
-        window.removeEventListener('click', activate);
-        window.removeEventListener('keydown', activate);
-        window.removeEventListener('touchstart', activate);
-      }
-    };
-    window.addEventListener('click', activate);
-    window.addEventListener('keydown', activate);
-    window.addEventListener('touchstart', activate);
-    return () => {
-      window.removeEventListener('click', activate);
-      window.removeEventListener('keydown', activate);
-      window.removeEventListener('touchstart', activate);
-    };
+  const playNewOrderSound = useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx || ctx.state !== 'running') return;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.value = 0.3;
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  // Fetch orders: pendientes del día + listos recientes (< 30s desde updated_at)
+  // ------- Fetch helpers -------
+  const todayStartIso = useCallback(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString();
+  }, []);
+
   const fetchOrders = useCallback(async () => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const cutoff = new Date(Date.now() - READY_RETENTION_MS).toISOString();
-
     const { data: rawOrders, error } = await supabase
       .from('kds_orders')
       .select('*')
-      .gte('created_at', todayStart.toISOString())
-      .or(`estado.eq.pendiente,and(estado.eq.listo,updated_at.gt.${cutoff})`)
+      .gte('created_at', todayStartIso())
+      .in('estado', ACTIVE_STATES as any)
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -131,12 +111,11 @@ export default function CocinaPage() {
       venta_id: o.venta_id,
       folio: o.folio,
       tipo_consumo: o.tipo_consumo,
-      estado: o.estado as 'pendiente' | 'listo',
+      estado: o.estado as KdsEstado,
       created_at: o.created_at,
       items: itemsByOrder[o.id] || [],
     }));
 
-    // Sound for new pending orders (skip initial load)
     if (!initialLoad.current) {
       mapped.forEach((o) => {
         if (o.estado === 'pendiente' && !knownIds.current.has(o.id)) {
@@ -148,67 +127,123 @@ export default function CocinaPage() {
     knownIds.current = new Set(mapped.map((o) => o.id));
     initialLoad.current = false;
     setOrders(mapped);
-  }, []);
+  }, [playNewOrderSound, todayStartIso]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
-  // Realtime subscription (kds + cajas)
+  // ------- Realtime: incremental patches with debounce fallback -------
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => fetchOrders(), 250);
+    };
+
     const channel = supabase
       .channel('kds-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kds_orders' }, () => {
-        fetchOrders();
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_orders' }, () => {
+        scheduleRefetch();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
+        const next = payload.new;
+        if (!next) return;
+        if (!ACTIVE_STATES.includes(next.estado)) {
+          setOrders((prev) => prev.filter((o) => o.id !== next.id));
+          return;
+        }
+        setOrders((prev) =>
+          prev.map((o) => (o.id === next.id ? { ...o, estado: next.estado as KdsEstado } : o))
+        );
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
+        const old = payload.old;
+        if (old?.id) {
+          setOrders((prev) => prev.filter((o) => o.id !== old.id));
+        }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'kds_order_items' }, () => {
-        fetchOrders();
+        scheduleRefetch();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ventas' }, (payload: any) => {
+        if (payload.new?.estado === 'cancelada') {
+          // Instant feedback even before the trigger deletes the kds_order
+          setOrders((prev) => prev.filter((o) => o.venta_id !== payload.new.id));
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cajas' }, (payload: any) => {
         if (payload.new?.estado === 'cerrada') {
-          // Remove all "listo" orders when caja closes
           setOrders((prev) => prev.filter((o) => o.estado !== 'listo'));
+          listoTimestamps.current = {};
         }
       })
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [fetchOrders]);
 
-  // Periodic re-fetch to evict "listo" orders past their 30s window
+  // ------- Auto-remove "listo" after 30s -------
+  useEffect(() => {
+    orders.forEach((o) => {
+      if (o.estado === 'listo' && !listoTimestamps.current[o.id]) {
+        listoTimestamps.current[o.id] = Date.now();
+      }
+      if (o.estado !== 'listo' && listoTimestamps.current[o.id]) {
+        delete listoTimestamps.current[o.id];
+      }
+    });
+    const ids = new Set(orders.map((o) => o.id));
+    Object.keys(listoTimestamps.current).forEach((k) => {
+      if (!ids.has(k)) delete listoTimestamps.current[k];
+    });
+  }, [orders]);
+
   useEffect(() => {
     const iv = setInterval(() => {
-      // Solo refrescar si hay órdenes "listo" en pantalla
-      setOrders((prev) => {
-        if (prev.some((o) => o.estado === 'listo')) {
-          fetchOrders();
-        }
-        return prev;
-      });
-    }, 5000);
+      const now = Date.now();
+      setOrders((prev) =>
+        prev.filter((o) => {
+          if (o.estado !== 'listo') return true;
+          const ts = listoTimestamps.current[o.id];
+          if (!ts) return true;
+          return now - ts < 30000;
+        })
+      );
+    }, 2000);
     return () => clearInterval(iv);
-  }, [fetchOrders]);
+  }, []);
 
-  const handleMarkReady = async (orderId: string) => {
-    setMarkingId(orderId);
-    // Idempotencia: solo actualiza si sigue pendiente
+  // ------- Actions -------
+  const updateEstado = async (orderId: string, estado: KdsEstado) => {
+    setBusyId(orderId);
     const { error } = await supabase
       .from('kds_orders')
-      .update({ estado: 'listo' as any, updated_at: new Date().toISOString() })
-      .eq('id', orderId)
-      .eq('estado', 'pendiente');
-
+      .update({ estado: estado as any, updated_at: new Date().toISOString() })
+      .eq('id', orderId);
     if (error) {
       toast.error('Error al actualizar orden');
       console.error(error);
+    } else {
+      // Optimistic local patch (realtime will reconcile)
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, estado } : o)));
+      if (estado === 'listo') {
+        listoTimestamps.current[orderId] = Date.now();
+      } else if (listoTimestamps.current[orderId]) {
+        delete listoTimestamps.current[orderId];
+      }
     }
-    setMarkingId(null);
+    setBusyId(null);
   };
 
-  const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-  const dateStr = now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' });
+  const handleStart = (orderId: string) => updateEstado(orderId, 'en_preparacion');
+  const handleMarkReady = (orderId: string) => updateEstado(orderId, 'listo');
+  const handleRevert = (orderId: string) => updateEstado(orderId, 'en_preparacion');
+
+  const activeCount = orders.filter((o) => o.estado !== 'listo').length;
 
   return (
     <div className="h-full flex flex-col">
@@ -220,13 +255,14 @@ export default function CocinaPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground">Cocina</h1>
-            <p className="text-xs text-muted-foreground capitalize">{dateStr}</p>
+            <p className="text-xs text-muted-foreground">
+              {activeCount} {activeCount === 1 ? 'orden activa' : 'órdenes activas'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="text-2xl font-mono font-bold text-foreground tabular-nums">
-            {timeStr}
-          </div>
+          <SoundEnabler enabled={soundEnabled} onEnable={enableSound} />
+          <KdsClock />
           {isBaristaOnly && (
             <Button
               variant="ghost"
@@ -241,23 +277,15 @@ export default function CocinaPage() {
         </div>
       </div>
 
-      {/* Audio activation banner */}
-      {!audioReady && (
-        <button
-          onClick={() => {
-            const ctx = ensureAudio();
-            if (ctx && ctx.state === 'running') setAudioReady(true);
-          }}
-          className="flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/40 text-amber-700 dark:text-amber-400 px-4 py-2 text-sm font-medium hover:bg-amber-500/20 transition-colors"
-        >
-          <Volume2 className="h-4 w-4" />
-          Toca aquí para activar las alertas sonoras de nuevas órdenes
-        </button>
-      )}
-
       {/* Board */}
       <div className="flex-1 p-4 overflow-hidden">
-        <KdsBoard orders={orders} onMarkReady={handleMarkReady} markingId={markingId} />
+        <KdsBoard
+          orders={orders}
+          onStart={handleStart}
+          onMarkReady={handleMarkReady}
+          onRevert={handleRevert}
+          busyId={busyId}
+        />
       </div>
     </div>
   );

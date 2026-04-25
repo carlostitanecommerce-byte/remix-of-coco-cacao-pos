@@ -15,6 +15,7 @@ export interface CartItem {
   descripcion?: string;
   paquete_id?: string;
   componentes?: PaqueteComponente[];
+  notas?: string;
 }
 
 export interface VentaConfig {

@@ -282,29 +282,56 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
-      // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
-      // Excluir explícitamente líneas de coworking (tiempo de servicio) — no son preparables.
-      const kdsLines: Array<{ producto_id: string | null; nombre: string; cantidad: number; paquete_nombre?: string }> = [];
+      // 4. Create KDS order for kitchen (productos simples + amenities + componentes de paquetes)
+      // - Excluir tiempo de servicio coworking (no preparable).
+      // - Incluir amenities (ej. café cortesía coworking) con etiqueta especial.
+      // - Filtrar productos marcados como `requiere_preparacion=false` (retail, agua embotellada, etc.).
+      type KdsRaw = { producto_id: string | null; nombre_producto: string; cantidad: number; notas: string | null };
+      const kdsItemsRaw: KdsRaw[] = [];
       for (const item of summary.items) {
         if (item.tipo_concepto === 'producto') {
           if (item.producto_id?.startsWith('coworking-')) continue;
-          kdsLines.push({
-            producto_id: item.producto_id,
-            nombre: item.nombre,
+          kdsItemsRaw.push({
+            producto_id: item.producto_id ?? null,
+            nombre_producto: item.nombre,
             cantidad: item.cantidad,
+            notas: item.notas?.trim() || null,
+          });
+        } else if (item.tipo_concepto === 'amenity' && item.producto_id && !item.producto_id.startsWith('coworking-')) {
+          kdsItemsRaw.push({
+            producto_id: item.producto_id,
+            nombre_producto: `${item.nombre} ☕ (cortesía coworking)`,
+            cantidad: item.cantidad,
+            notas: item.notas?.trim() || null,
           });
         } else if (item.tipo_concepto === 'paquete') {
           for (const c of (item.componentes ?? [])) {
-            kdsLines.push({
+            kdsItemsRaw.push({
               producto_id: c.producto_id,
-              nombre: `📦 [${item.nombre.replace('📦 ', '')}] ${c.nombre}`,
+              nombre_producto: `${c.nombre} (📦 ${item.nombre.replace(/^📦\s*/, '')})`,
               cantidad: c.cantidad * item.cantidad,
-              paquete_nombre: item.nombre,
+              notas: item.notas?.trim() || null,
             });
           }
         }
       }
-      if (kdsLines.length > 0) {
+
+      // Filter out products that don't require kitchen preparation
+      const productIds = kdsItemsRaw.map(i => i.producto_id).filter((x): x is string => !!x);
+      let preparacionMap = new Map<string, boolean>();
+      if (productIds.length > 0) {
+        const { data: prods } = await supabase
+          .from('productos')
+          .select('id, requiere_preparacion')
+          .in('id', productIds);
+        preparacionMap = new Map((prods ?? []).map((p: any) => [p.id, p.requiere_preparacion !== false]));
+      }
+      const kdsItemsFiltered = kdsItemsRaw.filter(it => {
+        if (!it.producto_id) return true;
+        return preparacionMap.get(it.producto_id) !== false;
+      });
+
+      if (kdsItemsFiltered.length > 0) {
         const { data: kdsOrder } = await supabase.from('kds_orders').insert({
           venta_id: venta.id,
           folio: venta.folio,
@@ -313,12 +340,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }).select('id').single();
 
         if (kdsOrder) {
-          const kdsItems = kdsLines.map(l => ({
-            kds_order_id: kdsOrder.id,
-            producto_id: l.producto_id,
-            nombre_producto: l.nombre,
-            cantidad: l.cantidad,
-          }));
+          const kdsItems = kdsItemsFiltered.map(it => ({ kds_order_id: kdsOrder.id, ...it }));
           await supabase.from('kds_order_items').insert(kdsItems as any);
         }
       }

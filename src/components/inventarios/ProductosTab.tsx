@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -47,9 +48,10 @@ interface Producto {
   instrucciones_preparacion: string | null;
   precio_upsell_coworking: number | null;
   activo: boolean;
+  requiere_preparacion: boolean;
 }
 
-const emptyForm = { nombre: '', categoria: '', precio_venta: '', imagen_url: '', instrucciones_preparacion: '', precio_upsell_coworking: '' };
+const emptyForm = { nombre: '', categoria: '', precio_venta: '', imagen_url: '', instrucciones_preparacion: '', precio_upsell_coworking: '', requiere_preparacion: true };
 
 interface Props { isAdmin: boolean; roles: string[] }
 
@@ -110,6 +112,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       imagen_url: producto.imagen_url ?? '',
       instrucciones_preparacion: producto.instrucciones_preparacion ?? '',
       precio_upsell_coworking: producto.precio_upsell_coworking != null ? String(producto.precio_upsell_coworking) : '',
+      requiere_preparacion: producto.requiere_preparacion !== false,
     });
     const { data } = await supabase
       .from('recetas')
@@ -141,6 +144,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       imagen_url: producto.imagen_url ?? '',
       instrucciones_preparacion: producto.instrucciones_preparacion ?? '',
       precio_upsell_coworking: producto.precio_upsell_coworking != null ? String(producto.precio_upsell_coworking) : '',
+      requiere_preparacion: producto.requiere_preparacion !== false,
     });
     setReceta(lines);
     setNewLine({ insumo_id: '', cantidad: '' });
@@ -185,6 +189,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       imagen_url: form.imagen_url || null,
       instrucciones_preparacion: form.instrucciones_preparacion.trim() || null,
       precio_upsell_coworking: precioUpsell,
+      requiere_preparacion: form.requiere_preparacion,
     };
 
     let productoId = editingId;
