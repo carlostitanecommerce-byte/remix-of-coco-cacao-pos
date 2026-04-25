@@ -3,14 +3,32 @@ import { supabase } from '@/integrations/supabase/client';
 import { KdsBoard } from '@/components/cocina/KdsBoard';
 import type { KdsOrder, KdsOrderItem } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
-import { ChefHat, LogOut } from 'lucide-react';
+import { ChefHat, LogOut, Volume2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
-// Sound for new orders
+const READY_RETENTION_MS = 30_000;
+
+// Persistent AudioContext (only one per session, primed by user gesture)
+let audioCtx: AudioContext | null = null;
+const ensureAudio = () => {
+  if (!audioCtx) {
+    try {
+      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    } catch {
+      return null;
+    }
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  return audioCtx;
+};
+
 const playNewOrderSound = () => {
+  const ctx = audioCtx;
+  if (!ctx || ctx.state !== 'running') return;
   try {
-    const ctx = new AudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -30,6 +48,7 @@ export default function CocinaPage() {
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
+  const [audioReady, setAudioReady] = useState(false);
   const knownIds = useRef<Set<string>>(new Set());
   const initialLoad = useRef(true);
 
@@ -39,19 +58,43 @@ export default function CocinaPage() {
     return () => clearInterval(iv);
   }, []);
 
-  // Fetch orders from today
+  // Activate audio on first user gesture
+  useEffect(() => {
+    const activate = () => {
+      const ctx = ensureAudio();
+      if (ctx && ctx.state === 'running') {
+        setAudioReady(true);
+        window.removeEventListener('click', activate);
+        window.removeEventListener('keydown', activate);
+        window.removeEventListener('touchstart', activate);
+      }
+    };
+    window.addEventListener('click', activate);
+    window.addEventListener('keydown', activate);
+    window.addEventListener('touchstart', activate);
+    return () => {
+      window.removeEventListener('click', activate);
+      window.removeEventListener('keydown', activate);
+      window.removeEventListener('touchstart', activate);
+    };
+  }, []);
+
+  // Fetch orders: pendientes del día + listos recientes (< 30s desde updated_at)
   const fetchOrders = useCallback(async () => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const cutoff = new Date(Date.now() - READY_RETENTION_MS).toISOString();
 
     const { data: rawOrders, error } = await supabase
       .from('kds_orders')
       .select('*')
       .gte('created_at', todayStart.toISOString())
+      .or(`estado.eq.pendiente,and(estado.eq.listo,updated_at.gt.${cutoff})`)
       .order('created_at', { ascending: true });
 
     if (error) {
       console.error('Error fetching kds_orders', error);
+      toast.error('Error al cargar órdenes de cocina');
       return;
     }
 
@@ -62,10 +105,15 @@ export default function CocinaPage() {
     }
 
     const orderIds = rawOrders.map((o: any) => o.id);
-    const { data: rawItems } = await supabase
+    const { data: rawItems, error: itemsError } = await supabase
       .from('kds_order_items')
       .select('*')
       .in('kds_order_id', orderIds);
+
+    if (itemsError) {
+      console.error('Error fetching kds_order_items', itemsError);
+      toast.error('Error al cargar productos de las órdenes');
+    }
 
     const itemsByOrder: Record<string, KdsOrderItem[]> = {};
     (rawItems || []).forEach((item: any) => {
@@ -120,7 +168,6 @@ export default function CocinaPage() {
         if (payload.new?.estado === 'cerrada') {
           // Remove all "listo" orders when caja closes
           setOrders((prev) => prev.filter((o) => o.estado !== 'listo'));
-          listoTimestamps.current = {};
         }
       })
       .subscribe();
@@ -130,42 +177,28 @@ export default function CocinaPage() {
     };
   }, [fetchOrders]);
 
-  // Track when orders become listo to auto-remove after 30s
-  const listoTimestamps = useRef<Record<string, number>>({});
-
-  useEffect(() => {
-    orders.forEach((o) => {
-      if (o.estado === 'listo' && !listoTimestamps.current[o.id]) {
-        listoTimestamps.current[o.id] = Date.now();
-      }
-    });
-    const ids = new Set(orders.map((o) => o.id));
-    Object.keys(listoTimestamps.current).forEach((k) => {
-      if (!ids.has(k)) delete listoTimestamps.current[k];
-    });
-  }, [orders]);
-
+  // Periodic re-fetch to evict "listo" orders past their 30s window
   useEffect(() => {
     const iv = setInterval(() => {
-      const now = Date.now();
-      setOrders((prev) =>
-        prev.filter((o) => {
-          if (o.estado !== 'listo') return true;
-          const ts = listoTimestamps.current[o.id];
-          if (!ts) return true;
-          return now - ts < 30000;
-        })
-      );
-    }, 2000);
+      // Solo refrescar si hay órdenes "listo" en pantalla
+      setOrders((prev) => {
+        if (prev.some((o) => o.estado === 'listo')) {
+          fetchOrders();
+        }
+        return prev;
+      });
+    }, 5000);
     return () => clearInterval(iv);
-  }, []);
+  }, [fetchOrders]);
 
   const handleMarkReady = async (orderId: string) => {
     setMarkingId(orderId);
+    // Idempotencia: solo actualiza si sigue pendiente
     const { error } = await supabase
       .from('kds_orders')
-      .update({ estado: 'listo' as any })
-      .eq('id', orderId);
+      .update({ estado: 'listo' as any, updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .eq('estado', 'pendiente');
 
     if (error) {
       toast.error('Error al actualizar orden');
@@ -207,6 +240,20 @@ export default function CocinaPage() {
           )}
         </div>
       </div>
+
+      {/* Audio activation banner */}
+      {!audioReady && (
+        <button
+          onClick={() => {
+            const ctx = ensureAudio();
+            if (ctx && ctx.state === 'running') setAudioReady(true);
+          }}
+          className="flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/40 text-amber-700 dark:text-amber-400 px-4 py-2 text-sm font-medium hover:bg-amber-500/20 transition-colors"
+        >
+          <Volume2 className="h-4 w-4" />
+          Toca aquí para activar las alertas sonoras de nuevas órdenes
+        </button>
+      )}
 
       {/* Board */}
       <div className="flex-1 p-4 overflow-hidden">
