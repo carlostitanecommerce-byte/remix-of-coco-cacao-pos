@@ -78,7 +78,7 @@ function NotesPopover({ value, onChange }: { value: string; onChange: (v: string
 export function CartPanel({
   items, metodoPago, tipoConsumo, mixedPayment, propina, propinaEnDigital,
   onSetMetodoPago, onSetTipoConsumo, onSetMixedPayment, onSetPropina, onSetPropinaEnDigital,
-  onUpdateQty, onRemove, onClear, onConfirm, subtotal, comisionPct,
+  onUpdateQty, onUpdateNotas, onRemove, onClear, onConfirm, subtotal, comisionPct,
   missingImportedItems = [], onRestoreItem,
 }: Props) {
   const coworkingItems = items.filter(i => i.tipo_concepto === 'coworking');
