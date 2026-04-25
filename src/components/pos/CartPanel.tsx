@@ -128,10 +128,19 @@ export function CartPanel({
           )}
           {lockQty && <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>}
           <p className="text-sm font-bold w-16 text-right">${item.subtotal.toFixed(2)}</p>
+          {onUpdateNotas && !isTarifa && (
+            <NotesPopover
+              value={item.notas ?? ''}
+              onChange={(v) => onUpdateNotas(item.producto_id, v)}
+            />
+          )}
           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(item.producto_id)}>
             <Trash2 className="h-3 w-3" />
           </Button>
         </div>
+        {item.notas && (
+          <p className="mt-1 ml-5 text-[11px] text-primary italic">📝 {item.notas}</p>
+        )}
         {isPaquete && item.componentes && item.componentes.length > 0 && (
           <ul className="mt-1.5 ml-5 space-y-0.5 border-l border-border pl-2">
             {item.componentes.map((c, idx) => (
