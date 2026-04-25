@@ -295,6 +295,8 @@ const PosPage = () => {
       i.producto_id === productoId ? { ...i, notas: notas.trim() || undefined } : i
     ));
   }, []);
+
+  const missingImportedItems = useMemo(() => {
     if (!importedSessionId || originalSessionItems.length === 0) return [];
     const result: (CartItem & { cantidad_faltante: number })[] = [];
     for (const orig of originalSessionItems) {
