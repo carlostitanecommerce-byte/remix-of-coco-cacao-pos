@@ -511,6 +511,23 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                   <p className="text-xs text-muted-foreground">Solo administradores y supervisores pueden editar las instrucciones.</p>
                 )}
               </div>
+              <div className="col-span-2 flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor="requiere-prep-switch" className="text-sm font-semibold">
+                    Enviar a Cocina (KDS)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Activado: el producto aparece en la pantalla de cocina al venderse (bebidas, alimentos preparados).
+                    <br />
+                    Desactivado: producto retail listo para entregar (embotellados, empaquetados, papelería) — no satura la cocina.
+                  </p>
+                </div>
+                <Switch
+                  id="requiere-prep-switch"
+                  checked={form.requiere_preparacion}
+                  onCheckedChange={(checked) => setForm(f => ({ ...f, requiere_preparacion: checked }))}
+                />
+              </div>
             </div>
 
             <Separator />
