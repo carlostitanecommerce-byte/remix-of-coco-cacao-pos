@@ -416,20 +416,18 @@ export default function CocinaPage() {
     };
   }, [fetchOrders, fetchSingleOrder, playNewOrderSound]);
 
-  // ------- Safety net: refetch on visibility change, online event, and 30s polling -------
+  // ------- Safety net: refetch on visibility/online y polling SOLO si NO estamos en vivo -------
+  // Mientras el canal esté `live`, los handlers ya entregan todo. El polling
+  // sirve únicamente cuando perdimos conexión y aún no reconectamos.
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        fetchOrders();
-      }
+      if (document.visibilityState === 'visible') fetchOrders();
     };
-    const handleOnline = () => {
-      fetchOrders();
-    };
+    const handleOnline = () => fetchOrders();
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('online', handleOnline);
     const pollInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && liveStatus !== 'live') {
         fetchOrders();
       }
     }, POLL_FALLBACK_MS);
@@ -438,7 +436,7 @@ export default function CocinaPage() {
       window.removeEventListener('online', handleOnline);
       clearInterval(pollInterval);
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, liveStatus]);
 
   // ------- Auto-remove "listo" after 30s -------
   useEffect(() => {
