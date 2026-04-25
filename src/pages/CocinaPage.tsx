@@ -69,10 +69,27 @@ export default function CocinaPage() {
   }, []);
 
   // ------- Fetch helpers -------
+  // Inicio del día en zona horaria del negocio (CDMX, UTC-6 fijo) — consistente
+  // con el resto del sistema. Evita que en la madrugada o desde otra zona
+  // horaria se calcule mal la ventana "de hoy".
   const todayStartIso = useCallback(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.toISOString();
+    const now = new Date();
+    // Convertir "ahora" a CDMX, truncar a 00:00:00 CDMX y devolver como UTC ISO
+    const cdmxOffsetHours = -6;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+    const cdmxNow = new Date(utcMs + cdmxOffsetHours * 3_600_000);
+    const cdmxMidnight = new Date(
+      cdmxNow.getFullYear(),
+      cdmxNow.getMonth(),
+      cdmxNow.getDate(),
+      0, 0, 0, 0,
+    );
+    // cdmxMidnight es 00:00 CDMX expresado como Date local del navegador;
+    // restamos el offset para obtener el equivalente UTC real.
+    const utcMidnight = new Date(
+      cdmxMidnight.getTime() - cdmxOffsetHours * 3_600_000 - now.getTimezoneOffset() * 60_000,
+    );
+    return utcMidnight.toISOString();
   }, []);
 
   const fetchOrders = useCallback(async () => {
