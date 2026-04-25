@@ -690,6 +690,7 @@ export type Database = {
           nombre: string
           precio_upsell_coworking: number | null
           precio_venta: number
+          requiere_preparacion: boolean
           tipo: string
           updated_at: string
         }
@@ -705,6 +706,7 @@ export type Database = {
           nombre: string
           precio_upsell_coworking?: number | null
           precio_venta?: number
+          requiere_preparacion?: boolean
           tipo?: string
           updated_at?: string
         }
@@ -720,6 +722,7 @@ export type Database = {
           nombre?: string
           precio_upsell_coworking?: number | null
           precio_venta?: number
+          requiere_preparacion?: boolean
           tipo?: string
           updated_at?: string
         }
@@ -1129,7 +1132,7 @@ export type Database = {
         | "recepcion"
       caja_estado: "abierta" | "cerrada"
       coworking_estado: "activo" | "finalizado" | "cancelado" | "pendiente_pago"
-      kds_estado: "pendiente" | "listo"
+      kds_estado: "pendiente" | "en_preparacion" | "listo"
       metodo_pago: "efectivo" | "tarjeta" | "transferencia" | "mixto"
       reservacion_estado:
         | "pendiente"
@@ -1275,7 +1278,7 @@ export const Constants = {
       app_role: ["administrador", "supervisor", "caja", "barista", "recepcion"],
       caja_estado: ["abierta", "cerrada"],
       coworking_estado: ["activo", "finalizado", "cancelado", "pendiente_pago"],
-      kds_estado: ["pendiente", "listo"],
+      kds_estado: ["pendiente", "en_preparacion", "listo"],
       metodo_pago: ["efectivo", "tarjeta", "transferencia", "mixto"],
       reservacion_estado: [
         "pendiente",
