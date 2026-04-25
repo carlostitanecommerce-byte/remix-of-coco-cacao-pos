@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users, RotateCcw, Package } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Trash2, Plus, Minus, ShoppingCart, Coffee, Users, RotateCcw, Package, MessageSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import type { CartItem, MixedPayment } from './types';
 
 interface Props {
@@ -20,6 +24,7 @@ interface Props {
   onSetPropina: (v: number) => void;
   onSetPropinaEnDigital: (v: boolean) => void;
   onUpdateQty: (productoId: string, delta: number) => void;
+  onUpdateNotas?: (productoId: string, notas: string) => void;
   onRemove: (productoId: string) => void;
   onClear: () => void;
   onConfirm: () => void;
@@ -27,6 +32,47 @@ interface Props {
   comisionPct: number;
   missingImportedItems?: (CartItem & { cantidad_faltante: number })[];
   onRestoreItem?: (item: CartItem) => void | Promise<void>;
+}
+
+function NotesPopover({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const [open, setOpen] = useState(false);
+  const hasNotes = !!value?.trim();
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setDraft(value); }}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('h-7 w-7', hasNotes ? 'text-primary' : 'text-muted-foreground')}
+          title={hasNotes ? `Nota: ${value}` : 'Agregar nota'}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2" align="end">
+        <Label className="text-xs text-muted-foreground">Nota para cocina</Label>
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Ej: sin azúcar, leche deslactosada..."
+          rows={3}
+          maxLength={200}
+          className="text-sm mt-1"
+          autoFocus
+        />
+        <div className="flex justify-end gap-1 mt-2">
+          <Button variant="ghost" size="sm" onClick={() => { onChange(''); setOpen(false); }}>
+            Limpiar
+          </Button>
+          <Button size="sm" onClick={() => { onChange(draft); setOpen(false); }}>
+            Guardar
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function CartPanel({
