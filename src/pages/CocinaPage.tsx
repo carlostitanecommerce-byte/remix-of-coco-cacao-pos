@@ -30,6 +30,10 @@ export default function CocinaPage() {
   const knownIds = useRef<Set<string>>(new Set());
   const initialLoad = useRef(true);
   const listoTimestamps = useRef<Record<string, number>>({});
+  // Token monotónico que descarta resultados de fetchOrders obsoletos
+  // (evita que un fetch lento sobreescriba al estado actual y produzca el
+  // "parpadeo" reportado en la lista de Listos).
+  const fetchTokenRef = useRef(0);
   // Mide cuánto tarda cada orden en pasar de creada → listo (calculado en cliente)
   const prepDurations = useRef<number[]>([]);
   const startedAt = useRef<Record<string, number>>({});
@@ -142,6 +146,7 @@ export default function CocinaPage() {
   }, []);
 
   const fetchOrders = useCallback(async () => {
+    const myToken = ++fetchTokenRef.current;
     const { data: rawOrders, error } = await supabase
       .from('kds_orders')
       .select('*')
@@ -153,6 +158,8 @@ export default function CocinaPage() {
       console.error('Error fetching kds_orders', error);
       return;
     }
+    // Si llegó otro fetch después de este, descartamos el resultado.
+    if (myToken !== fetchTokenRef.current) return;
 
     if (!rawOrders || rawOrders.length === 0) {
       setOrders([]);
@@ -170,6 +177,7 @@ export default function CocinaPage() {
     if (itemsError) {
       console.error('Error fetching kds_order_items', itemsError);
     }
+    if (myToken !== fetchTokenRef.current) return;
 
     const itemsByOrder: Record<string, KdsOrderItem[]> = {};
     (rawItems || []).forEach((item: any) => {
@@ -205,6 +213,46 @@ export default function CocinaPage() {
     setOrders(mapped);
   }, [playNewOrderSound, todayStartIso]);
 
+  // Carga puntual de un solo order (cuando llega un item realtime para un
+  // order que aún no tenemos en memoria — evita un refetch global).
+  const fetchSingleOrder = useCallback(async (orderId: string) => {
+    const { data: o } = await supabase
+      .from('kds_orders')
+      .select('*')
+      .eq('id', orderId)
+      .maybeSingle();
+    if (!o || !ACTIVE_STATES.includes(o.estado as KdsEstado)) return;
+    const { data: rawItems } = await supabase
+      .from('kds_order_items')
+      .select('*')
+      .eq('kds_order_id', orderId);
+    const items: KdsOrderItem[] = (rawItems || []).map((it: any) => ({
+      id: it.id,
+      nombre_producto: it.nombre_producto,
+      cantidad: it.cantidad,
+      notas: it.notas,
+    }));
+    setOrders((prev) => {
+      if (prev.some((x) => x.id === o.id)) {
+        // Ya existe (insert optimista anterior); reemplaza items
+        return prev.map((x) => (x.id === o.id ? { ...x, items } : x));
+      }
+      const next: KdsOrder = {
+        id: o.id,
+        venta_id: (o as any).venta_id,
+        folio: (o as any).folio,
+        tipo_consumo: (o as any).tipo_consumo,
+        estado: o.estado as KdsEstado,
+        created_at: (o as any).created_at,
+        items,
+      };
+      knownIds.current.add(o.id);
+      return [...prev, next].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    });
+  }, []);
+
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
@@ -225,21 +273,20 @@ export default function CocinaPage() {
   }, []);
 
   // ------- Realtime: subscription with reconnection + status tracking -------
+  // Estrategia: mientras el canal está SUBSCRIBED, los handlers son la única
+  // fuente de verdad (cambios optimistas e in-place). fetchOrders sólo se
+  // llama (a) al montar, (b) al re-suscribir, (c) al recuperar foco/online,
+  // y (d) como red de seguridad cuando el canal NO está conectado.
+  // Esto elimina el desfase de 1-5s del refetch debounced y la condición
+  // de carrera que causaba el parpadeo en la lista de Listos.
   useEffect(() => {
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
     let currentChannel: ReturnType<typeof supabase.channel> | null = null;
     let cancelled = false;
 
-    const scheduleRefetch = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchOrders(), 250);
-    };
-
     const setupChannel = () => {
       if (cancelled) return;
-      // Clean up previous channel if any
       if (currentChannel) {
         supabase.removeChannel(currentChannel);
         currentChannel = null;
@@ -247,14 +294,37 @@ export default function CocinaPage() {
 
       const channel = supabase
         .channel(`kds-realtime-${Date.now()}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_orders' }, () => {
-          scheduleRefetch();
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_orders' }, (payload: any) => {
+          const o = payload.new;
+          if (!o || !ACTIVE_STATES.includes(o.estado)) return;
+          // Inserción optimista: tarjeta visible al instante (los items
+          // llegarán por su propio evento y se anexarán in-place).
+          setOrders((prev) => {
+            if (prev.some((x) => x.id === o.id)) return prev;
+            const next: KdsOrder = {
+              id: o.id,
+              venta_id: o.venta_id,
+              folio: o.folio,
+              tipo_consumo: o.tipo_consumo,
+              estado: o.estado as KdsEstado,
+              created_at: o.created_at,
+              items: [],
+            };
+            return [...prev, next].sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            );
+          });
+          if (o.estado === 'pendiente' && !knownIds.current.has(o.id)) {
+            playNewOrderSound();
+          }
+          knownIds.current.add(o.id);
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
           const next = payload.new;
           if (!next) return;
           if (!ACTIVE_STATES.includes(next.estado)) {
             setOrders((prev) => prev.filter((o) => o.id !== next.id));
+            knownIds.current.delete(next.id);
             return;
           }
           setOrders((prev) =>
@@ -265,10 +335,47 @@ export default function CocinaPage() {
           const old = payload.old;
           if (old?.id) {
             setOrders((prev) => prev.filter((o) => o.id !== old.id));
+            knownIds.current.delete(old.id);
           }
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'kds_order_items' }, () => {
-          scheduleRefetch();
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_order_items' }, (payload: any) => {
+          const it = payload.new;
+          if (!it) return;
+          let found = false;
+          setOrders((prev) => {
+            const next = prev.map((o) => {
+              if (o.id !== it.kds_order_id) return o;
+              found = true;
+              if (o.items.some((x) => x.id === it.id)) return o;
+              return {
+                ...o,
+                items: [
+                  ...o.items,
+                  {
+                    id: it.id,
+                    nombre_producto: it.nombre_producto,
+                    cantidad: it.cantidad,
+                    notas: it.notas,
+                  },
+                ],
+              };
+            });
+            return next;
+          });
+          // Si llegó un item para una orden que aún no tenemos (raro:
+          // p.ej. el INSERT de la orden se perdió), la cargamos puntualmente.
+          if (!found) fetchSingleOrder(it.kds_order_id);
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'kds_order_items' }, (payload: any) => {
+          const old = payload.old;
+          if (!old) return;
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.id === old.kds_order_id
+                ? { ...o, items: o.items.filter((x) => x.id !== old.id) }
+                : o,
+            ),
+          );
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ventas' }, (payload: any) => {
           if (payload.new?.estado === 'cancelada') {
@@ -286,7 +393,7 @@ export default function CocinaPage() {
           if (status === 'SUBSCRIBED') {
             reconnectAttempt = 0;
             setLiveStatus('live');
-            // Reconcile anything that may have happened while we were disconnected
+            // Reconcilia tras (re)conexión por si nos perdimos eventos.
             fetchOrders();
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             setLiveStatus('reconnecting');
@@ -304,26 +411,23 @@ export default function CocinaPage() {
 
     return () => {
       cancelled = true;
-      if (debounceTimer) clearTimeout(debounceTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (currentChannel) supabase.removeChannel(currentChannel);
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, fetchSingleOrder, playNewOrderSound]);
 
-  // ------- Safety net: refetch on visibility change, online event, and 30s polling -------
+  // ------- Safety net: refetch on visibility/online y polling SOLO si NO estamos en vivo -------
+  // Mientras el canal esté `live`, los handlers ya entregan todo. El polling
+  // sirve únicamente cuando perdimos conexión y aún no reconectamos.
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        fetchOrders();
-      }
+      if (document.visibilityState === 'visible') fetchOrders();
     };
-    const handleOnline = () => {
-      fetchOrders();
-    };
+    const handleOnline = () => fetchOrders();
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('online', handleOnline);
     const pollInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && liveStatus !== 'live') {
         fetchOrders();
       }
     }, POLL_FALLBACK_MS);
@@ -332,7 +436,7 @@ export default function CocinaPage() {
       window.removeEventListener('online', handleOnline);
       clearInterval(pollInterval);
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, liveStatus]);
 
   // ------- Auto-remove "listo" after 30s -------
   useEffect(() => {
