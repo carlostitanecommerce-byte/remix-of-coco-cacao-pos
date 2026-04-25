@@ -58,7 +58,7 @@ const App = () => (
             <Route
               path="/pos"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['administrador', 'supervisor', 'caja', 'recepcion']}>
                   <DashboardLayout>
                     <PosPage />
                   </DashboardLayout>
@@ -78,7 +78,7 @@ const App = () => (
             <Route
               path="/coworking"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['administrador', 'supervisor', 'caja', 'recepcion']}>
                   <DashboardLayout>
                     <CoworkingPage />
                   </DashboardLayout>
@@ -98,7 +98,7 @@ const App = () => (
             <Route
               path="/usuarios"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['administrador']}>
                   <DashboardLayout>
                     <UsersPage />
                   </DashboardLayout>
@@ -108,7 +108,7 @@ const App = () => (
             <Route
               path="/reportes"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['administrador', 'supervisor']}>
                   <DashboardLayout>
                     <ReportesPage />
                   </DashboardLayout>
