@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
