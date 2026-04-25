@@ -413,19 +413,7 @@ export default function CocinaPage() {
               </>
             )}
           </div>
-          <SoundEnabler enabled={soundEnabled} onEnable={enableSound} />
           <KdsClock />
-          {isBaristaOnly && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={signOut}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Cerrar sesión
-            </Button>
-          )}
         </div>
       </div>
 
@@ -439,6 +427,10 @@ export default function CocinaPage() {
           busyId={busyId}
         />
       </div>
+
+      {/* Diálogo modal obligatorio: captura el gesto requerido por el navegador
+          para desbloquear el AudioContext y marca el inicio formal del turno. */}
+      <StartShiftDialog open={!shiftStarted} onStart={startShift} />
     </div>
   );
 }
