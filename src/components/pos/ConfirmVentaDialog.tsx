@@ -283,11 +283,13 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       }
 
       // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
+      // Excluir explícitamente líneas de coworking (tiempo de servicio) — no son preparables.
       const kdsLines: Array<{ producto_id: string | null; nombre: string; cantidad: number; paquete_nombre?: string }> = [];
       for (const item of summary.items) {
         if (item.tipo_concepto === 'producto') {
+          if (item.producto_id?.startsWith('coworking-')) continue;
           kdsLines.push({
-            producto_id: item.producto_id?.startsWith('coworking-') ? null : item.producto_id,
+            producto_id: item.producto_id,
             nombre: item.nombre,
             cantidad: item.cantidad,
           });
