@@ -5,17 +5,20 @@ import { Clock as KdsClock } from '@/components/cocina/Clock';
 import { SoundEnabler } from '@/components/cocina/SoundEnabler';
 import type { KdsOrder, KdsOrderItem, KdsEstado } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
-import { ChefHat, LogOut } from 'lucide-react';
+import { ChefHat, LogOut, Wifi, WifiOff } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
 const ACTIVE_STATES: KdsEstado[] = ['pendiente', 'en_preparacion', 'listo'];
+const POLL_FALLBACK_MS = 30000;
+const RECONNECT_DELAYS = [1000, 2000, 5000, 10000];
 
 export default function CocinaPage() {
   const { roles, signOut } = useAuth();
   const isBaristaOnly = roles.length === 1 && roles[0] === 'barista';
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
   const knownIds = useRef<Set<string>>(new Set());
   const initialLoad = useRef(true);
   const listoTimestamps = useRef<Record<string, number>>({});
@@ -74,12 +77,12 @@ export default function CocinaPage() {
 
     if (error) {
       console.error('Error fetching kds_orders', error);
-      toast.error('Error al cargar órdenes de cocina');
       return;
     }
 
     if (!rawOrders || rawOrders.length === 0) {
       setOrders([]);
+      knownIds.current = new Set();
       initialLoad.current = false;
       return;
     }
@@ -92,7 +95,6 @@ export default function CocinaPage() {
 
     if (itemsError) {
       console.error('Error fetching kds_order_items', itemsError);
-      toast.error('Error al cargar productos de las órdenes');
     }
 
     const itemsByOrder: Record<string, KdsOrderItem[]> = {};
@@ -133,56 +135,128 @@ export default function CocinaPage() {
     fetchOrders();
   }, [fetchOrders]);
 
-  // ------- Realtime: incremental patches with debounce fallback -------
+  // ------- Sync Realtime auth token whenever the session changes -------
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.access_token) {
+        supabase.realtime.setAuth(data.session.access_token);
+      }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) {
+        supabase.realtime.setAuth(session.access_token);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // ------- Realtime: subscription with reconnection + status tracking -------
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
+    let currentChannel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
     const scheduleRefetch = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => fetchOrders(), 250);
     };
 
-    const channel = supabase
-      .channel('kds-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_orders' }, () => {
-        scheduleRefetch();
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
-        const next = payload.new;
-        if (!next) return;
-        if (!ACTIVE_STATES.includes(next.estado)) {
-          setOrders((prev) => prev.filter((o) => o.id !== next.id));
-          return;
-        }
-        setOrders((prev) =>
-          prev.map((o) => (o.id === next.id ? { ...o, estado: next.estado as KdsEstado } : o))
-        );
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
-        const old = payload.old;
-        if (old?.id) {
-          setOrders((prev) => prev.filter((o) => o.id !== old.id));
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kds_order_items' }, () => {
-        scheduleRefetch();
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ventas' }, (payload: any) => {
-        if (payload.new?.estado === 'cancelada') {
-          // Instant feedback even before the trigger deletes the kds_order
-          setOrders((prev) => prev.filter((o) => o.venta_id !== payload.new.id));
-        }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cajas' }, (payload: any) => {
-        if (payload.new?.estado === 'cerrada') {
-          setOrders((prev) => prev.filter((o) => o.estado !== 'listo'));
-          listoTimestamps.current = {};
-        }
-      })
-      .subscribe();
+    const setupChannel = () => {
+      if (cancelled) return;
+      // Clean up previous channel if any
+      if (currentChannel) {
+        supabase.removeChannel(currentChannel);
+        currentChannel = null;
+      }
+
+      const channel = supabase
+        .channel(`kds-realtime-${Date.now()}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_orders' }, () => {
+          scheduleRefetch();
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
+          const next = payload.new;
+          if (!next) return;
+          if (!ACTIVE_STATES.includes(next.estado)) {
+            setOrders((prev) => prev.filter((o) => o.id !== next.id));
+            return;
+          }
+          setOrders((prev) =>
+            prev.map((o) => (o.id === next.id ? { ...o, estado: next.estado as KdsEstado } : o))
+          );
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
+          const old = payload.old;
+          if (old?.id) {
+            setOrders((prev) => prev.filter((o) => o.id !== old.id));
+          }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'kds_order_items' }, () => {
+          scheduleRefetch();
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ventas' }, (payload: any) => {
+          if (payload.new?.estado === 'cancelada') {
+            setOrders((prev) => prev.filter((o) => o.venta_id !== payload.new.id));
+          }
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cajas' }, (payload: any) => {
+          if (payload.new?.estado === 'cerrada') {
+            setOrders((prev) => prev.filter((o) => o.estado !== 'listo'));
+            listoTimestamps.current = {};
+          }
+        })
+        .subscribe((status) => {
+          if (cancelled) return;
+          if (status === 'SUBSCRIBED') {
+            reconnectAttempt = 0;
+            setLiveStatus('live');
+            // Reconcile anything that may have happened while we were disconnected
+            fetchOrders();
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            setLiveStatus('reconnecting');
+            const delay = RECONNECT_DELAYS[Math.min(reconnectAttempt, RECONNECT_DELAYS.length - 1)];
+            reconnectAttempt++;
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(setupChannel, delay);
+          }
+        });
+
+      currentChannel = channel;
+    };
+
+    setupChannel();
 
     return () => {
+      cancelled = true;
       if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (currentChannel) supabase.removeChannel(currentChannel);
+    };
+  }, [fetchOrders]);
+
+  // ------- Safety net: refetch on visibility change, online event, and 30s polling -------
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchOrders();
+      }
+    };
+    const handleOnline = () => {
+      fetchOrders();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleOnline);
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchOrders();
+      }
+    }, POLL_FALLBACK_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleOnline);
+      clearInterval(pollInterval);
     };
   }, [fetchOrders]);
 
@@ -228,7 +302,6 @@ export default function CocinaPage() {
       toast.error('Error al actualizar orden');
       console.error(error);
     } else {
-      // Optimistic local patch (realtime will reconcile)
       setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, estado } : o)));
       if (estado === 'listo') {
         listoTimestamps.current[orderId] = Date.now();
@@ -261,6 +334,26 @@ export default function CocinaPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <div
+            className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md ${
+              liveStatus === 'live'
+                ? 'text-emerald-600 bg-emerald-500/10'
+                : 'text-amber-600 bg-amber-500/10'
+            }`}
+            title={liveStatus === 'live' ? 'Conectado en tiempo real' : 'Reintentando conexión…'}
+          >
+            {liveStatus === 'live' ? (
+              <>
+                <Wifi className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">En vivo</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Reconectando…</span>
+              </>
+            )}
+          </div>
           <SoundEnabler enabled={soundEnabled} onEnable={enableSound} />
           <KdsClock />
           {isBaristaOnly && (
