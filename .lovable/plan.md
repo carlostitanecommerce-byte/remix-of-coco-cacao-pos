@@ -1,51 +1,43 @@
-## Contexto
+## Diagnóstico
 
-Hoy se marcaron 23 productos como retail (no van al KDS) directamente por SQL. Sin embargo, **el formulario de productos en Inventarios no expone ningún control para esto**: el campo `requiere_preparacion` existe en la base de datos, en el tipo del formulario y en la lógica de guardado/carga, pero **el Switch nunca se renderiza en la UI**.
+Auditando el flujo completo encontré que la lógica del cliente está bien escrita (suscripción a INSERT/UPDATE/DELETE en `kds_orders` y `kds_order_items` con debounce + refetch), las tablas están en la publicación `supabase_realtime`, y tienen `REPLICA IDENTITY FULL`. Sin embargo el barista no recibe la nueva orden hasta refrescar. Hay tres causas que actúan en conjunto:
 
-**Consecuencia actual:** Cualquier producto nuevo que un admin cree desde la app entra al KDS por defecto (`requiere_preparacion=true`). Si mañana agregan "Coca-Cola lata" o "Galletas Marías", saturarán la cocina sin manera de evitarlo desde la interfaz.
+1. **El canal Realtime se suscribe sin verificar el resultado.** Hoy se usa `.subscribe()` sin callback. Si la conexión falla (token expirado, tenant en frío, error de RLS) el barista nunca se entera y nunca reintenta. El log de Realtime muestra eventos del tipo "Stop tenant ... because of no connected users", confirmando que el canal no se mantiene conectado de forma confiable.
 
-**Veredicto objetivo:** Es necesario agregar el control. Toda la plomería ya está hecha (BD, tipos, save, load, filtro en `ConfirmVentaDialog`); solo falta exponer el Switch.
+2. **El token JWT del cliente Realtime no se refresca automáticamente.** Cuando el barista deja la pestaña abierta mucho tiempo, `supabase.auth` rota el access token, pero el socket Realtime sigue usando el anterior. Resultado: la conexión queda "viva" pero los eventos `postgres_changes` dejan de entregarse porque la autorización RLS los rechaza silenciosamente. Se arregla llamando `supabase.realtime.setAuth(token)` cuando cambia la sesión.
 
-## Cambio a realizar
+3. **No hay red de seguridad ante caídas de conexión.** Si la pestaña se queda en segundo plano, el navegador suspende el WebSocket; al volver al primer plano la lista queda obsoleta hasta el próximo evento.
 
-Un único archivo, una sola edición:
+## Plan de implementación
 
-### `src/components/inventarios/ProductosTab.tsx`
+Edito únicamente `src/pages/CocinaPage.tsx` (no se tocan migraciones; el lado del servidor ya está bien configurado).
 
-Insertar dentro del diálogo de Nuevo/Editar Producto (después del campo "Modo de Preparación Exacto", antes del `Separator`) un bloque con `Switch` que controle `form.requiere_preparacion`.
+### 1. Suscripción robusta con estado del canal
+- Cambiar `.subscribe()` por `.subscribe((status, err) => { ... })`.
+- En estado `SUBSCRIBED`: hacer un `fetchOrders()` para reconciliar lo que pudo haberse perdido durante la conexión.
+- En estados `CHANNEL_ERROR`, `TIMED_OUT`, `CLOSED`: mostrar un toast discreto y programar reconexión exponencial (1s, 2s, 5s, máx 10s) recreando el canal.
 
-```tsx
-<div className="col-span-2 flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
-  <div className="space-y-0.5">
-    <Label htmlFor="requiere-prep-switch" className="text-sm font-semibold">
-      Enviar a Cocina (KDS)
-    </Label>
-    <p className="text-xs text-muted-foreground">
-      Activado: el producto aparece en la pantalla de cocina al venderse
-      (bebidas, alimentos preparados).<br />
-      Desactivado: producto retail listo para entregar (embotellados,
-      empaquetados, papelería) — no satura la cocina.
-    </p>
-  </div>
-  <Switch
-    id="requiere-prep-switch"
-    checked={form.requiere_preparacion}
-    onCheckedChange={(checked) =>
-      setForm(f => ({ ...f, requiere_preparacion: checked }))
-    }
-  />
-</div>
-```
+### 2. Sincronización del JWT con Realtime
+- Suscribirse a `supabase.auth.onAuthStateChange`. Cada vez que llega un nuevo `session.access_token`, llamar `supabase.realtime.setAuth(session.access_token)` para que los eventos sigan autorizados.
+- Hacer una pasada inicial con la sesión actual al montar el componente.
 
-## Lo que NO hace falta
+### 3. Recuperación al volver al primer plano y heartbeat
+- Listener `document.visibilitychange`: cuando la pestaña vuelve a ser visible, ejecutar `fetchOrders()` para reconciliar.
+- Listener `window.online`: reconciliar al recuperar conexión.
+- Polling defensivo cada 30 segundos como red de seguridad (muy ligero, sólo trae filas del día con `ACTIVE_STATES`). Esto garantiza que aunque Realtime falle por completo, el barista verá la orden en máximo 30s sin tocar nada.
 
-- ❌ No requiere migración de base de datos (la columna ya existe).
-- ❌ No requiere cambios en `ConfirmVentaDialog` (el filtro ya consulta `requiere_preparacion`).
-- ❌ No requiere cambios en `CocinaPage`/`KdsBoard` (el filtrado es upstream).
-- ❌ No requiere cambios de tipos ni en `emptyForm` (ya está como `true` por defecto).
+### 4. Indicador visual de conexión
+- Agregar un punto de estado (verde "En vivo" / ámbar "Reconectando…") junto al reloj del header. Permite al barista saber de un vistazo si el realtime está activo, evitando la duda de "¿se me cayó?".
+
+## Detalles técnicos
+
+- El debounce existente de 250ms para `INSERT` se mantiene; sólo añadimos resiliencia alrededor.
+- El polling de 30s NO reemplaza al realtime; es un fallback. Cuando realtime funciona, el refresco sigue siendo instantáneo (≈250ms).
+- No se requieren cambios SQL: las tablas ya tienen `REPLICA IDENTITY FULL` y están en `supabase_realtime`.
+- No se rompe ningún flujo existente del POS ni del KDS.
 
 ## Resultado esperado
 
-- Al crear/editar un producto desde Inventarios, el admin verá un toggle claro "Enviar a Cocina (KDS)".
-- Por defecto activado (todos los productos nuevos siguen yendo a cocina, comportamiento seguro).
-- El admin puede desactivarlo para retail puro y se respeta inmediatamente en el siguiente ticket.
+- Al procesar una venta desde Caja/Admin, la orden aparece en la pantalla de Cocina del barista en menos de 1 segundo, sin recargar.
+- Si la conexión Realtime falla por cualquier motivo, el polling de 30s + el refetch al recuperar visibilidad garantizan que la orden aparezca de todos modos.
+- El barista ve un indicador claro de si la conexión en vivo está activa.
