@@ -273,21 +273,20 @@ export default function CocinaPage() {
   }, []);
 
   // ------- Realtime: subscription with reconnection + status tracking -------
+  // Estrategia: mientras el canal está SUBSCRIBED, los handlers son la única
+  // fuente de verdad (cambios optimistas e in-place). fetchOrders sólo se
+  // llama (a) al montar, (b) al re-suscribir, (c) al recuperar foco/online,
+  // y (d) como red de seguridad cuando el canal NO está conectado.
+  // Esto elimina el desfase de 1-5s del refetch debounced y la condición
+  // de carrera que causaba el parpadeo en la lista de Listos.
   useEffect(() => {
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
     let currentChannel: ReturnType<typeof supabase.channel> | null = null;
     let cancelled = false;
 
-    const scheduleRefetch = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchOrders(), 250);
-    };
-
     const setupChannel = () => {
       if (cancelled) return;
-      // Clean up previous channel if any
       if (currentChannel) {
         supabase.removeChannel(currentChannel);
         currentChannel = null;
@@ -295,14 +294,37 @@ export default function CocinaPage() {
 
       const channel = supabase
         .channel(`kds-realtime-${Date.now()}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_orders' }, () => {
-          scheduleRefetch();
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_orders' }, (payload: any) => {
+          const o = payload.new;
+          if (!o || !ACTIVE_STATES.includes(o.estado)) return;
+          // Inserción optimista: tarjeta visible al instante (los items
+          // llegarán por su propio evento y se anexarán in-place).
+          setOrders((prev) => {
+            if (prev.some((x) => x.id === o.id)) return prev;
+            const next: KdsOrder = {
+              id: o.id,
+              venta_id: o.venta_id,
+              folio: o.folio,
+              tipo_consumo: o.tipo_consumo,
+              estado: o.estado as KdsEstado,
+              created_at: o.created_at,
+              items: [],
+            };
+            return [...prev, next].sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            );
+          });
+          if (o.estado === 'pendiente' && !knownIds.current.has(o.id)) {
+            playNewOrderSound();
+          }
+          knownIds.current.add(o.id);
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
           const next = payload.new;
           if (!next) return;
           if (!ACTIVE_STATES.includes(next.estado)) {
             setOrders((prev) => prev.filter((o) => o.id !== next.id));
+            knownIds.current.delete(next.id);
             return;
           }
           setOrders((prev) =>
@@ -313,10 +335,47 @@ export default function CocinaPage() {
           const old = payload.old;
           if (old?.id) {
             setOrders((prev) => prev.filter((o) => o.id !== old.id));
+            knownIds.current.delete(old.id);
           }
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'kds_order_items' }, () => {
-          scheduleRefetch();
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kds_order_items' }, (payload: any) => {
+          const it = payload.new;
+          if (!it) return;
+          let found = false;
+          setOrders((prev) => {
+            const next = prev.map((o) => {
+              if (o.id !== it.kds_order_id) return o;
+              found = true;
+              if (o.items.some((x) => x.id === it.id)) return o;
+              return {
+                ...o,
+                items: [
+                  ...o.items,
+                  {
+                    id: it.id,
+                    nombre_producto: it.nombre_producto,
+                    cantidad: it.cantidad,
+                    notas: it.notas,
+                  },
+                ],
+              };
+            });
+            return next;
+          });
+          // Si llegó un item para una orden que aún no tenemos (raro:
+          // p.ej. el INSERT de la orden se perdió), la cargamos puntualmente.
+          if (!found) fetchSingleOrder(it.kds_order_id);
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'kds_order_items' }, (payload: any) => {
+          const old = payload.old;
+          if (!old) return;
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.id === old.kds_order_id
+                ? { ...o, items: o.items.filter((x) => x.id !== old.id) }
+                : o,
+            ),
+          );
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ventas' }, (payload: any) => {
           if (payload.new?.estado === 'cancelada') {
@@ -334,7 +393,7 @@ export default function CocinaPage() {
           if (status === 'SUBSCRIBED') {
             reconnectAttempt = 0;
             setLiveStatus('live');
-            // Reconcile anything that may have happened while we were disconnected
+            // Reconcilia tras (re)conexión por si nos perdimos eventos.
             fetchOrders();
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             setLiveStatus('reconnecting');
@@ -352,11 +411,10 @@ export default function CocinaPage() {
 
     return () => {
       cancelled = true;
-      if (debounceTimer) clearTimeout(debounceTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (currentChannel) supabase.removeChannel(currentChannel);
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, fetchSingleOrder, playNewOrderSound]);
 
   // ------- Safety net: refetch on visibility change, online event, and 30s polling -------
   useEffect(() => {
