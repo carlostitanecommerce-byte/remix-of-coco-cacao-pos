@@ -47,9 +47,10 @@ interface Producto {
   instrucciones_preparacion: string | null;
   precio_upsell_coworking: number | null;
   activo: boolean;
+  requiere_preparacion: boolean;
 }
 
-const emptyForm = { nombre: '', categoria: '', precio_venta: '', imagen_url: '', instrucciones_preparacion: '', precio_upsell_coworking: '' };
+const emptyForm = { nombre: '', categoria: '', precio_venta: '', imagen_url: '', instrucciones_preparacion: '', precio_upsell_coworking: '', requiere_preparacion: true };
 
 interface Props { isAdmin: boolean; roles: string[] }
 
