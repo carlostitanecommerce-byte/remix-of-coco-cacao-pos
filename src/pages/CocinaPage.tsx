@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { KdsBoard } from '@/components/cocina/KdsBoard';
 import { Clock as KdsClock } from '@/components/cocina/Clock';
 import { StartShiftDialog } from '@/components/cocina/StartShiftDialog';
@@ -15,6 +16,7 @@ const URGENT_THRESHOLD_MIN = 10; // órdenes con >10 min se consideran urgentes
 const URGENT_REPEAT_MS = 30000; // re-toca timbre cada 30s mientras haya urgentes
 
 export default function CocinaPage() {
+  const { user } = useAuth();
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
@@ -30,8 +32,47 @@ export default function CocinaPage() {
   // El navegador requiere un gesto del usuario para reproducir audio. El
   // diálogo "Iniciar turno" captura ese gesto de forma profesional y
   // garantiza que las alertas suenen desde la primera orden.
+  //
+  // La marca de turno iniciado se persiste en `sessionStorage` con clave por
+  // usuario y día (CDMX). Así, al navegar entre módulos, minimizar o cambiar
+  // de pestaña, el diálogo NO se vuelve a mostrar mientras dure la sesión
+  // del navegador y siga siendo el mismo día. Si se cierra el navegador (la
+  // sessionStorage se limpia) el diálogo reaparece — esto es necesario
+  // porque el navegador exige un nuevo gesto del usuario para desbloquear
+  // `AudioContext`.
   const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const shiftStorageKey = useCallback(() => {
+    if (!user?.id) return null;
+    // Día actual en CDMX (UTC-6 fijo) para alinear con el resto del sistema
+    const now = new Date();
+    const cdmx = new Date(now.getTime() + (now.getTimezoneOffset() - 360) * 60_000);
+    const ymd = `${cdmx.getFullYear()}-${String(cdmx.getMonth() + 1).padStart(2, '0')}-${String(cdmx.getDate()).padStart(2, '0')}`;
+    return `kds:shift-started:${user.id}:${ymd}`;
+  }, [user?.id]);
+
   const [shiftStarted, setShiftStarted] = useState(false);
+
+  // Rehidratar el estado de turno al montar (o cuando cambia el usuario)
+  useEffect(() => {
+    const key = shiftStorageKey();
+    if (!key) return;
+    if (sessionStorage.getItem(key) === '1') {
+      // El usuario ya inició turno en esta sesión del navegador.
+      // Recreamos el AudioContext (sigue autorizado dentro de la misma
+      // sesión porque el gesto original ya fue otorgado).
+      try {
+        const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
+        if (Ctx && !audioCtxRef.current) audioCtxRef.current = new Ctx();
+        audioCtxRef.current?.resume?.();
+      } catch (e) {
+        console.error('No se pudo restaurar audio', e);
+      }
+      setShiftStarted(true);
+    } else {
+      setShiftStarted(false);
+    }
+  }, [shiftStorageKey]);
 
   const startShift = useCallback(() => {
     try {
@@ -41,9 +82,11 @@ export default function CocinaPage() {
     } catch (e) {
       console.error('No se pudo activar audio', e);
     }
+    const key = shiftStorageKey();
+    if (key) sessionStorage.setItem(key, '1');
     setShiftStarted(true);
     toast.success('Turno iniciado — alertas activas');
-  }, []);
+  }, [shiftStorageKey]);
 
   const playNewOrderSound = useCallback(() => {
     const ctx = audioCtxRef.current;
