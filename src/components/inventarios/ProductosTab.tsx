@@ -188,6 +188,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       imagen_url: form.imagen_url || null,
       instrucciones_preparacion: form.instrucciones_preparacion.trim() || null,
       precio_upsell_coworking: precioUpsell,
+      requiere_preparacion: form.requiere_preparacion,
     };
 
     let productoId = editingId;
