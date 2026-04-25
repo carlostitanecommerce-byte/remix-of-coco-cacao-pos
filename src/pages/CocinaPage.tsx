@@ -483,7 +483,7 @@ export default function CocinaPage() {
 
       {/* Diálogo modal obligatorio: captura el gesto requerido por el navegador
           para desbloquear el AudioContext y marca el inicio formal del turno. */}
-      <StartShiftDialog open={!shiftStarted} onStart={startShift} />
+      <StartShiftDialog open={isBarista && !shiftStarted} onStart={startShift} />
     </div>
   );
 }
