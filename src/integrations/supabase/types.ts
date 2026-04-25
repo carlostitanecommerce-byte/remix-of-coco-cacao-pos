@@ -1132,7 +1132,7 @@ export type Database = {
         | "recepcion"
       caja_estado: "abierta" | "cerrada"
       coworking_estado: "activo" | "finalizado" | "cancelado" | "pendiente_pago"
-      kds_estado: "pendiente" | "en_preparacion" | "listo"
+      kds_estado: "pendiente" | "en_preparacion" | "listo" | "expirada"
       metodo_pago: "efectivo" | "tarjeta" | "transferencia" | "mixto"
       reservacion_estado:
         | "pendiente"
@@ -1278,7 +1278,7 @@ export const Constants = {
       app_role: ["administrador", "supervisor", "caja", "barista", "recepcion"],
       caja_estado: ["abierta", "cerrada"],
       coworking_estado: ["activo", "finalizado", "cancelado", "pendiente_pago"],
-      kds_estado: ["pendiente", "en_preparacion", "listo"],
+      kds_estado: ["pendiente", "en_preparacion", "listo", "expirada"],
       metodo_pago: ["efectivo", "tarjeta", "transferencia", "mixto"],
       reservacion_estado: [
         "pendiente",
