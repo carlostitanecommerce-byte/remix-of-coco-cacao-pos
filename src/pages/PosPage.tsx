@@ -492,6 +492,7 @@ const PosPage = () => {
             onSetPropina={setPropina}
             onSetPropinaEnDigital={setPropinaEnDigital}
             onUpdateQty={updateQty}
+            onUpdateNotas={updateNotas}
             onRemove={removeItem}
             onClear={handleClearCart}
             onConfirm={handleConfirm}
