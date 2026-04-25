@@ -5,23 +5,31 @@ import { Clock as KdsClock } from '@/components/cocina/Clock';
 import { SoundEnabler } from '@/components/cocina/SoundEnabler';
 import type { KdsOrder, KdsOrderItem, KdsEstado } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
-import { ChefHat, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { ChefHat, LogOut, Wifi, WifiOff, Timer } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
+import { isKitchenOnlyMode } from '@/lib/roles';
 
 const ACTIVE_STATES: KdsEstado[] = ['pendiente', 'en_preparacion', 'listo'];
 const POLL_FALLBACK_MS = 30000;
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000];
+const LISTO_TIMEOUT_MS = 90000; // 90s — estándar de KDS profesional
+const URGENT_THRESHOLD_MIN = 10; // órdenes con >10 min se consideran urgentes
+const URGENT_REPEAT_MS = 30000; // re-toca timbre cada 30s mientras haya urgentes
 
 export default function CocinaPage() {
   const { roles, signOut } = useAuth();
-  const isBaristaOnly = roles.length === 1 && roles[0] === 'barista';
+  const isBaristaOnly = isKitchenOnlyMode(roles);
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
+  const [avgPrepMin, setAvgPrepMin] = useState<number | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
   const initialLoad = useRef(true);
   const listoTimestamps = useRef<Record<string, number>>({});
+  // Mide cuánto tarda cada orden en pasar de creada → listo (calculado en cliente)
+  const prepDurations = useRef<number[]>([]);
+  const startedAt = useRef<Record<string, number>>({});
 
   // ------- Audio context (single, gated by user gesture) -------
   const audioCtxRef = useRef<AudioContext | null>(null);
