@@ -309,12 +309,26 @@ export default function CocinaPage() {
           if (o.estado !== 'listo') return true;
           const ts = listoTimestamps.current[o.id];
           if (!ts) return true;
-          return now - ts < 30000;
+          return now - ts < LISTO_TIMEOUT_MS;
         })
       );
     }, 2000);
     return () => clearInterval(iv);
   }, []);
+
+  // ------- Timbre repetitivo para órdenes urgentes (>10 min sin atender) -------
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const now = Date.now();
+      const hasUrgent = orders.some((o) => {
+        if (o.estado === 'listo') return false;
+        const ageMin = (now - new Date(o.created_at).getTime()) / 60000;
+        return ageMin >= URGENT_THRESHOLD_MIN;
+      });
+      if (hasUrgent) playNewOrderSound();
+    }, URGENT_REPEAT_MS);
+    return () => clearInterval(iv);
+  }, [orders, playNewOrderSound]);
 
   // ------- Actions -------
   const updateEstado = async (orderId: string, estado: KdsEstado) => {
@@ -328,8 +342,23 @@ export default function CocinaPage() {
       console.error(error);
     } else {
       setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, estado } : o)));
+      if (estado === 'en_preparacion') {
+        // Marca el inicio de preparación para medir el tiempo total
+        if (!startedAt.current[orderId]) startedAt.current[orderId] = Date.now();
+      }
       if (estado === 'listo') {
         listoTimestamps.current[orderId] = Date.now();
+        // Calcula duración desde la creación de la orden (no desde "iniciar")
+        const order = orders.find((o) => o.id === orderId);
+        if (order) {
+          const durationMin = (Date.now() - new Date(order.created_at).getTime()) / 60000;
+          if (durationMin > 0 && durationMin < 120) {
+            // Filtra valores absurdos (>2h) que distorsionarían el promedio
+            prepDurations.current.push(durationMin);
+            const sum = prepDurations.current.reduce((a, b) => a + b, 0);
+            setAvgPrepMin(sum / prepDurations.current.length);
+          }
+        }
       } else if (listoTimestamps.current[orderId]) {
         delete listoTimestamps.current[orderId];
       }
