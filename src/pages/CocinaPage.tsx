@@ -2,13 +2,10 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { KdsBoard } from '@/components/cocina/KdsBoard';
 import { Clock as KdsClock } from '@/components/cocina/Clock';
-import { SoundEnabler } from '@/components/cocina/SoundEnabler';
+import { StartShiftDialog } from '@/components/cocina/StartShiftDialog';
 import type { KdsOrder, KdsOrderItem, KdsEstado } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
-import { ChefHat, LogOut, Wifi, WifiOff, Timer } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
-import { Button } from '@/components/ui/button';
-import { isKitchenOnlyMode } from '@/lib/roles';
+import { ChefHat, Wifi, WifiOff, Timer } from 'lucide-react';
 
 const ACTIVE_STATES: KdsEstado[] = ['pendiente', 'en_preparacion', 'listo'];
 const POLL_FALLBACK_MS = 30000;
@@ -18,8 +15,6 @@ const URGENT_THRESHOLD_MIN = 10; // órdenes con >10 min se consideran urgentes
 const URGENT_REPEAT_MS = 30000; // re-toca timbre cada 30s mientras haya urgentes
 
 export default function CocinaPage() {
-  const { roles, signOut } = useAuth();
-  const isBaristaOnly = isKitchenOnlyMode(roles);
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
@@ -31,22 +26,23 @@ export default function CocinaPage() {
   const prepDurations = useRef<number[]>([]);
   const startedAt = useRef<Record<string, number>>({});
 
-  // ------- Audio context (single, gated by user gesture) -------
+  // ------- Inicio de turno + desbloqueo de audio -------
+  // El navegador requiere un gesto del usuario para reproducir audio. El
+  // diálogo "Iniciar turno" captura ese gesto de forma profesional y
+  // garantiza que las alertas suenen desde la primera orden.
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [shiftStarted, setShiftStarted] = useState(false);
 
-  const enableSound = useCallback(() => {
+  const startShift = useCallback(() => {
     try {
       const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
-      if (!Ctx) return;
-      if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
-      audioCtxRef.current.resume?.();
-      setSoundEnabled(true);
-      toast.success('Sonido activado');
+      if (Ctx && !audioCtxRef.current) audioCtxRef.current = new Ctx();
+      audioCtxRef.current?.resume?.();
     } catch (e) {
       console.error('No se pudo activar audio', e);
-      toast.error('No se pudo activar el sonido');
     }
+    setShiftStarted(true);
+    toast.success('Turno iniciado — alertas activas');
   }, []);
 
   const playNewOrderSound = useCallback(() => {
