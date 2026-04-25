@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button';
 
 const allMenuItems = [
   { title: 'POS', url: '/pos', icon: ShoppingCart },
-  { title: 'Cocina', url: '/cocina', icon: ChefHat, allowedRoles: ['administrador'] },
+  { title: 'Cocina', url: '/cocina', icon: ChefHat, allowedRoles: ['administrador', 'barista'] },
   { title: 'Coworking', url: '/coworking', icon: Building2 },
   { title: 'Inventarios', url: '/inventarios', icon: Package, allowedRoles: ['administrador', 'supervisor'] },
   { title: 'Usuarios', url: '/usuarios', icon: Users, allowedRoles: ['administrador'] },

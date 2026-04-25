@@ -5,23 +5,31 @@ import { Clock as KdsClock } from '@/components/cocina/Clock';
 import { SoundEnabler } from '@/components/cocina/SoundEnabler';
 import type { KdsOrder, KdsOrderItem, KdsEstado } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
-import { ChefHat, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { ChefHat, LogOut, Wifi, WifiOff, Timer } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
+import { isKitchenOnlyMode } from '@/lib/roles';
 
 const ACTIVE_STATES: KdsEstado[] = ['pendiente', 'en_preparacion', 'listo'];
 const POLL_FALLBACK_MS = 30000;
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000];
+const LISTO_TIMEOUT_MS = 90000; // 90s — estándar de KDS profesional
+const URGENT_THRESHOLD_MIN = 10; // órdenes con >10 min se consideran urgentes
+const URGENT_REPEAT_MS = 30000; // re-toca timbre cada 30s mientras haya urgentes
 
 export default function CocinaPage() {
   const { roles, signOut } = useAuth();
-  const isBaristaOnly = roles.length === 1 && roles[0] === 'barista';
+  const isBaristaOnly = isKitchenOnlyMode(roles);
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
+  const [avgPrepMin, setAvgPrepMin] = useState<number | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
   const initialLoad = useRef(true);
   const listoTimestamps = useRef<Record<string, number>>({});
+  // Mide cuánto tarda cada orden en pasar de creada → listo (calculado en cliente)
+  const prepDurations = useRef<number[]>([]);
+  const startedAt = useRef<Record<string, number>>({});
 
   // ------- Audio context (single, gated by user gesture) -------
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -61,10 +69,27 @@ export default function CocinaPage() {
   }, []);
 
   // ------- Fetch helpers -------
+  // Inicio del día en zona horaria del negocio (CDMX, UTC-6 fijo) — consistente
+  // con el resto del sistema. Evita que en la madrugada o desde otra zona
+  // horaria se calcule mal la ventana "de hoy".
   const todayStartIso = useCallback(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.toISOString();
+    const now = new Date();
+    // Convertir "ahora" a CDMX, truncar a 00:00:00 CDMX y devolver como UTC ISO
+    const cdmxOffsetHours = -6;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+    const cdmxNow = new Date(utcMs + cdmxOffsetHours * 3_600_000);
+    const cdmxMidnight = new Date(
+      cdmxNow.getFullYear(),
+      cdmxNow.getMonth(),
+      cdmxNow.getDate(),
+      0, 0, 0, 0,
+    );
+    // cdmxMidnight es 00:00 CDMX expresado como Date local del navegador;
+    // restamos el offset para obtener el equivalente UTC real.
+    const utcMidnight = new Date(
+      cdmxMidnight.getTime() - cdmxOffsetHours * 3_600_000 - now.getTimezoneOffset() * 60_000,
+    );
+    return utcMidnight.toISOString();
   }, []);
 
   const fetchOrders = useCallback(async () => {
@@ -284,12 +309,26 @@ export default function CocinaPage() {
           if (o.estado !== 'listo') return true;
           const ts = listoTimestamps.current[o.id];
           if (!ts) return true;
-          return now - ts < 30000;
+          return now - ts < LISTO_TIMEOUT_MS;
         })
       );
     }, 2000);
     return () => clearInterval(iv);
   }, []);
+
+  // ------- Timbre repetitivo para órdenes urgentes (>10 min sin atender) -------
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const now = Date.now();
+      const hasUrgent = orders.some((o) => {
+        if (o.estado === 'listo') return false;
+        const ageMin = (now - new Date(o.created_at).getTime()) / 60000;
+        return ageMin >= URGENT_THRESHOLD_MIN;
+      });
+      if (hasUrgent) playNewOrderSound();
+    }, URGENT_REPEAT_MS);
+    return () => clearInterval(iv);
+  }, [orders, playNewOrderSound]);
 
   // ------- Actions -------
   const updateEstado = async (orderId: string, estado: KdsEstado) => {
@@ -303,8 +342,23 @@ export default function CocinaPage() {
       console.error(error);
     } else {
       setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, estado } : o)));
+      if (estado === 'en_preparacion') {
+        // Marca el inicio de preparación para medir el tiempo total
+        if (!startedAt.current[orderId]) startedAt.current[orderId] = Date.now();
+      }
       if (estado === 'listo') {
         listoTimestamps.current[orderId] = Date.now();
+        // Calcula duración desde la creación de la orden (no desde "iniciar")
+        const order = orders.find((o) => o.id === orderId);
+        if (order) {
+          const durationMin = (Date.now() - new Date(order.created_at).getTime()) / 60000;
+          if (durationMin > 0 && durationMin < 120) {
+            // Filtra valores absurdos (>2h) que distorsionarían el promedio
+            prepDurations.current.push(durationMin);
+            const sum = prepDurations.current.reduce((a, b) => a + b, 0);
+            setAvgPrepMin(sum / prepDurations.current.length);
+          }
+        }
       } else if (listoTimestamps.current[orderId]) {
         delete listoTimestamps.current[orderId];
       }
@@ -328,8 +382,17 @@ export default function CocinaPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground">Cocina</h1>
-            <p className="text-xs text-muted-foreground">
-              {activeCount} {activeCount === 1 ? 'orden activa' : 'órdenes activas'}
+            <p className="text-xs text-muted-foreground flex items-center gap-2">
+              <span>{activeCount} {activeCount === 1 ? 'orden activa' : 'órdenes activas'}</span>
+              {avgPrepMin !== null && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="flex items-center gap-1">
+                    <Timer className="h-3 w-3" />
+                    Prom. {avgPrepMin.toFixed(1)} min
+                  </span>
+                </>
+              )}
             </p>
           </div>
         </div>
