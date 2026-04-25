@@ -60,6 +60,23 @@ export function useCajaSession() {
 
   useEffect(() => { fetchCaja(); }, [fetchCaja]);
 
+  // Realtime: la caja física es una sola y la comparte todo el equipo del
+  // POS. Cualquier apertura/cierre o movimiento debe reflejarse al instante
+  // en todas las sesiones (admin, caja, recepción, supervisor).
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`caja-shared-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cajas' }, () => {
+        fetchCaja();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos_caja' }, () => {
+        fetchCaja();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, fetchCaja]);
+
   const abrirCaja = async (montoApertura: number) => {
     if (!user) return { error: 'No autenticado' };
     const { data, error } = await supabase.from('cajas').insert({

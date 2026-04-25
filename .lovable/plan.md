@@ -1,45 +1,53 @@
-# Auditoría de tiempo real en Cocina y plan de corrección
+# Caja y Coworking compartidos en tiempo real
 
 ## Diagnóstico
 
-Tras revisar `CocinaPage.tsx`, la configuración de la base de datos y todos los puntos donde se publican eventos KDS, encontré tres causas concretas de los síntomas que describes:
+### Caja (POS) — el problema real
+Auditando `useCajaSession.ts` y las RLS de `cajas`/`movimientos_caja` encontré dos causas que explican lo que viste:
 
-### 1) Desfase al crear/cambiar de estado órdenes
-- El barista escucha la tabla `kds_orders` y `kds_order_items` con un `setTimeout(fetchOrders, 250ms)` (debounce). Cuando POS confirma una venta se insertan **una orden + N items**, lo que dispara varios eventos casi simultáneos. El refetch se reagenda repetidamente y cada `fetchOrders` hace **dos consultas en cadena** (`kds_orders` + `kds_order_items`). En condiciones reales eso suma de 1 a 5 segundos antes de que la tarjeta aparezca.
-- Cuando el barista cambia un estado, sí se hace un update local inmediato (bien), pero los demás roles que también miran Cocina dependen del mismo `scheduleRefetch` y por eso ven el cambio con retraso.
+1. **RLS de `cajas` impide ver la caja de otros usuarios.** Hoy las políticas dicen:
+   - `Users can view own cajas` → SELECT solo si `auth.uid() = usuario_id`.
+   - `Supervisors can view all cajas` → SELECT solo para supervisor.
+   - `Admins can manage all cajas` → todo para administrador.
+   
+   Resultado: si **administrador** abre la caja, los roles **caja** y **recepción** no la ven en su consulta y la app les pide "abrir caja" otra vez. Esto rompe el modelo de "una sola caja física compartida".
 
-### 2) “Aparece y desaparece” la lista en el rol administrador
-- Hay dos rutas que mutan `orders` simultáneamente:
-  - El handler de `UPDATE` aplica el cambio in-place.
-  - El refetch debounced reemplaza por completo el arreglo (`setOrders(mapped)`).
-- Cuando los dos compiten, una versión “vieja” puede pisar a una nueva y viceversa, produciendo el parpadeo. Además, `initialLoad.current` y `knownIds.current` se comparten entre llamadas concurrentes, por lo que algunos suenan dos veces y otros “desaparecen” un instante.
-- También el filtro automático de “listo” a 90s y el handler de `UPDATE` que filtra estados fuera de `ACTIVE_STATES` se pueden contradecir si llega un refetch a destiempo.
+2. **`useCajaSession` no tiene suscripción realtime.** Aunque arregláramos las RLS, hoy solo hace `fetchCaja` al montar. Si admin abre/cierra o registra un movimiento, las demás sesiones no lo ven hasta recargar la página.
 
-### 3) Eventos que nunca llegan
-- En el publisher `supabase_realtime` solo están `kds_orders` y `kds_order_items`. **`ventas` y `cajas` no están publicadas**, pero `CocinaPage` se suscribe a ellas para reaccionar a cancelación de ventas y cierre de caja → esos eventos nunca llegan, así que esas reglas no funcionan en tiempo real (hay que esperar al polling de 30s).
-- Además, `ventas` y `cajas` tienen `REPLICA IDENTITY DEFAULT`, por lo que sus payloads de UPDATE llegarían incompletos aunque se publicaran.
+### Coworking — ya funciona bien
+`useCoworkingData.ts` ya:
+- Lee todas las sesiones activas y reservaciones sin filtrar por usuario.
+- Tiene un canal realtime que escucha INSERT/UPDATE/DELETE en `coworking_sessions`, `coworking_reservaciones` y `areas_coworking`.
+- Las RLS ya permiten a cualquier autenticado ver todas las sesiones y reservaciones.
+
+No requiere cambios. Si percibiste desfases en coworking, debería desaparecer al unificar el patrón con el realtime ya en uso.
 
 ## Cambios propuestos
 
-### A. Base de datos (migración)
-1. Añadir `ventas` y `cajas` a la publicación `supabase_realtime`.
-2. Poner `REPLICA IDENTITY FULL` en `ventas` y `cajas` para que los UPDATE traigan campos viejos y nuevos completos. `kds_orders` y `kds_order_items` ya están en FULL.
+### A. Migración de base de datos
+1. **`cajas` — SELECT abierto a todos los autenticados.** Eliminar `Users can view own cajas` y `Supervisors can view all cajas`; crear una política única `Authenticated users can view cajas` con `USING (true)`. (Admins mantienen `manage all` intacto.)
+2. **`cajas` — UPDATE compartido cuando el turno está abierto.** Reemplazar `Users can update own cajas` por `Authenticated users can update open caja` con `USING (estado = 'abierta')`. Así caja/recepción pueden cerrar el turno o disparar acciones aunque lo haya abierto otro. Los turnos cerrados quedan inmutables salvo para administrador.
+3. **`movimientos_caja` — INSERT compartido.** Reemplazar `Users can insert own movimientos` por `Authenticated users can insert movimientos` con `WITH CHECK (auth.uid() = usuario_id AND la caja referenciada está 'abierta')`. Cada movimiento queda firmado por su autor real, pero cualquiera puede registrar contra la caja activa.
+4. **Realtime para `movimientos_caja`.** Añadir a la publicación `supabase_realtime` y poner `REPLICA IDENTITY FULL` (igual que ya hicimos con `cajas` y `ventas`).
 
-### B. `src/pages/CocinaPage.tsx` — refactor del flujo realtime
-1. **Aplicar cambios optimistas para INSERT de `kds_orders`**: en lugar de `scheduleRefetch`, insertar la orden recién creada en el estado al instante (con `items: []`) y disparar el sonido inmediatamente. Los items llegarán por el evento de `kds_order_items` y se anexarán in-place. Esto elimina el viaje de ida y vuelta a la red para mostrar la tarjeta.
-2. **Manejar `kds_order_items` por evento, no por refetch**: en INSERT del item, anexarlo al order correspondiente en memoria; en DELETE, removerlo. Si el order aún no está cargado, hacer un único fetch puntual de ese order específico (no un refetch global).
-3. **Eliminar la condición de carrera entre handler y refetch**: convertir `fetchOrders` en una función reconciliadora que solo se llama (a) en el primer mount, (b) al recuperar foco/online, y (c) al re-suscribir. Mientras la suscripción esté `live`, los handlers son la única fuente de verdad. Quitar el debounce de 250ms.
-4. **Proteger contra fetches concurrentes**: usar un `requestIdRef` para que solo el resultado del último `fetchOrders` aplique cambios (descarta respuestas tardías que causan el parpadeo).
-5. **Reducir el polling a red de seguridad**: bajar a un `fetchOrders` cuando `liveStatus !== 'live'` o al volver de background, no cada 30s incondicionalmente.
-6. **Filtrar correctamente el efecto de `cajas` y `ventas`** ahora que sí llegarán los eventos (el código ya está, solo dejará de ser código muerto).
+### B. `src/hooks/useCajaSession.ts` — suscripción realtime
+- Tras `fetchCaja`, abrir un canal Supabase que escuche:
+  - `cajas` (INSERT/UPDATE/DELETE) → re-evaluar la caja abierta global.
+  - `movimientos_caja` (INSERT/DELETE) → re-cargar movimientos cuando afecten a la caja activa.
+- Reutilizar `fetchCaja` como reconciliador (es ligero: una sola consulta de `cajas` + otra de movimientos cuando hay caja).
+- Limpiar el canal al desmontar.
 
 ### C. Validación
-- Probar con dos sesiones (POS + Cocina barista, y un tercero como administrador): la tarjeta debe aparecer en menos de 500ms tras confirmar la venta, los cambios de estado se reflejan instantáneamente, y la lista de “Listos” deja de parpadear.
+- Iniciar sesión simultánea con admin, caja y recepción.
+- Admin abre caja → en menos de 1 segundo las otras dos sesiones deben mostrarse en POS sin pedir apertura.
+- Cualquiera registra un movimiento → aparece al instante en las tres.
+- Cualquiera cierra el turno → el panel se actualiza en las tres y vuelve a aparecer "Abrir caja".
 
 ## Archivos a tocar
-- Nueva migración SQL (publicación + REPLICA IDENTITY FULL en `ventas` y `cajas`).
-- `src/pages/CocinaPage.tsx` (refactor del bloque realtime + helpers de inserción local).
+- Migración SQL (políticas RLS + publicación realtime).
+- `src/hooks/useCajaSession.ts` (canal realtime).
 
-## Lo que NO se cambia
-- `KdsBoard`, `KdsOrderCard`, `StartShiftDialog`, `AppSidebar`, `ProtectedRoute` y RLS de KDS quedan intactos.
-- Sigue siendo solo el barista quien recibe sonido y diálogo de iniciar turno.
+## Lo que NO cambia
+- `useCoworkingData` (ya cumple los requisitos).
+- Lógica de cálculo de cierre, IVA, propinas, validación de stock, KDS — intactos.
+- Auditoría: cada apertura/movimiento/cierre sigue quedando ligada al `usuario_id` que la ejecutó.
