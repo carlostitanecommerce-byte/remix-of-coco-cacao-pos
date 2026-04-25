@@ -290,7 +290,11 @@ const PosPage = () => {
     setItems(prev => prev.filter(i => i.producto_id !== productoId));
   }, [items]);
 
-  const missingImportedItems = useMemo(() => {
+  const updateNotas = useCallback((productoId: string, notas: string) => {
+    setItems(prev => prev.map(i =>
+      i.producto_id === productoId ? { ...i, notas: notas.trim() || undefined } : i
+    ));
+  }, []);
     if (!importedSessionId || originalSessionItems.length === 0) return [];
     const result: (CartItem & { cantidad_faltante: number })[] = [];
     for (const orig of originalSessionItems) {
