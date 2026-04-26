@@ -371,14 +371,28 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
 
     return (
       <Dialog open onOpenChange={handleCloseTicket}>
-        <DialogContent className="sm:max-w-md overflow-hidden">
+        <DialogContent className="sm:max-w-md overflow-hidden print:shadow-none print:border-0 print:max-w-full">
+          <style>{`
+            @media print {
+              body * { visibility: hidden !important; }
+              #ticket-print-area, #ticket-print-area * { visibility: visible !important; }
+              #ticket-print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; font-size: 12px; }
+              .no-print, .no-print * { display: none !important; }
+            }
+          `}</style>
           <DialogHeader>
             <DialogTitle className="text-center">🧾 Ticket de Venta</DialogTitle>
             {ticket.folio && (
               <p className="text-center text-sm font-bold text-primary">Folio: #{String(ticket.folio).padStart(4, '0')}</p>
             )}
           </DialogHeader>
-          <div className="space-y-3 text-sm font-mono overflow-hidden">
+          <div id="ticket-print-area" className="space-y-3 text-sm font-mono overflow-hidden">
+            <div className="text-center font-bold text-base hidden print:block">
+              Coco & Cacao + Kúuchil Meyaj
+            </div>
+            {ticket.folio && (
+              <p className="text-center text-xs hidden print:block">Folio: #{String(ticket.folio).padStart(4, '0')}</p>
+            )}
             <div className="text-center text-xs text-muted-foreground space-y-1">
               <p>{new Date(ticket.fecha!).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
               <p>{new Date(ticket.fecha!).toLocaleTimeString('es-MX')}</p>
@@ -461,8 +475,11 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button className="w-full" onClick={handleCloseTicket}>
+          <DialogFooter className="no-print gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => window.print()}>
+              <Printer className="h-4 w-4 mr-2" /> Imprimir
+            </Button>
+            <Button className="flex-1" onClick={handleCloseTicket}>
               Cerrar
             </Button>
           </DialogFooter>

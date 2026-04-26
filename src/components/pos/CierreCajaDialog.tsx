@@ -40,6 +40,7 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
   const [totalIVA, setTotalIVA] = useState(0);
   const [totalComisiones, setTotalComisiones] = useState(0);
   const [ventasPorUsuario, setVentasPorUsuario] = useState<VentaPorUsuario[]>([]);
+  const [sesionesActivas, setSesionesActivas] = useState<{ id: string; cliente_nombre: string }[]>([]);
 
   useEffect(() => {
     if (!open) {
@@ -97,6 +98,12 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           setVentasPorUsuario([]);
         }
       }
+      // Sesiones coworking activas o pendientes de pago (advertencia)
+      const { data: sesiones } = await supabase
+        .from('coworking_sessions')
+        .select('id, cliente_nombre, estado')
+        .in('estado', ['activo', 'pendiente_pago'] as any);
+      setSesionesActivas(((sesiones ?? []) as any).map((s: any) => ({ id: s.id, cliente_nombre: s.cliente_nombre })));
     };
     fetchVentas();
   }, [open, caja.fecha_apertura]);
@@ -109,6 +116,14 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
     if (!montoContado || isNaN(parseFloat(montoContado))) {
       toast.error('Ingresa el monto contado');
       return;
+    }
+    if (sesionesActivas.length > 0) {
+      const ok = window.confirm(
+        `Hay ${sesionesActivas.length} sesión(es) de coworking sin cobrar:\n\n` +
+        sesionesActivas.map(s => `• ${s.cliente_nombre}`).join('\n') +
+        `\n\n¿Cerrar la caja de todas formas? Estas sesiones quedarán pendientes para el siguiente turno.`
+      );
+      if (!ok) return;
     }
     setSaving(true);
     const result = await onCerrarCaja(contado, notasCierre.trim() || undefined);
@@ -225,6 +240,18 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
         </DialogHeader>
 
         <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto">
+          {sesionesActivas.length > 0 && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs space-y-1">
+              <p className="font-semibold text-destructive">⚠️ {sesionesActivas.length} sesión(es) de coworking sin cobrar</p>
+              <ul className="text-muted-foreground list-disc list-inside">
+                {sesionesActivas.slice(0, 5).map(s => (
+                  <li key={s.id}>{s.cliente_nombre}</li>
+                ))}
+                {sesionesActivas.length > 5 && <li>…y {sesionesActivas.length - 5} más</li>}
+              </ul>
+              <p className="text-muted-foreground">Si cierras ahora, quedarán pendientes para el siguiente turno.</p>
+            </div>
+          )}
           <div className="space-y-1">
             <p className="font-semibold text-xs uppercase text-muted-foreground">Movimientos de caja</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
