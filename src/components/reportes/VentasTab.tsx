@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, Users, DollarSign, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, endOfDay, format, getDay, getHours, eachDayOfInterval, subWeeks, subMonths } from 'date-fns';
+import { Loader2, Users, DollarSign, CalendarDays, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getDay, getHours, eachDayOfInterval, subWeeks, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const HORAS_RETAIL = Array.from({ length: 18 }, (_, i) => i + 6);
@@ -34,6 +34,11 @@ export default function VentasTab() {
   const [totalCapacidad, setTotalCapacidad] = useState(0);
   const [periodoTotal, setPeriodoTotal] = useState(0);
   const [periodoTransacciones, setPeriodoTransacciones] = useState(0);
+  const [retailLimitHit, setRetailLimitHit] = useState(false);
+  const [coworkLimitHit, setCoworkLimitHit] = useState(false);
+
+  const RETAIL_LIMIT = 5000;
+  const COWORK_LIMIT = 2000;
 
   const handleSetPeriodo = (p: 'semana' | 'mes') => {
     setPeriodo(p);
@@ -62,22 +67,36 @@ export default function VentasTab() {
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
-    const { data: ventas } = await supabase
+    const { data: ventas, error } = await supabase
       .from('ventas')
       .select('id, fecha, total_neto')
       .eq('estado', 'completada')
       .gte('fecha', desdeISO)
-      .lte('fecha', hastaISO);
+      .lte('fecha', hastaISO)
+      .limit(RETAIL_LIMIT);
 
     if (signal?.aborted) return;
+
+    if (error) {
+      toast({
+        title: 'Error al cargar ventas',
+        description: error.message,
+        variant: 'destructive',
+      });
+      setLoading(false);
+      return;
+    }
 
     if (!ventas || ventas.length === 0) {
       setHeatmap({});
       setPeriodoTotal(0);
       setPeriodoTransacciones(0);
+      setRetailLimitHit(false);
       setLoading(false);
       return;
     }
+
+    setRetailLimitHit(ventas.length >= RETAIL_LIMIT);
 
     const map: HeatmapData = {};
     let total = 0;
@@ -113,16 +132,33 @@ export default function VentasTab() {
         .select('fecha_inicio, fecha_fin_estimada, fecha_salida_real, estado, pax_count')
         .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
         .lte('fecha_inicio', hastaISO)
-        .or(`fecha_salida_real.gte.${desdeISO},fecha_salida_real.is.null`),
+        .or(`fecha_salida_real.gte.${desdeISO},fecha_salida_real.is.null`)
+        .limit(COWORK_LIMIT),
       supabase
         .from('areas_coworking')
         .select('capacidad_pax'),
     ]);
 
+    if (signal?.aborted) return;
+
+    if (sessionsRes.error || areasRes.error) {
+      toast({
+        title: 'Error al cargar coworking',
+        description: (sessionsRes.error || areasRes.error)?.message,
+        variant: 'destructive',
+      });
+      setLoadingCowork(false);
+      return;
+    }
+
     const sessions = sessionsRes.data ?? [];
     const areas = areasRes.data ?? [];
     const cap = areas.reduce((s, a) => s + a.capacidad_pax, 0);
     setTotalCapacidad(cap);
+    setCoworkLimitHit(sessions.length >= COWORK_LIMIT);
+
+    // Truncate "fin" to now() for active sessions to avoid inflating future hours.
+    const nowMs = Date.now();
 
     // For each day-hour slot in range, count pax of overlapping sessions
     const map: CoworkHeatmap = {};
@@ -138,14 +174,22 @@ export default function VentasTab() {
         const slotEnd = new Date(day);
         slotEnd.setHours(hora, 59, 59, 999);
 
+        // Skip future slots entirely (avoids forecasted occupancy)
+        if (slotStart.getTime() > nowMs) {
+          const key = `${diaIdx}-${hora}`;
+          if (!map[key]) map[key] = { personas: 0 };
+          return;
+        }
+
         let personas = 0;
         sessions.forEach(s => {
-          const inicio = new Date(s.fecha_inicio);
-          const fin = s.fecha_salida_real
-            ? new Date(s.fecha_salida_real)
-            : new Date(s.fecha_fin_estimada);
-          // Session overlaps slot if inicio < slotEnd AND fin > slotStart
-          if (inicio <= slotEnd && fin >= slotStart) {
+          const inicio = new Date(s.fecha_inicio).getTime();
+          // For sessions still active (no salida real), cap "fin" at now()
+          // so we don't count hours that haven't happened yet.
+          const finRaw = s.fecha_salida_real
+            ? new Date(s.fecha_salida_real).getTime()
+            : Math.min(new Date(s.fecha_fin_estimada).getTime(), nowMs);
+          if (inicio <= slotEnd.getTime() && finRaw >= slotStart.getTime()) {
             personas += s.pax_count;
           }
         });
@@ -261,6 +305,20 @@ export default function VentasTab() {
           </CardContent>
         </Card>
       </div>
+
+      {(retailLimitHit || coworkLimitHit) && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Período con muchos registros</p>
+            <p className="text-xs opacity-90">
+              Se alcanzó el límite de carga ({retailLimitHit ? `${RETAIL_LIMIT.toLocaleString('es-MX')} ventas` : ''}
+              {retailLimitHit && coworkLimitHit ? ' y ' : ''}
+              {coworkLimitHit ? `${COWORK_LIMIT.toLocaleString('es-MX')} sesiones` : ''}). Los totales mostrados pueden estar incompletos. Reduce el rango.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
