@@ -30,6 +30,7 @@ interface VentaTurno {
   fecha: string;
   motivo_cancelacion: string | null;
   coworking_session_id: string | null;
+  usuario_id?: string;
 }
 
 interface Props {
