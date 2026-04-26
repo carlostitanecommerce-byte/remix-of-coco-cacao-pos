@@ -67,8 +67,7 @@ export default function VentasTab() {
       .select('id, fecha, total_neto')
       .eq('estado', 'completada')
       .gte('fecha', desdeISO)
-      .lte('fecha', hastaISO)
-      .abortSignal(signal ?? new AbortController().signal);
+      .lte('fecha', hastaISO);
 
     if (signal?.aborted) return;
 
