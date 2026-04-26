@@ -121,7 +121,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     return result;
   }, [session, items]);
 
-  const handleRestoreAmenity = async (amenity: any) => {
+  const handleRestoreAmenity = (amenity: any) => withLock(() => doRestoreAmenity(amenity));
+  const doRestoreAmenity = async (amenity: any) => {
     if (!session) return;
     const validacion = await verificarStock(amenity.producto_id, 1);
     if (!validacion.valido) {
