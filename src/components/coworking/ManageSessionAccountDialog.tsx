@@ -341,7 +341,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
   const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
 
-  const handleSavePax = async () => {
+  const handleSavePax = () => withLock(async () => {
     if (!session) return;
     const pax = parseInt(tempPax, 10);
     if (isNaN(pax) || pax < 1) {
