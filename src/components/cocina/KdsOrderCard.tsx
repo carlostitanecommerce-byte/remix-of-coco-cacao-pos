@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee } from 'lucide-react';
+import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface KdsOrderItem {
@@ -16,12 +16,17 @@ export type KdsEstado = 'pendiente' | 'en_preparacion' | 'listo';
 
 export interface KdsOrder {
   id: string;
-  venta_id: string;
+  venta_id: string | null;
   folio: number;
   tipo_consumo: string;
   estado: KdsEstado;
   created_at: string;
   items: KdsOrderItem[];
+  /** Si proviene de coworking, id de la sesión origen */
+  coworking_session_id?: string | null;
+  /** Metadatos enriquecidos desde la sesión coworking (cliente y área) */
+  coworking_cliente?: string | null;
+  coworking_area?: string | null;
 }
 
 interface Props {
@@ -83,22 +88,34 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, busy }: Pr
       ? 'border-primary/60 bg-primary/5'
       : urgencyStyles[urgency];
 
+  const isCoworking = !!order.coworking_session_id;
+  const coworkingCardStyle = isCoworking && !isReady && !isInProgress
+    ? 'border-amber-500/60 bg-amber-500/10 shadow-amber-500/20'
+    : '';
+
   return (
     <Card
       role="article"
       aria-label={`Orden #${String(order.folio).padStart(4, '0')}, ${tipoLabel[order.tipo_consumo] || order.tipo_consumo}, ${order.estado}, ${minutes} minutos ${seconds} segundos`}
-      className={cn('border-2 transition-all duration-300', cardStyle)}
+      className={cn('border-2 transition-all duration-300', cardStyle, coworkingCardStyle)}
     >
       <CardHeader className="pb-2 pt-3 px-4">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <span className="text-lg font-bold font-mono text-foreground">
               #{String(order.folio).padStart(4, '0')}
             </span>
-            <Badge variant="outline" className="text-xs font-normal gap-1">
-              <ConsumoIcon tipo={order.tipo_consumo} />
-              {tipoLabel[order.tipo_consumo] || order.tipo_consumo}
-            </Badge>
+            {isCoworking ? (
+              <Badge className="text-xs font-semibold gap-1 bg-amber-500/90 text-amber-50 hover:bg-amber-500/90 border-0">
+                <Building2 className="h-3 w-3" />
+                Coworking
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs font-normal gap-1">
+                <ConsumoIcon tipo={order.tipo_consumo} />
+                {tipoLabel[order.tipo_consumo] || order.tipo_consumo}
+              </Badge>
+            )}
           </div>
           {!isReady && (
             <div className={cn('flex items-center gap-1 text-sm shrink-0', timerColor[urgency])}>
@@ -114,6 +131,19 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, busy }: Pr
             </Badge>
           )}
         </div>
+        {isCoworking && (order.coworking_cliente || order.coworking_area) && (
+          <div className="mt-1.5 flex items-center gap-1.5 text-xs text-foreground/80 font-medium">
+            {order.coworking_cliente && (
+              <span className="truncate">{order.coworking_cliente}</span>
+            )}
+            {order.coworking_cliente && order.coworking_area && (
+              <span className="text-muted-foreground">·</span>
+            )}
+            {order.coworking_area && (
+              <span className="text-muted-foreground truncate">{order.coworking_area}</span>
+            )}
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="px-4 pb-3 space-y-2">

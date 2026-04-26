@@ -190,6 +190,35 @@ export default function CocinaPage() {
       });
     });
 
+    // Enriquecer con metadatos de coworking (cliente + área) para órdenes
+    // que vengan de una sesión, sin un join adicional pesado.
+    const cwSessionIds = Array.from(new Set(
+      rawOrders.map((o: any) => o.coworking_session_id).filter((x: any) => !!x),
+    )) as string[];
+    const cwMeta = new Map<string, { cliente: string | null; area: string | null }>();
+    if (cwSessionIds.length > 0) {
+      const { data: sessions } = await supabase
+        .from('coworking_sessions')
+        .select('id, cliente_nombre, area_id')
+        .in('id', cwSessionIds);
+      const areaIds = Array.from(new Set((sessions ?? []).map((s: any) => s.area_id).filter(Boolean))) as string[];
+      const areaNameById = new Map<string, string>();
+      if (areaIds.length > 0) {
+        const { data: areas } = await supabase
+          .from('areas_coworking')
+          .select('id, nombre_area')
+          .in('id', areaIds);
+        (areas ?? []).forEach((a: any) => areaNameById.set(a.id, a.nombre_area));
+      }
+      (sessions ?? []).forEach((s: any) => {
+        cwMeta.set(s.id, {
+          cliente: s.cliente_nombre ?? null,
+          area: areaNameById.get(s.area_id) ?? null,
+        });
+      });
+    }
+    if (myToken !== fetchTokenRef.current) return;
+
     const mapped: KdsOrder[] = rawOrders.map((o: any) => ({
       id: o.id,
       venta_id: o.venta_id,
@@ -198,6 +227,9 @@ export default function CocinaPage() {
       estado: o.estado as KdsEstado,
       created_at: o.created_at,
       items: itemsByOrder[o.id] || [],
+      coworking_session_id: o.coworking_session_id ?? null,
+      coworking_cliente: o.coworking_session_id ? cwMeta.get(o.coworking_session_id)?.cliente ?? null : null,
+      coworking_area: o.coworking_session_id ? cwMeta.get(o.coworking_session_id)?.area ?? null : null,
     }));
 
     if (!initialLoad.current) {
@@ -232,10 +264,40 @@ export default function CocinaPage() {
       cantidad: it.cantidad,
       notas: it.notas,
     }));
+
+    // Enriquecer con datos de coworking si aplica
+    let cwCliente: string | null = null;
+    let cwArea: string | null = null;
+    const cwSessionId = (o as any).coworking_session_id ?? null;
+    if (cwSessionId) {
+      const { data: s } = await supabase
+        .from('coworking_sessions')
+        .select('cliente_nombre, area_id')
+        .eq('id', cwSessionId)
+        .maybeSingle();
+      if (s) {
+        cwCliente = (s as any).cliente_nombre ?? null;
+        if ((s as any).area_id) {
+          const { data: a } = await supabase
+            .from('areas_coworking')
+            .select('nombre_area')
+            .eq('id', (s as any).area_id)
+            .maybeSingle();
+          cwArea = (a as any)?.nombre_area ?? null;
+        }
+      }
+    }
+
     setOrders((prev) => {
       if (prev.some((x) => x.id === o.id)) {
-        // Ya existe (insert optimista anterior); reemplaza items
-        return prev.map((x) => (x.id === o.id ? { ...x, items } : x));
+        // Ya existe (insert optimista anterior); reemplaza items + meta
+        return prev.map((x) => (x.id === o.id ? {
+          ...x,
+          items,
+          coworking_session_id: cwSessionId,
+          coworking_cliente: cwCliente ?? x.coworking_cliente,
+          coworking_area: cwArea ?? x.coworking_area,
+        } : x));
       }
       const next: KdsOrder = {
         id: o.id,
@@ -245,6 +307,9 @@ export default function CocinaPage() {
         estado: o.estado as KdsEstado,
         created_at: (o as any).created_at,
         items,
+        coworking_session_id: cwSessionId,
+        coworking_cliente: cwCliente,
+        coworking_area: cwArea,
       };
       knownIds.current.add(o.id);
       return [...prev, next].sort(
@@ -309,6 +374,9 @@ export default function CocinaPage() {
               estado: o.estado as KdsEstado,
               created_at: o.created_at,
               items: [],
+              coworking_session_id: o.coworking_session_id ?? null,
+              coworking_cliente: null,
+              coworking_area: null,
             };
             return [...prev, next].sort(
               (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
@@ -318,6 +386,10 @@ export default function CocinaPage() {
             playNewOrderSound();
           }
           knownIds.current.add(o.id);
+          // Si es coworking, hidratamos cliente/área de forma asíncrona
+          if (o.coworking_session_id) {
+            fetchSingleOrder(o.id);
+          }
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
           const next = payload.new;

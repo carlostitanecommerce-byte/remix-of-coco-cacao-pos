@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -67,6 +67,24 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const [isEditingPax, setIsEditingPax] = useState(false);
   const [tempPax, setTempPax] = useState('');
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
+  // Lock anti doble-clic: serializa todas las mutaciones del diálogo (agregar,
+  // quitar, ajustar cantidad, recalcular amenities, editar pax). Evita que un
+  // usuario impaciente envíe el mismo cambio dos veces y duplique items o
+  // comandas KDS.
+  const mutationLockRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+
+  const withLock = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    if (mutationLockRef.current) return undefined;
+    mutationLockRef.current = true;
+    setBusy(true);
+    try {
+      return await fn();
+    } finally {
+      mutationLockRef.current = false;
+      setBusy(false);
+    }
+  };
 
   // Snapshot de upsells disponibles para esta sesión (precio congelado al check-in)
   const upsellsMap = useMemo(() => {
@@ -103,7 +121,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     return result;
   }, [session, items]);
 
-  const handleRestoreAmenity = async (amenity: any) => {
+  const handleRestoreAmenity = (amenity: any) => withLock(() => doRestoreAmenity(amenity));
+  const doRestoreAmenity = async (amenity: any) => {
     if (!session) return;
     const validacion = await verificarStock(amenity.producto_id, 1);
     if (!validacion.valido) {
@@ -113,7 +132,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
     if (amenity.currentItemId) {
       const item = items.find(i => i.id === amenity.currentItemId);
-      if (item) await handleUpdateQuantity(item, 1);
+      if (item) await doUpdateQuantity(item, 1);
     } else {
       const { data, error } = await supabase
         .from('coworking_session_upsells')
@@ -195,7 +214,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     return { precio: precioVenta, isSpecial: false };
   };
 
-  const handleAdd = async (producto: Producto) => {
+  const handleAdd = (producto: Producto) => withLock(() => doAdd(producto));
+  const doAdd = async (producto: Producto) => {
     if (!session) return;
     const validacion = await verificarStock(producto.id, 1);
     if (!validacion.valido) {
@@ -248,7 +268,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     });
   };
 
-  const handleRemove = async (item: SessionItem) => {
+  const handleRemove = (item: SessionItem) => withLock(() => doRemove(item));
+  const doRemove = async (item: SessionItem) => {
     const { error } = await supabase
       .from('coworking_session_upsells')
       .delete()
@@ -262,7 +283,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     toast({ title: 'Eliminado' });
   };
 
-  const handleUpdateQuantity = async (item: SessionItem, delta: number) => {
+  const handleUpdateQuantity = (item: SessionItem, delta: number) => withLock(() => doUpdateQuantity(item, delta));
+  const doUpdateQuantity = async (item: SessionItem, delta: number) => {
     const newQty = item.cantidad + delta;
     if (newQty < 0) return;
 
@@ -319,7 +341,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
   const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
 
-  const handleSavePax = async () => {
+  const handleSavePax = () => withLock(async () => {
     if (!session) return;
     const pax = parseInt(tempPax, 10);
     if (isNaN(pax) || pax < 1) {
@@ -351,9 +373,9 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     if (pax !== oldPax && Array.isArray(amenities) && amenities.length > 0) {
       setPendingAmenityUpdate({ newPax: pax, oldPax });
     }
-  };
+  });
 
-  const handleConfirmAmenityRecalc = async () => {
+  const handleConfirmAmenityRecalc = () => withLock(async () => {
     if (!pendingAmenityUpdate || !session) return;
     const { newPax: pax, oldPax } = pendingAmenityUpdate;
     const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
@@ -451,7 +473,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       })),
     );
     await onSuccess?.();
-  };
+  });
 
   const handleClose = () => {
     setIsEditingPax(false);
@@ -489,7 +511,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                     className="h-7 w-16 text-sm"
                     autoFocus
                   />
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSavePax} title="Guardar">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSavePax} disabled={busy} title="Guardar">
                     <Check className="h-4 w-4" />
                   </Button>
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPax(false)} title="Cancelar">
@@ -573,6 +595,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => handleUpdateQuantity(item, -1)}
+                            disabled={busy}
                             title="Disminuir"
                           >
                             <Minus className="h-3 w-3" />
@@ -583,6 +606,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => handleUpdateQuantity(item, 1)}
+                            disabled={busy}
                             title="Aumentar"
                           >
                             <Plus className="h-3 w-3" />
@@ -593,6 +617,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                           size="sm"
                           className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                           onClick={() => handleRemove(item)}
+                          disabled={busy}
                           title="Eliminar"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -620,7 +645,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                       <span className="font-medium text-foreground">{ma.nombre || 'Amenity'}</span>
                       <span className="text-xs text-muted-foreground ml-2">Disponibles: {ma.disponible}</span>
                     </div>
-                    <Button size="sm" variant="outline" className="h-7 border-primary/30 text-primary hover:bg-primary/10" onClick={() => handleRestoreAmenity(ma)}>
+                    <Button size="sm" variant="outline" className="h-7 border-primary/30 text-primary hover:bg-primary/10" onClick={() => handleRestoreAmenity(ma)} disabled={busy}>
                       <Plus className="h-3 w-3 mr-1" /> Reclamar
                     </Button>
                   </div>
@@ -678,7 +703,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-foreground font-medium">${precio.toFixed(2)}</span>
-                        <Button size="sm" variant="outline" className="h-7" onClick={() => handleAdd(p)}>
+                        <Button size="sm" variant="outline" className="h-7" onClick={() => handleAdd(p)} disabled={busy}>
                           <Plus className="h-3 w-3 mr-1" />
                           Agregar
                         </Button>

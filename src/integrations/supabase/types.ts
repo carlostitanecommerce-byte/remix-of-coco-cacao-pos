@@ -1131,6 +1131,10 @@ export type Database = {
         Returns: boolean
       }
       next_kds_coworking_folio: { Args: never; Returns: number }
+      reabrir_sesion_coworking: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
       validar_stock_carrito: { Args: { p_items: Json }; Returns: Json }
       validar_stock_disponible: {
         Args: { p_cantidad: number; p_producto_id: string }

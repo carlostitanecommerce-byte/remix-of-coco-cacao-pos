@@ -12,7 +12,7 @@ export function useCoworkingData() {
   const fetchData = useCallback(async () => {
     const [areasRes, sessionsRes, reservRes] = await Promise.all([
       supabase.from('areas_coworking').select('*').order('nombre_area'),
-      supabase.from('coworking_sessions').select('*').eq('estado', 'activo'),
+      supabase.from('coworking_sessions').select('*').in('estado', ['activo', 'pendiente_pago'] as any),
       supabase.from('coworking_reservaciones').select('*').in('estado', ['pendiente', 'confirmada']).order('fecha_reserva'),
     ]);
     setAreas((areasRes.data as Area[]) ?? []);
