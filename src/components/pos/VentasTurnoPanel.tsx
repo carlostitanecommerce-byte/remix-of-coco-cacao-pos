@@ -49,7 +49,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
     const { desdeISO, hastaISO } = cdmxDateRange(selectedDate, selectedDate);
     const { data } = await supabase
       .from('ventas')
-      .select('id, folio, total_neto, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id')
+      .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id')
       .eq('estado', 'completada')
       .gte('fecha', desdeISO)
       .lte('fecha', hastaISO)
