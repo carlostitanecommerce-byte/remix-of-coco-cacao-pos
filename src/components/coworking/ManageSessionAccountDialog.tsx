@@ -374,6 +374,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       setPendingAmenityUpdate({ newPax: pax, oldPax });
     }
   });
+
+  const handleConfirmAmenityRecalc = () => withLock(async () => {
     if (!pendingAmenityUpdate || !session) return;
     const { newPax: pax, oldPax } = pendingAmenityUpdate;
     const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
