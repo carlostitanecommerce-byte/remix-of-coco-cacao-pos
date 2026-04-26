@@ -13,6 +13,7 @@ import { Loader2, Wallet, ArrowUpCircle, ArrowDownCircle, Clock, AlertTriangle, 
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { fetchCajaResumen, type CajaTurnoResumen } from '@/lib/cajaUtils';
 
 export default function CajaTab() {
@@ -24,20 +25,35 @@ export default function CajaTab() {
   const [turnos, setTurnos] = useState<CajaTurnoResumen[]>([]);
   const [selectedCajaId, setSelectedCajaId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
+    const ctrl = new AbortController();
     (async () => {
       setLoading(true);
-      const data = await fetchCajaResumen(desde, hasta);
-      setTurnos(data);
-      if (data.length > 0) {
-        const active = data.find(t => t.caja.estado === 'abierta');
-        setSelectedCajaId(active?.caja.id ?? data[0].caja.id);
-      } else {
-        setSelectedCajaId('');
+      setTruncated(false);
+      try {
+        const { turnos: data, truncated: tr } = await fetchCajaResumen(desde, hasta, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setTurnos(data);
+        setTruncated(tr);
+        if (data.length > 0) {
+          const active = data.find(t => t.caja.estado === 'abierta');
+          setSelectedCajaId(active?.caja.id ?? data[0].caja.id);
+        } else {
+          setSelectedCajaId('');
+        }
+      } catch (err: any) {
+        if (ctrl.signal.aborted || err?.name === 'AbortError') return;
+        console.error('[CajaTab] fetchCajaResumen error', err);
+        toast.error('No se pudo cargar el reporte de caja', {
+          description: err?.message ?? 'Error de conexión con el servidor.',
+        });
+      } finally {
+        if (!ctrl.signal.aborted) setLoading(false);
       }
-      setLoading(false);
     })();
+    return () => ctrl.abort();
   }, [desde, hasta]);
 
   // Global consolidated summary
@@ -80,6 +96,15 @@ export default function CajaTab() {
           </div>
         </CardContent>
       </Card>
+
+      {truncated && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Volumen de datos elevado: se alcanzó el límite de carga del periodo. Algunos registros pueden no estar incluidos. Reduce el rango para mayor exactitud.
+          </span>
+        </div>
+      )}
 
       {/* Consolidated Summary */}
       {turnos.length > 0 && (
