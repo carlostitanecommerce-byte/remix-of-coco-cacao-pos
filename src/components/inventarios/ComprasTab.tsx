@@ -41,6 +41,8 @@ interface Props {
   isAdmin: boolean;
 }
 
+const PAGE_SIZE = 50;
+
 const ComprasTab = ({ isAdmin }: Props) => {
   const { user } = useAuth();
   const [compras, setCompras] = useState<CompraRow[]>([]);
@@ -49,6 +51,10 @@ const ComprasTab = ({ isAdmin }: Props) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busqueda, setBusqueda] = useState('');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
   // Form state
   const [selectedInsumoId, setSelectedInsumoId] = useState('');
@@ -69,12 +75,29 @@ const ComprasTab = ({ isAdmin }: Props) => {
 
   const fetchData = async () => {
     setLoading(true);
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    let comprasQuery = supabase
+      .from('compras_insumos')
+      .select('*', { count: 'exact' })
+      .order('fecha', { ascending: false })
+      .range(from, to);
+
+    if (fechaDesde) {
+      comprasQuery = comprasQuery.gte('fecha', `${fechaDesde}T00:00:00`);
+    }
+    if (fechaHasta) {
+      comprasQuery = comprasQuery.lte('fecha', `${fechaHasta}T23:59:59`);
+    }
+
     const [insumosRes, comprasRes] = await Promise.all([
       supabase.from('insumos').select('id, nombre, unidad_medida, presentacion, costo_presentacion, cantidad_por_presentacion, stock_actual').order('nombre'),
-      supabase.from('compras_insumos').select('*').order('fecha', { ascending: false }).limit(200),
+      comprasQuery,
     ]);
 
     if (insumosRes.data) setInsumos(insumosRes.data);
+    setTotalCount(comprasRes.count ?? 0);
 
     if (comprasRes.data && insumosRes.data) {
       const insumoMap = new Map(insumosRes.data.map((i) => [i.id, i.nombre]));
@@ -104,7 +127,10 @@ const ComprasTab = ({ isAdmin }: Props) => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, fechaDesde, fechaHasta]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const resetForm = () => {
     setSelectedInsumoId('');
