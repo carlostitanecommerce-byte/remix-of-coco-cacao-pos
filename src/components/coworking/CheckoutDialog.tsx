@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +19,8 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const inFlightRef = useRef(false);
 
   if (!summary) return null;
 
@@ -29,18 +32,23 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
 
   const handleConfirm = async () => {
     if (!user) return;
-    const { error } = await supabase
-      .from('coworking_sessions')
-      .update({
-        estado: 'pendiente_pago' as any,
-        fecha_salida_real: nowCDMX(),
-        monto_acumulado: summary.total,
-      })
-      .eq('id', summary.session.id);
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setConfirming(true);
+    try {
+      const { error } = await supabase
+        .from('coworking_sessions')
+        .update({
+          estado: 'pendiente_pago' as any,
+          fecha_salida_real: nowCDMX(),
+          monto_acumulado: summary.total,
+        })
+        .eq('id', summary.session.id);
 
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } else {
+      if (error) {
+        toast({ variant: 'destructive', title: 'Error', description: error.message });
+        return;
+      }
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         accion: 'checkout_coworking',
@@ -62,6 +70,9 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
       onClose();
       await onSuccess?.();
       navigate(`/pos?session=${summary.session.id}`);
+    } finally {
+      setConfirming(false);
+      inFlightRef.current = false;
     }
   };
 
@@ -139,7 +150,9 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
             </div>
           </div>
 
-          <Button onClick={handleConfirm} className="w-full">Finalizar Estancia y Pasar a Caja</Button>
+          <Button onClick={handleConfirm} className="w-full" disabled={confirming}>
+            {confirming ? 'Procesando...' : 'Finalizar Estancia y Pasar a Caja'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

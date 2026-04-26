@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -67,6 +67,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [paxCount, setPaxCount] = useState('1');
   const [horas, setHoras] = useState('1');
   const [creating, setCreating] = useState(false);
+  const inFlightRef = useRef(false);
 
   // Tarifa & upsell state
   const [tarifas, setTarifas] = useState<Tarifa[]>([]);
@@ -160,81 +161,100 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setCreating(true);
 
-    const pax = parseInt(paxCount, 10);
-    const horasNum = parseFloat(horas);
-    const available = getAvailablePax(selectedAreaId);
+    try {
+      const pax = parseInt(paxCount, 10);
+      const horasNum = parseFloat(horas);
+      const available = getAvailablePax(selectedAreaId);
 
-    if (selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
-      toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
-      setCreating(false);
-      return;
-    }
+      if (selectedArea?.es_privado && available < selectedArea.capacidad_pax) {
+        toast({ variant: 'destructive', title: 'Área privada ocupada', description: 'Este espacio ya tiene una sesión activa.' });
+        return;
+      }
 
-    if (!selectedArea?.es_privado && pax > available) {
-      toast({ variant: 'destructive', title: 'Capacidad excedida', description: `Solo hay ${available} lugar(es) disponible(s).` });
-      setCreating(false);
-      return;
-    }
+      if (!selectedArea?.es_privado && pax > available) {
+        toast({ variant: 'destructive', title: 'Capacidad excedida', description: `Solo hay ${available} lugar(es) disponible(s).` });
+        return;
+      }
 
-    const fechaInicio = new Date();
-    const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
+      const fechaInicio = new Date();
+      const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
 
-    const firstUpsell = extraItems.find(i => i.isSpecial) ?? null;
+      const firstUpsell = extraItems.find(i => i.isSpecial) ?? null;
 
-    // Build immutable tarifa snapshot at check-in time
-    const selectedTarifa = selectedTarifaId
-      ? tarifas.find(t => t.id === selectedTarifaId) ?? null
-      : null;
-    const tarifaSnapshot = selectedTarifa
-      ? {
-          ...selectedTarifa,
-          amenities: amenityOptions,
-          upsells_disponibles: upsellOptions,
-          snapshot_at: new Date().toISOString(),
-        }
-      : null;
+      // Build immutable tarifa snapshot at check-in time
+      const selectedTarifa = selectedTarifaId
+        ? tarifas.find(t => t.id === selectedTarifaId) ?? null
+        : null;
+      const tarifaSnapshot = selectedTarifa
+        ? {
+            ...selectedTarifa,
+            amenities: amenityOptions,
+            upsells_disponibles: upsellOptions,
+            snapshot_at: new Date().toISOString(),
+          }
+        : null;
 
-    const { data: sessionData, error } = await supabase.from('coworking_sessions').insert({
-      cliente_nombre: clienteNombre.trim(),
-      area_id: selectedAreaId,
-      pax_count: pax,
-      usuario_id: user.id,
-      fecha_inicio: dateToCDMX(fechaInicio),
-      fecha_fin_estimada: dateToCDMX(fechaFinEstimada),
-      estado: 'activo',
-      monto_acumulado: 0,
-      tarifa_id: selectedTarifaId || null,
-      tarifa_snapshot: tarifaSnapshot,
-      upsell_producto_id: firstUpsell?.producto_id ?? null,
-      upsell_precio: firstUpsell?.precio ?? null,
-    } as any).select('id').single();
+      const { data: sessionData, error } = await supabase.from('coworking_sessions').insert({
+        cliente_nombre: clienteNombre.trim(),
+        area_id: selectedAreaId,
+        pax_count: pax,
+        usuario_id: user.id,
+        fecha_inicio: dateToCDMX(fechaInicio),
+        fecha_fin_estimada: dateToCDMX(fechaFinEstimada),
+        estado: 'activo',
+        monto_acumulado: 0,
+        tarifa_id: selectedTarifaId || null,
+        tarifa_snapshot: tarifaSnapshot,
+        upsell_producto_id: firstUpsell?.producto_id ?? null,
+        upsell_precio: firstUpsell?.precio ?? null,
+      } as any).select('id').single();
 
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } else {
-      if (sessionData) {
-        // Insert extra items (upsells de tarifa o consumos a precio regular)
-        for (const it of extraItems) {
-          await supabase.from('coworking_session_upsells').insert({
-            session_id: sessionData.id,
-            producto_id: it.producto_id,
-            precio_especial: it.precio,
-            cantidad: 1,
+      if (error || !sessionData) {
+        toast({ variant: 'destructive', title: 'Error', description: error?.message ?? 'No se pudo crear la sesión' });
+        return;
+      }
+
+      // Batch insert extras + amenities con rollback explícito si falla
+      const upsellRows: any[] = [];
+      for (const it of extraItems) {
+        upsellRows.push({
+          session_id: sessionData.id,
+          producto_id: it.producto_id,
+          precio_especial: it.precio,
+          cantidad: 1,
+        });
+      }
+      for (const a of amenityOptions) {
+        const qty = a.cantidad_incluida * pax;
+        upsellRows.push({
+          session_id: sessionData.id,
+          producto_id: a.producto_id,
+          precio_especial: 0,
+          cantidad: qty,
+        });
+      }
+
+      if (upsellRows.length > 0) {
+        const { error: upsellErr } = await supabase
+          .from('coworking_session_upsells')
+          .insert(upsellRows);
+
+        if (upsellErr) {
+          // Rollback: borrar la sesión recién creada para evitar cuenta inconsistente
+          await supabase.from('coworking_sessions').delete().eq('id', sessionData.id);
+          toast({
+            variant: 'destructive',
+            title: 'Error al añadir productos',
+            description: `${upsellErr.message}. La sesión fue revertida; intenta de nuevo.`,
           });
-        }
-        // Insert amenities con cantidad automática (cantidad_incluida * pax)
-        for (const a of amenityOptions) {
-          const qty = a.cantidad_incluida * pax;
-          await supabase.from('coworking_session_upsells').insert({
-            session_id: sessionData.id,
-            producto_id: a.producto_id,
-            precio_especial: 0,
-            cantidad: qty,
-          });
+          return;
         }
       }
+
       await supabase.from('audit_logs').insert({
         user_id: user.id, accion: 'checkin_coworking',
         descripcion: `Check-in: ${clienteNombre.trim()} (${pax} pax)`,
@@ -259,11 +279,13 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
       setSelectedTarifaId(''); setExtraItems([]); setSearch('');
       setAmenityOptions([]);
-      
+
       setOpen(false);
       await onSuccess?.();
+    } finally {
+      setCreating(false);
+      inFlightRef.current = false;
     }
-    setCreating(false);
   };
 
   const paxMax = selectedArea
