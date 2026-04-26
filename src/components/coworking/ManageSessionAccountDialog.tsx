@@ -296,6 +296,25 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       return;
     }
     setItems(prev => prev.map(i => (i.id === item.id ? { ...i, cantidad: newQty } : i)));
+
+    // Si fue un incremento, mandar el delta a cocina como nueva comanda
+    if (delta > 0 && session) {
+      const kdsRes = await enviarASesionKDS({
+        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
+        items: [{
+          producto_id: item.producto_id,
+          nombre: item.nombre,
+          cantidad: delta,
+          isAmenity: item.precio_especial === 0,
+        }],
+      });
+      if (kdsRes.folio) {
+        toast({
+          title: 'Cantidad actualizada',
+          description: `+${delta} a cocina (#${String(kdsRes.folio).padStart(4, '0')})`,
+        });
+      }
+    }
   };
 
   const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
