@@ -113,10 +113,10 @@ export async function aplicarEntregasComoMermas(params: {
       metadata: {
         session_id: sessionId,
         motivo_cancelacion: motivoCancelacion,
-        entregados,
+        entregados: entregados as any,
         mermas_creadas: mermasCreadas,
         errores,
-      },
+      } as any,
     }]);
   }
 
