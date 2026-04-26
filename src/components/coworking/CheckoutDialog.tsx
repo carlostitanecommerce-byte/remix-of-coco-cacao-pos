@@ -150,7 +150,9 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
             </div>
           </div>
 
-          <Button onClick={handleConfirm} className="w-full">Finalizar Estancia y Pasar a Caja</Button>
+          <Button onClick={handleConfirm} className="w-full" disabled={confirming}>
+            {confirming ? 'Procesando...' : 'Finalizar Estancia y Pasar a Caja'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
