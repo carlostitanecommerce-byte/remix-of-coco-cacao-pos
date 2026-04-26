@@ -19,11 +19,15 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
   const { user, profile } = useAuth();
   const [saving, setSaving] = useState(false);
   const [ticket, setTicket] = useState<VentaSummary | null>(null);
+  const inFlightRef = useRef(false);
 
   if (!summary && !ticket) return null;
 
   const handleConfirm = async () => {
     if (!user || !summary) return;
+    // Anti doble-clic: lock síncrono que bloquea aunque setState aún no haya hecho re-render
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setSaving(true);
     try {
       // 0. Pre-validar inventario unificado vía RPC (considera consumos comprometidos en coworking)
