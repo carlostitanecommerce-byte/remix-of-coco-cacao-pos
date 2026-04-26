@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { useAuth } from '@/hooks/useAuth';
@@ -17,6 +17,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download } from 'lucide-react';
@@ -223,29 +227,55 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     fetchProductos();
   };
 
-  const handleDelete = async (p: Producto) => {
-    if (!confirm(`¿Eliminar "${p.nombre}"?`)) return;
+  const [deleteCandidate, setDeleteCandidate] = useState<Producto | null>(null);
+  const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
 
-    // Bloquear si el producto está usado en algún paquete
-    const { data: enPaquetes } = await supabase
-      .from('paquete_componentes')
-      .select('paquete_id')
-      .eq('producto_id', p.id);
+  const checkAndPromptDelete = async (p: Producto) => {
+    setDeleteBlock(null);
 
-    if (enPaquetes && enPaquetes.length > 0) {
-      const paqueteIds = [...new Set(enPaquetes.map((r: any) => r.paquete_id))];
-      const { data: paqs } = await supabase
-        .from('productos')
-        .select('nombre')
-        .in('id', paqueteIds);
-      const nombres = (paqs ?? []).map((r: any) => r.nombre).join(', ');
-      toast.error(`No se puede eliminar: forma parte de ${paqueteIds.length} paquete(s)${nombres ? `: ${nombres}` : ''}`);
+    // Bloqueos por dependencias
+    const [paqRes, upsellRes, amenityRes, sesionRes] = await Promise.all([
+      supabase.from('paquete_componentes').select('paquete_id').eq('producto_id', p.id),
+      supabase.from('tarifa_upsells').select('tarifa_id').eq('producto_id', p.id),
+      supabase.from('tarifa_amenities_incluidos').select('tarifa_id').eq('producto_id', p.id),
+      supabase.from('coworking_session_upsells')
+        .select('session_id, coworking_sessions!inner(estado)')
+        .eq('producto_id', p.id)
+        .eq('coworking_sessions.estado', 'activo'),
+    ]);
+
+    const bloqueos: string[] = [];
+    if (paqRes.data && paqRes.data.length > 0) bloqueos.push(`forma parte de ${paqRes.data.length} paquete(s)`);
+    if (upsellRes.data && upsellRes.data.length > 0) bloqueos.push(`está configurado como upsell en ${upsellRes.data.length} tarifa(s)`);
+    if (amenityRes.data && amenityRes.data.length > 0) bloqueos.push(`es amenity incluido en ${amenityRes.data.length} tarifa(s)`);
+    if (sesionRes.data && sesionRes.data.length > 0) bloqueos.push(`está consumido en ${sesionRes.data.length} sesión(es) activa(s) de coworking`);
+
+    if (bloqueos.length > 0) {
+      setDeleteBlock(`No se puede eliminar "${p.nombre}" porque ${bloqueos.join(', ')}.`);
+      setDeleteCandidate(p);
       return;
     }
+    setDeleteCandidate(p);
+  };
 
-    const { error } = await supabase.from('productos').delete().eq('id', p.id);
+  const confirmDelete = async () => {
+    if (!deleteCandidate) return;
+    const { error } = await supabase.from('productos').delete().eq('id', deleteCandidate.id);
     if (error) toast.error('Error al eliminar producto');
-    else { toast.success('Producto eliminado'); fetchProductos(); }
+    else {
+      toast.success('Producto eliminado');
+      if (user) {
+        await supabase.from('audit_logs').insert({
+          user_id: user.id,
+          accion: 'eliminar_producto',
+          descripcion: `Producto eliminado: ${deleteCandidate.nombre}`,
+          metadata: { producto_id: deleteCandidate.id, producto_nombre: deleteCandidate.nombre },
+        });
+      }
+      fetchProductos();
+    }
+    setDeleteCandidate(null);
+    setDeleteBlock(null);
   };
 
   const toggleReceta = async (productoId: string) => {
@@ -389,7 +419,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                 return filtrados.length === 0 ? (
                   <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados para la búsqueda' : 'Sin productos registrados'}</TableCell></TableRow>
                 ) : filtrados.map(p => (
-                <>
+                <Fragment key={p.id}>
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.nombre}</TableCell>
                     <TableCell>
@@ -419,7 +449,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(p)} title="Eliminar">
+                          <Button variant="ghost" size="icon" onClick={() => checkAndPromptDelete(p)} title="Eliminar">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
@@ -454,7 +484,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </Fragment>
               ));
               })()}
             </TableBody>
@@ -611,6 +641,27 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteBlock ? 'No se puede eliminar' : `¿Eliminar "${deleteCandidate?.nombre}"?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteBlock ?? 'Esta acción no se puede deshacer. El producto y su receta serán eliminados permanentemente.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cerrar</AlertDialogCancel>
+            {!deleteBlock && (
+              <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Eliminar
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

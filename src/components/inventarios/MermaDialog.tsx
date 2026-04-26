@@ -41,37 +41,17 @@ const MermaDialog = ({ open, onOpenChange, insumo, onSuccess }: Props) => {
 
     setSaving(true);
 
-    // Insertar merma
-    const { error: mermaError } = await supabase.from('mermas').insert({
-      insumo_id: insumo.id,
-      cantidad: cantidadNum,
-      motivo: motivo.trim(),
-      usuario_id: user!.id,
+    const { error } = await supabase.rpc('registrar_merma', {
+      p_insumo_id: insumo.id,
+      p_cantidad: cantidadNum,
+      p_motivo: motivo.trim(),
     });
 
-    if (mermaError) {
-      toast.error('Error al registrar merma');
+    if (error) {
+      toast.error(error.message || 'Error al registrar merma');
       setSaving(false);
       return;
     }
-
-    // Descontar del stock
-    const { error: stockError } = await supabase
-      .from('insumos')
-      .update({ stock_actual: insumo.stock_actual - cantidadNum })
-      .eq('id', insumo.id);
-
-    if (stockError) {
-      toast.error('Merma registrada pero error al actualizar stock');
-    }
-
-    // Audit log
-    await supabase.from('audit_logs').insert({
-      user_id: user!.id,
-      accion: 'registrar_merma',
-      descripcion: `Merma de ${cantidadNum} ${insumo.unidad_medida} de "${insumo.nombre}". Motivo: ${motivo.trim()}`,
-      metadata: { insumo_id: insumo.id, insumo_nombre: insumo.nombre, cantidad: cantidadNum, motivo: motivo.trim() },
-    });
 
     toast.success(`Merma registrada: ${cantidadNum} ${insumo.unidad_medida} de ${insumo.nombre}`);
     setSaving(false);
