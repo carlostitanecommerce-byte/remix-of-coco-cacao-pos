@@ -32,9 +32,8 @@ export default function VentasTab() {
   const [heatmap, setHeatmap] = useState<HeatmapData>({});
   const [coworkMap, setCoworkMap] = useState<CoworkHeatmap>({});
   const [totalCapacidad, setTotalCapacidad] = useState(0);
-  const [ventasDia, setVentasDia] = useState(0);
-  const [ventasMes, setVentasMes] = useState(0);
-  const [loadingKpis, setLoadingKpis] = useState(false);
+  const [periodoTotal, setPeriodoTotal] = useState(0);
+  const [periodoTransacciones, setPeriodoTransacciones] = useState(0);
 
   const handleSetPeriodo = (p: 'semana' | 'mes') => {
     setPeriodo(p);
@@ -51,100 +50,59 @@ export default function VentasTab() {
   }, [periodo, offset]);
 
   useEffect(() => {
-    fetchRetailData();
-    fetchCoworkData();
+    const ac = new AbortController();
+    fetchRetailData(ac.signal);
+    fetchCoworkData(ac.signal);
+    return () => ac.abort();
   }, [rango]);
 
-  // Fetch KPI data on mount
-  useEffect(() => {
-    fetchKpis();
-  }, []);
-
-  const fetchKpis = async () => {
-    setLoadingKpis(true);
-    const now = new Date();
-    const todayStart = format(startOfDay(now), 'yyyy-MM-dd') + 'T00:00:00-06:00';
-    const todayEnd = format(endOfDay(now), 'yyyy-MM-dd') + 'T23:59:59-06:00';
-    const monthStart = format(startOfMonth(now), 'yyyy-MM-dd') + 'T00:00:00-06:00';
-    const monthEnd = format(endOfMonth(now), 'yyyy-MM-dd') + 'T23:59:59-06:00';
-
-    const [diaRes, mesRes] = await Promise.all([
-      supabase
-        .from('ventas')
-        .select('total_neto, monto_propina')
-        .eq('estado', 'completada')
-        .gte('fecha', todayStart)
-        .lte('fecha', todayEnd),
-      supabase
-        .from('ventas')
-        .select('total_neto, monto_propina')
-        .eq('estado', 'completada')
-        .gte('fecha', monthStart)
-        .lte('fecha', monthEnd),
-    ]);
-
-    setVentasDia((diaRes.data ?? []).reduce((s, v) => s + v.total_neto + (v.monto_propina ?? 0), 0));
-    setVentasMes((mesRes.data ?? []).reduce((s, v) => s + v.total_neto + (v.monto_propina ?? 0), 0));
-    setLoadingKpis(false);
-  };
-
-  // ── Retail Heatmap ──
-  const fetchRetailData = async () => {
+  // ── Retail Heatmap + KPIs (single source: ventas.total_neto) ──
+  const fetchRetailData = async (signal?: AbortSignal) => {
     setLoading(true);
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
     const { data: ventas } = await supabase
       .from('ventas')
-      .select('id, fecha')
+      .select('id, fecha, total_neto')
       .eq('estado', 'completada')
       .gte('fecha', desdeISO)
       .lte('fecha', hastaISO);
 
+    if (signal?.aborted) return;
+
     if (!ventas || ventas.length === 0) {
       setHeatmap({});
+      setPeriodoTotal(0);
+      setPeriodoTransacciones(0);
       setLoading(false);
       return;
     }
 
-    const ventaIds = ventas.map(v => v.id);
-    const allDetalles: { venta_id: string; subtotal: number }[] = [];
-    for (let i = 0; i < ventaIds.length; i += 100) {
-      const batch = ventaIds.slice(i, i + 100);
-      const { data } = await supabase
-        .from('detalle_ventas')
-        .select('venta_id, subtotal')
-        .in('venta_id', batch);
-      if (data) allDetalles.push(...data);
-    }
-
-    const ventaFechaMap = new Map(ventas.map(v => [v.id, new Date(v.fecha)]));
     const map: HeatmapData = {};
-    const ventaCountMap: Record<string, Set<string>> = {};
+    let total = 0;
 
-    allDetalles.forEach(d => {
-      const fecha = ventaFechaMap.get(d.venta_id);
-      if (!fecha) return;
+    ventas.forEach(v => {
+      const fecha = new Date(v.fecha);
       const jsDay = getDay(fecha);
       const diaIdx = jsDay === 0 ? 6 : jsDay - 1;
       const hora = getHours(fecha);
       const key = `${diaIdx}-${hora}`;
       if (!map[key]) map[key] = { total: 0, count: 0 };
-      map[key].total += d.subtotal;
-      if (!ventaCountMap[key]) ventaCountMap[key] = new Set();
-      ventaCountMap[key].add(d.venta_id);
-    });
-
-    Object.entries(ventaCountMap).forEach(([key, set]) => {
-      if (map[key]) map[key].count = set.size;
+      map[key].total += Number(v.total_neto);
+      map[key].count += 1;
+      total += Number(v.total_neto);
     });
 
     setHeatmap(map);
+    setPeriodoTotal(total);
+    setPeriodoTransacciones(ventas.length);
     setLoading(false);
   };
 
   // ── Coworking Occupancy Heatmap ──
-  const fetchCoworkData = async () => {
+  const fetchCoworkData = async (signal?: AbortSignal) => {
+    if (signal?.aborted) return;
     setLoadingCowork(true);
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
@@ -276,11 +234,13 @@ export default function VentasTab() {
               <DollarSign className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Ventas del Día</p>
-              {loadingKpis ? (
+              <p className="text-xs text-muted-foreground">
+                Ventas del Período ({periodo === 'semana' ? 'Semana' : 'Mes'})
+              </p>
+              {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin mt-1 text-muted-foreground" />
               ) : (
-                <p className="text-lg font-bold text-primary truncate">{fmt(ventasDia)}</p>
+                <p className="text-lg font-bold text-primary truncate">{fmt(periodoTotal)}</p>
               )}
             </div>
           </CardContent>
@@ -291,11 +251,11 @@ export default function VentasTab() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Ventas del Mes</p>
-              {loadingKpis ? (
+              <p className="text-xs text-muted-foreground">Transacciones del Período</p>
+              {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin mt-1 text-muted-foreground" />
               ) : (
-                <p className="text-lg font-bold text-accent truncate">{fmt(ventasMes)}</p>
+                <p className="text-lg font-bold text-accent truncate">{periodoTransacciones.toLocaleString('es-MX')}</p>
               )}
             </div>
           </CardContent>
