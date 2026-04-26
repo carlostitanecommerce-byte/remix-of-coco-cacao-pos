@@ -112,7 +112,13 @@ export function QuickCheckInButton({ reservacion, area, getAvailablePax, onSucce
         .single();
 
       if (sessionError) {
-        toast({ variant: 'destructive', title: 'Error', description: sessionError.message });
+        const raw = sessionError.message;
+        const friendly = /capacidad excedida/i.test(raw)
+          ? 'Capacidad excedida. Otro cajero acaba de ocupar este espacio. Refresca y vuelve a intentar.'
+          : /área privada/i.test(raw)
+            ? 'Esta área privada ya tiene una sesión activa. Refresca para ver el estado actual.'
+            : raw;
+        toast({ variant: 'destructive', title: 'No se pudo iniciar la sesión', description: friendly });
         return;
       }
 

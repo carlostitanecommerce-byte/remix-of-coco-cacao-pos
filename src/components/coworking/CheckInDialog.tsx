@@ -215,7 +215,13 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       } as any).select('id').single();
 
       if (error || !sessionData) {
-        toast({ variant: 'destructive', title: 'Error', description: error?.message ?? 'No se pudo crear la sesión' });
+        const raw = error?.message ?? 'No se pudo crear la sesión';
+        const friendly = /capacidad excedida/i.test(raw)
+          ? 'Capacidad excedida. Otro cajero acaba de ocupar este espacio. Refresca y vuelve a intentar.'
+          : /área privada/i.test(raw)
+            ? 'Esta área privada ya tiene una sesión activa. Refresca para ver el estado actual.'
+            : raw;
+        toast({ variant: 'destructive', title: 'No se pudo registrar la entrada', description: friendly });
         return;
       }
 

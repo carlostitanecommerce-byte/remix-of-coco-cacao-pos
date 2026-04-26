@@ -1108,6 +1108,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cancelar_sesion_coworking: {
+        Args: {
+          p_entregados: Json
+          p_is_admin?: boolean
+          p_motivo: string
+          p_session_id: string
+          p_solicitud_id?: string
+        }
+        Returns: Json
+      }
       encrypt_and_save_password: {
         Args: { p_password: string; p_user_id: string; p_username: string }
         Returns: undefined
