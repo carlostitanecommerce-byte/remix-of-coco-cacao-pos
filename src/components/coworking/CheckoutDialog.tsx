@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +19,8 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const inFlightRef = useRef(false);
 
   if (!summary) return null;
 
