@@ -511,7 +511,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                     className="h-7 w-16 text-sm"
                     autoFocus
                   />
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSavePax} title="Guardar">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSavePax} disabled={busy} title="Guardar">
                     <Check className="h-4 w-4" />
                   </Button>
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPax(false)} title="Cancelar">
