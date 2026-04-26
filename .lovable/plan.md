@@ -1,53 +1,128 @@
-# Caja y Coworking compartidos en tiempo real
+# Auditoría End-to-End del Módulo POS
 
-## Diagnóstico
+## Veredicto: 🔴 NO PRODUCTION-READY
 
-### Caja (POS) — el problema real
-Auditando `useCajaSession.ts` y las RLS de `cajas`/`movimientos_caja` encontré dos causas que explican lo que viste:
+El POS tiene una arquitectura sólida tras las Fases 1-3, pero contiene **un defecto crítico de integridad de datos** que invalida cualquier despliegue real, además de varios huecos operativos. Detalle abajo.
 
-1. **RLS de `cajas` impide ver la caja de otros usuarios.** Hoy las políticas dicen:
-   - `Users can view own cajas` → SELECT solo si `auth.uid() = usuario_id`.
-   - `Supervisors can view all cajas` → SELECT solo para supervisor.
-   - `Admins can manage all cajas` → todo para administrador.
-   
-   Resultado: si **administrador** abre la caja, los roles **caja** y **recepción** no la ven en su consulta y la app les pide "abrir caja" otra vez. Esto rompe el modelo de "una sola caja física compartida".
+---
 
-2. **`useCajaSession` no tiene suscripción realtime.** Aunque arregláramos las RLS, hoy solo hace `fetchCaja` al montar. Si admin abre/cierra o registra un movimiento, las demás sesiones no lo ven hasta recargar la página.
+## 🔴 BLOQUEADORES (deben resolverse antes de producir)
 
-### Coworking — ya funciona bien
-`useCoworkingData.ts` ya:
-- Lee todas las sesiones activas y reservaciones sin filtrar por usuario.
-- Tiene un canal realtime que escucha INSERT/UPDATE/DELETE en `coworking_sessions`, `coworking_reservaciones` y `areas_coworking`.
-- Las RLS ya permiten a cualquier autenticado ver todas las sesiones y reservaciones.
+### B1. Triggers de base de datos NO existen — el inventario NO se descuenta
+Este es el hallazgo más grave. Verifiqué directamente `pg_trigger` y `information_schema.triggers`: **la base de datos no tiene NINGÚN trigger en el esquema public**. Las funciones existen pero están huérfanas:
 
-No requiere cambios. Si percibiste desfases en coworking, debería desaparecer al unificar el patrón con el realtime ya en uso.
+- `descontar_inventario_venta()` → no se ejecuta al insertar `detalle_ventas` ⇒ **las ventas no descuentan stock**.
+- `reintegrar_inventario_cancelacion()` → no se ejecuta al cancelar una venta ⇒ **el stock cancelado no se devuelve**.
+- `cleanup_kds_on_venta_cancel()` → no se ejecuta ⇒ **órdenes canceladas siguen en cocina**.
+- `sumar_stock_compra()` → no se ejecuta ⇒ **las compras no incrementan stock** (probablemente ya causa fricción operativa).
 
-## Cambios propuestos
+**Impacto**: el `stock_actual` de `insumos` queda desincronizado desde la primera venta. La validación previa (`validar_stock_carrito`) seguirá viendo el mismo stock siempre, así que en pocas horas el sistema permitirá vender sin existencias reales.
 
-### A. Migración de base de datos
-1. **`cajas` — SELECT abierto a todos los autenticados.** Eliminar `Users can view own cajas` y `Supervisors can view all cajas`; crear una política única `Authenticated users can view cajas` con `USING (true)`. (Admins mantienen `manage all` intacto.)
-2. **`cajas` — UPDATE compartido cuando el turno está abierto.** Reemplazar `Users can update own cajas` por `Authenticated users can update open caja` con `USING (estado = 'abierta')`. Así caja/recepción pueden cerrar el turno o disparar acciones aunque lo haya abierto otro. Los turnos cerrados quedan inmutables salvo para administrador.
-3. **`movimientos_caja` — INSERT compartido.** Reemplazar `Users can insert own movimientos` por `Authenticated users can insert movimientos` con `WITH CHECK (auth.uid() = usuario_id AND la caja referenciada está 'abierta')`. Cada movimiento queda firmado por su autor real, pero cualquiera puede registrar contra la caja activa.
-4. **Realtime para `movimientos_caja`.** Añadir a la publicación `supabase_realtime` y poner `REPLICA IDENTITY FULL` (igual que ya hicimos con `cajas` y `ventas`).
+**Causa probable**: una migración previa los eliminó (DROP TRIGGER) o nunca se crearon en este proyecto Cloud aunque las funciones sí.
 
-### B. `src/hooks/useCajaSession.ts` — suscripción realtime
-- Tras `fetchCaja`, abrir un canal Supabase que escuche:
-  - `cajas` (INSERT/UPDATE/DELETE) → re-evaluar la caja abierta global.
-  - `movimientos_caja` (INSERT/DELETE) → re-cargar movimientos cuando afecten a la caja activa.
-- Reutilizar `fetchCaja` como reconciliador (es ligero: una sola consulta de `cajas` + otra de movimientos cuando hay caja).
-- Limpiar el canal al desmontar.
+### B2. Race condition en validación → inserción de venta
+Entre `validar_stock_carrito` (línea 53 de `ConfirmVentaDialog.tsx`) y la inserción real puede haber una venta concurrente que consuma el mismo insumo. Sin trigger `descontar_inventario_venta` con `RAISE EXCEPTION` en stock negativo (B1), no hay segunda línea de defensa.
 
-### C. Validación
-- Iniciar sesión simultánea con admin, caja y recepción.
-- Admin abre caja → en menos de 1 segundo las otras dos sesiones deben mostrarse en POS sin pedir apertura.
-- Cualquiera registra un movimiento → aparece al instante en las tres.
-- Cualquiera cierra el turno → el panel se actualiza en las tres y vuelve a aparecer "Abrir caja".
+---
 
-## Archivos a tocar
-- Migración SQL (políticas RLS + publicación realtime).
-- `src/hooks/useCajaSession.ts` (canal realtime).
+## 🟠 RIESGOS ALTOS (corregir antes de operar a escala)
 
-## Lo que NO cambia
-- `useCoworkingData` (ya cumple los requisitos).
-- Lógica de cálculo de cierre, IVA, propinas, validación de stock, KDS — intactos.
-- Auditoría: cada apertura/movimiento/cierre sigue quedando ligada al `usuario_id` que la ejecutó.
+### R1. Si KDS falla, la venta queda sin orden a cocina sin alerta
+En `ConfirmVentaDialog.tsx` líneas 310-322, la inserción a `kds_orders` y `kds_order_items` no tiene manejo de error. Si falla por RLS o conexión, la venta se completa pero la cocina nunca recibe la orden y el usuario no se entera.
+
+### R2. Restauración de upsells al limpiar carrito no es atómica
+`handleClearCart` (PosPage.tsx 178-213) hace inserts/updates uno por uno sin transacción. Si el usuario cierra el navegador a mitad, la sesión coworking queda en un estado intermedio entre lo que se importó y lo que originalmente tenía.
+
+### R3. Congelar `coworking_sessions` a `pendiente_pago` con `fecha_salida_real` puede perder datos al hacer rollback
+Línea 64-69 + 110-114 de `ConfirmVentaDialog`: si la venta falla, se revierte `estado` y `fecha_salida_real = null`. Pero si la sesión ya estaba en `pendiente_pago` (re-cobro), perdemos su `fecha_salida_real` original.
+
+### R4. Sin protección contra doble-clic en "Procesar Venta"
+El botón se deshabilita por `saving`, pero si el usuario hace doble clic muy rápido antes de que React aplique el estado, puede generar dos ventas. Falta debounce o lock por `useRef`.
+
+---
+
+## 🟡 MEJORAS RECOMENDADAS (calidad profesional)
+
+### M1. Ticket: información fiscal/comercial faltante
+Solo muestra nombre del negocio. Falta:
+- RFC / dirección fiscal
+- Folio con prefijo (ej. "A-0042")
+- Leyenda "Este ticket no es un comprobante fiscal"
+- Código QR opcional para validación
+
+### M2. Sin re-impresión de ticket
+Una vez cerrado el diálogo, el ticket se pierde. En `VentasTurnoPanel` no hay botón "Re-imprimir ticket" (caso muy común: el cliente lo pide después).
+
+### M3. Inputs numéricos permiten valores negativos
+En CartPanel (propinas, mixed payment) se usan `min={0}` pero el navegador permite escribir `-`. Falta `Math.max(0, value)` en el `onChange`.
+
+### M4. El estado `pending_payment` no tiene timeout
+Si una sesión queda atorada en `pendiente_pago` (por ejemplo el cobro falló y nadie volvió), no hay job que la regrese a `activo` ni alerta visible. Acumula ruido en el selector.
+
+### M5. Console warning persistente
+`SolicitudesCancelacionSesionesPanel` produce warning React de `forwardRef` en cada render (visible en el log de consola actual). Es del módulo coworking pero contamina el log y puede ocultar errores reales del POS.
+
+### M6. Falta indicador de conectividad/realtime
+Si la suscripción realtime se cae (red intermitente), el catálogo y las sesiones se desincronizan en silencio. Un badge "🟢 Tiempo real activo" / "🔴 Reconectando" daría confianza.
+
+---
+
+## ✅ FORTALEZAS YA IMPLEMENTADAS
+
+- Validación de stock unificada (cartera completa) vía RPC.
+- Índice único parcial `cajas_unique_open` impide doble apertura.
+- Realtime en `productos`, `coworking_sessions`, `coworking_session_upsells`, `ventas`, `detalle_ventas`.
+- Folios secuenciales, audit logs en cada acción crítica, arqueo ciego.
+- RLS correcta para roles `recepcion`, `caja`, `administrador` en KDS.
+- Advertencia al cerrar caja con sesiones activas.
+- Snapshot de tarifas congeladas en coworking.
+- Total neto sin propina (contabilidad correcta).
+
+---
+
+## 📋 PLAN DE REMEDIACIÓN PROPUESTO
+
+### Fase A — Bloqueador (urgente)
+**A1.** Crear migración que recree los 4 triggers faltantes:
+```text
+- trg_descontar_inventario_venta  → AFTER INSERT ON detalle_ventas
+- trg_reintegrar_inventario_cancelacion  → AFTER UPDATE OF estado ON ventas
+- trg_cleanup_kds_on_venta_cancel  → AFTER UPDATE OF estado ON ventas
+- trg_sumar_stock_compra  → AFTER INSERT ON compras_insumos
+```
+Verificar con `pg_trigger` que quedaron activos.
+
+### Fase B — Riesgos
+- B1. Manejar error de KDS con toast + retry + audit log.
+- B2. Envolver `handleClearCart` en mensajes claros si falla y deshabilitar botón mientras corre.
+- B3. Guardar `fecha_salida_real` original en variable antes del update y restaurarlo en rollback.
+- B4. Agregar `useRef` lock en `handleConfirm` para anti-doble-clic.
+
+### Fase C — Pulido (opcional pero recomendado)
+- C1. Configuración fiscal (RFC, dirección) editable desde Reportes/Config.
+- C2. Botón "Re-imprimir ticket" en VentasTurnoPanel (rearma el ticket desde la BD).
+- C3. Sanitizar inputs numéricos.
+- C4. Job/cron edge function para liberar sesiones `pendiente_pago` antiguas (>24h).
+- C5. Convertir `Badge` en `SolicitudesCancelacionSesionesPanel` para no recibir refs.
+- C6. Indicador de salud de realtime.
+
+### Tiempo estimado
+- Fase A: ~15 min (1 migración + verificación)
+- Fase B: ~45 min
+- Fase C: ~1.5 h
+
+---
+
+## Detalles técnicos
+
+**Verificación SQL ejecutada:**
+```sql
+SELECT tgname FROM pg_trigger
+WHERE NOT tgisinternal AND tgrelid::regclass::text LIKE 'public.%';
+-- Resultado: 0 filas
+```
+
+**Funciones huérfanas confirmadas en `pg_proc`:**
+`descontar_inventario_venta`, `reintegrar_inventario_cancelacion`, `cleanup_kds_on_venta_cancel`, `sumar_stock_compra`, `replicate_to_destination`, `handle_new_user`, `update_updated_at_column`.
+
+**Aprueba** este plan si quieres que proceda con la **Fase A** de inmediato (la única estrictamente necesaria para no perder integridad de inventario), o indica si quieres A+B juntas, o el plan completo A+B+C.
