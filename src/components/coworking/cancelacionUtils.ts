@@ -117,7 +117,7 @@ export async function aplicarEntregasComoMermas(params: {
         mermas_creadas: mermasCreadas,
         errores,
       },
-    });
+    }]);
   }
 
   return { mermasCreadas, insumosAfectados, errores };
