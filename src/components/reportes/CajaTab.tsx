@@ -97,6 +97,15 @@ export default function CajaTab() {
         </CardContent>
       </Card>
 
+      {truncated && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Volumen de datos elevado: se alcanzó el límite de carga del periodo. Algunos registros pueden no estar incluidos. Reduce el rango para mayor exactitud.
+          </span>
+        </div>
+      )}
+
       {/* Consolidated Summary */}
       {turnos.length > 0 && (
         <Card className="border-border/60">
