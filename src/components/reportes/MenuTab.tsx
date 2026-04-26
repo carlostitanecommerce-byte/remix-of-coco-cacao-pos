@@ -94,8 +94,8 @@ export default function MenuTab() {
         .from('detalle_ventas')
         .select('producto_id, paquete_id, cantidad, tipo_concepto')
         .in('venta_id', batch)
-        .in('tipo_concepto', ['producto', 'paquete', 'amenity']);
-      (data ?? []).forEach(d => {
+        .in('tipo_concepto', ['producto', 'paquete', 'amenity'] as any);
+      (data ?? []).forEach((d: any) => {
         const id = d.tipo_concepto === 'paquete' ? d.paquete_id : d.producto_id;
         if (id) salesMap[id] = (salesMap[id] || 0) + d.cantidad;
       });
