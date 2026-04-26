@@ -67,7 +67,6 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     const motivosMap = new Map<string, number>();
     let conItems = 0;
     let totalItems = 0;
-    let totalLiberados = 0;
     let totalMermas = 0;
 
     for (const r of rows) {
@@ -83,7 +82,6 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
       if (itemsCount > 0) conItems++;
       totalItems += itemsCount;
 
-      totalLiberados += Number(md.liberados_count ?? 0) || 0;
       totalMermas += Number(md.mermas_creadas ?? 0) || 0;
     }
 
@@ -97,7 +95,6 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
       conItemsEntregados: conItems,
       sinItemsEntregados: rows.length - conItems,
       totalItemsEntregados: totalItems,
-      totalItemsLiberados: totalLiberados,
       totalMermas: totalMermas,
       topMotivos,
     });
