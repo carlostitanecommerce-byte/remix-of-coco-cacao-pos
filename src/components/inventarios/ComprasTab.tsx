@@ -221,14 +221,39 @@ const ComprasTab = ({ isAdmin }: Props) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-3 justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="flex flex-col sm:flex-row gap-2 flex-1">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por insumo..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="pl-9"
+            />
+          </div>
           <Input
-            placeholder="Buscar por insumo..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className="pl-9"
+            type="date"
+            value={fechaDesde}
+            onChange={(e) => { setPage(0); setFechaDesde(e.target.value); }}
+            className="w-full sm:w-40"
+            title="Desde"
           />
+          <Input
+            type="date"
+            value={fechaHasta}
+            onChange={(e) => { setPage(0); setFechaHasta(e.target.value); }}
+            className="w-full sm:w-40"
+            title="Hasta"
+          />
+          {(fechaDesde || fechaHasta) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setPage(0); setFechaDesde(''); setFechaHasta(''); }}
+            >
+              Limpiar
+            </Button>
+          )}
         </div>
         <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" /> Registrar Compra
@@ -239,6 +264,9 @@ const ComprasTab = ({ isAdmin }: Props) => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" /> Historial de Compras
+            <span className="text-sm font-normal text-muted-foreground ml-2">
+              ({totalCount} registro{totalCount !== 1 ? 's' : ''})
+            </span>
           </CardTitle>
         </CardHeader>
         <CardContent>
