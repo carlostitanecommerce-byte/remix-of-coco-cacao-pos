@@ -475,8 +475,11 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button className="w-full" onClick={handleCloseTicket}>
+          <DialogFooter className="no-print gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => window.print()}>
+              <Printer className="h-4 w-4 mr-2" /> Imprimir
+            </Button>
+            <Button className="flex-1" onClick={handleCloseTicket}>
               Cerrar
             </Button>
           </DialogFooter>
