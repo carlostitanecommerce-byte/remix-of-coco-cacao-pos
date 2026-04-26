@@ -34,6 +34,11 @@ export default function VentasTab() {
   const [totalCapacidad, setTotalCapacidad] = useState(0);
   const [periodoTotal, setPeriodoTotal] = useState(0);
   const [periodoTransacciones, setPeriodoTransacciones] = useState(0);
+  const [retailLimitHit, setRetailLimitHit] = useState(false);
+  const [coworkLimitHit, setCoworkLimitHit] = useState(false);
+
+  const RETAIL_LIMIT = 5000;
+  const COWORK_LIMIT = 2000;
 
   const handleSetPeriodo = (p: 'semana' | 'mes') => {
     setPeriodo(p);
