@@ -132,7 +132,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
     if (amenity.currentItemId) {
       const item = items.find(i => i.id === amenity.currentItemId);
-      if (item) await handleUpdateQuantity(item, 1);
+      if (item) await doUpdateQuantity(item, 1);
     } else {
       const { data, error } = await supabase
         .from('coworking_session_upsells')
