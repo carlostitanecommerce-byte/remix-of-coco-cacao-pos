@@ -415,7 +415,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                 return filtrados.length === 0 ? (
                   <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados para la búsqueda' : 'Sin productos registrados'}</TableCell></TableRow>
                 ) : filtrados.map(p => (
-                <>
+                <Fragment key={p.id}>
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.nombre}</TableCell>
                     <TableCell>
@@ -445,7 +445,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(p)} title="Eliminar">
+                          <Button variant="ghost" size="icon" onClick={() => checkAndPromptDelete(p)} title="Eliminar">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
@@ -480,7 +480,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </Fragment>
               ));
               })()}
             </TableBody>
