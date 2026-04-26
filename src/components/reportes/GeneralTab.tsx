@@ -287,7 +287,7 @@ export default function GeneralTab() {
   const exportCajaGlobal = async () => {
     setExportingCaja(true);
     try {
-      const turnosData = await fetchCajaResumen(desde, hasta);
+      const { turnos: turnosData } = await fetchCajaResumen(desde, hasta);
       if (turnosData.length === 0) {
         toast.warning('No hay turnos de caja en el periodo seleccionado');
         setExportingCaja(false);
