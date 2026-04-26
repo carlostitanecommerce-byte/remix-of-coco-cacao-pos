@@ -262,13 +262,18 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
-      // 4. Create KDS order for kitchen (productos simples + amenities + componentes de paquetes)
+      // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
       // - Excluir tiempo de servicio coworking (no preparable).
-      // - Incluir amenities (ej. café cortesía coworking) con etiqueta especial.
+      // - Excluir items que ya provienen de una sesión coworking (amenities + extras
+      //   añadidos en check-in o "Cuenta de la sesión"): esos ya se enviaron a cocina
+      //   en su momento por `enviarASesionKDS`. Re-enviarlos aquí duplicaría comandas.
       // - Filtrar productos marcados como `requiere_preparacion=false` (retail, agua embotellada, etc.).
       type KdsRaw = { producto_id: string | null; nombre_producto: string; cantidad: number; notas: string | null };
       const kdsItemsRaw: KdsRaw[] = [];
       for (const item of summary.items) {
+        // Skip todo lo que ya fue enviado a cocina desde la sesión de coworking
+        if (item.coworking_session_id) continue;
+
         if (item.tipo_concepto === 'producto') {
           if (item.producto_id?.startsWith('coworking-')) continue;
           kdsItemsRaw.push({
@@ -278,6 +283,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             notas: item.notas?.trim() || null,
           });
         } else if (item.tipo_concepto === 'amenity' && item.producto_id && !item.producto_id.startsWith('coworking-')) {
+          // Amenities sueltos sin sesión (caso raro, conservamos legacy behavior)
           kdsItemsRaw.push({
             producto_id: item.producto_id,
             nombre_producto: `${item.nombre} ☕ (cortesía coworking)`,
@@ -295,6 +301,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
           }
         }
       }
+
 
       // Filter out products that don't require kitchen preparation
       const productIds = kdsItemsRaw.map(i => i.producto_id).filter((x): x is string => !!x);
