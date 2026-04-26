@@ -71,11 +71,11 @@ export default function CoworkingAnalysis({ desde, hasta }: Props) {
       return;
     }
 
-    // 2. Get finalized sessions in period
+    // 2. Get sessions in period (incluye 'activo' para no perder ocupación corriente)
     const { data: sessions } = await supabase
       .from('coworking_sessions')
       .select('id, tarifa_id, monto_acumulado')
-      .in('estado', ['finalizado', 'pendiente_pago'])
+      .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
       .gte('fecha_inicio', desdeISO)
       .lte('fecha_inicio', hastaISO)
       .not('tarifa_id', 'is', null);
@@ -89,7 +89,7 @@ export default function CoworkingAnalysis({ desde, hasta }: Props) {
       return;
     }
 
-    // 3. Get detalle_ventas for those sessions
+    // 3. Get detalle_ventas for those sessions, restringido a ventas COMPLETADAS
     const sessionIds = sessions.map(s => s.id);
     const allDetalles: { coworking_session_id: string; tipo_concepto: string; subtotal: number }[] = [];
 
@@ -97,9 +97,10 @@ export default function CoworkingAnalysis({ desde, hasta }: Props) {
       const batch = sessionIds.slice(i, i + 100);
       const { data } = await supabase
         .from('detalle_ventas')
-        .select('coworking_session_id, tipo_concepto, subtotal')
-        .in('coworking_session_id', batch);
-      if (data) allDetalles.push(...data.filter(d => d.coworking_session_id));
+        .select('coworking_session_id, tipo_concepto, subtotal, ventas!inner(estado)')
+        .in('coworking_session_id', batch)
+        .eq('ventas.estado', 'completada');
+      if (data) allDetalles.push(...(data as any[]).filter(d => d.coworking_session_id));
     }
 
     // 4. Aggregate by tarifa
