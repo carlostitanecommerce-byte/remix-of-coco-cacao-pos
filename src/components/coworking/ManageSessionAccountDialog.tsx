@@ -268,7 +268,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     });
   };
 
-  const handleRemove = async (item: SessionItem) => {
+  const handleRemove = (item: SessionItem) => withLock(() => doRemove(item));
+  const doRemove = async (item: SessionItem) => {
     const { error } = await supabase
       .from('coworking_session_upsells')
       .delete()
