@@ -161,15 +161,15 @@ export function CambiarMetodoPagoDialog({ venta, onClose, onSuccess }: Props) {
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <Label className="text-xs">Efectivo</Label>
-                  <Input type="number" min={0} step={0.01} value={montoEfectivo} onChange={e => setMontoEfectivo(Number(e.target.value))} />
+                  <Input type="number" min={0} step={0.01} value={montoEfectivo || ''} onChange={e => setMontoEfectivo(parseFloat(e.target.value) || 0)} />
                 </div>
                 <div>
                   <Label className="text-xs">Tarjeta</Label>
-                  <Input type="number" min={0} step={0.01} value={montoTarjeta} onChange={e => setMontoTarjeta(Number(e.target.value))} />
+                  <Input type="number" min={0} step={0.01} value={montoTarjeta || ''} onChange={e => setMontoTarjeta(parseFloat(e.target.value) || 0)} />
                 </div>
                 <div>
                   <Label className="text-xs">Transfer.</Label>
-                  <Input type="number" min={0} step={0.01} value={montoTransferencia} onChange={e => setMontoTransferencia(Number(e.target.value))} />
+                  <Input type="number" min={0} step={0.01} value={montoTransferencia || ''} onChange={e => setMontoTransferencia(parseFloat(e.target.value) || 0)} />
                 </div>
               </div>
               {!mixtoValido && (
