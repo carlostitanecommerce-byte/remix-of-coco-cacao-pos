@@ -16,12 +16,17 @@ export type KdsEstado = 'pendiente' | 'en_preparacion' | 'listo';
 
 export interface KdsOrder {
   id: string;
-  venta_id: string;
+  venta_id: string | null;
   folio: number;
   tipo_consumo: string;
   estado: KdsEstado;
   created_at: string;
   items: KdsOrderItem[];
+  /** Si proviene de coworking, id de la sesión origen */
+  coworking_session_id?: string | null;
+  /** Metadatos enriquecidos desde la sesión coworking (cliente y área) */
+  coworking_cliente?: string | null;
+  coworking_area?: string | null;
 }
 
 interface Props {
