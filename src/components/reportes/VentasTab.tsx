@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, Users, DollarSign, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, endOfDay, format, getDay, getHours, eachDayOfInterval, subWeeks, subMonths } from 'date-fns';
+import { Loader2, Users, DollarSign, CalendarDays, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getDay, getHours, eachDayOfInterval, subWeeks, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const HORAS_RETAIL = Array.from({ length: 18 }, (_, i) => i + 6);
