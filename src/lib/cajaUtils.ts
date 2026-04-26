@@ -118,45 +118,78 @@ export async function fetchCajaResumen(
 
   const profileMap = new Map((profilesRes.data ?? []).map(p => [p.id, p.nombre]));
 
-  // For each caja, get ventas efectivo during its shift.
-  // (N+1 conocido — pendiente refactor con query agregada única.)
-  const results: CajaTurnoResumen[] = [];
+  // ─────────────────────────────────────────────────────────────────────
+  // R1: Eliminar N+1 — una sola query agregada de ventas para TODOS los
+  // turnos visibles. Calculamos la ventana global [minApertura, maxCierre]
+  // y luego asignamos cada venta al turno correspondiente en memoria.
+  // ─────────────────────────────────────────────────────────────────────
+  const nowISO = new Date().toISOString();
+  const minApertura = cajas.reduce(
+    (min, c) => (c.fecha_apertura < min ? c.fecha_apertura : min),
+    cajas[0].fecha_apertura,
+  );
+  const maxCierre = cajas.reduce((max, c) => {
+    const fin = c.fecha_cierre ?? nowISO;
+    return fin > max ? fin : max;
+  }, cajas[0].fecha_cierre ?? nowISO);
 
-  for (const caja of cajas) {
+  let ventasQ = supabase
+    .from('ventas')
+    .select('fecha, monto_efectivo')
+    .eq('estado', 'completada' as any)
+    .gte('fecha', minApertura)
+    .lte('fecha', maxCierre)
+    .order('fecha', { ascending: true })
+    .limit(VENTAS_LIMIT);
+  if (signal) ventasQ = ventasQ.abortSignal(signal);
+
+  const { data: ventasData, error: ventasErr } = await ventasQ;
+  if (signal?.aborted) return { turnos: [], truncated };
+  if (ventasErr) throw ventasErr;
+  if ((ventasData?.length ?? 0) >= VENTAS_LIMIT) truncated = true;
+
+  // Pre-ordenamos turnos por fecha_apertura ascendente para asignar ventas
+  // mediante búsqueda lineal acotada (cada venta cae en a lo sumo un turno
+  // del mismo usuario; aquí asumimos un único cajero activo a la vez,
+  // consistente con el modelo de turnos del sistema).
+  const cajasAsc = [...cajas].sort((a, b) =>
+    a.fecha_apertura < b.fecha_apertura ? -1 : 1,
+  );
+  const ventasPorCaja = new Map<string, number>();
+  for (const v of ventasData ?? []) {
+    const f = v.fecha as string;
+    // Buscar turno cuyo intervalo contiene la venta
+    const caja = cajasAsc.find(c => {
+      const fin = c.fecha_cierre ?? nowISO;
+      return f >= c.fecha_apertura && f <= fin;
+    });
+    if (caja) {
+      ventasPorCaja.set(
+        caja.id,
+        (ventasPorCaja.get(caja.id) ?? 0) + (v.monto_efectivo ?? 0),
+      );
+    }
+  }
+
+  // Profiles adicionales de usuarios que solo aparecen en movimientos
+  const movUserIds = [...new Set(movimientos.map(m => m.usuario_id))].filter(
+    id => !profileMap.has(id),
+  );
+  if (movUserIds.length > 0) {
+    let extraQ = supabase.from('profiles').select('id, nombre').in('id', movUserIds);
+    if (signal) extraQ = extraQ.abortSignal(signal);
+    const { data: extra } = await extraQ;
     if (signal?.aborted) return { turnos: [], truncated };
-    const fechaFin = caja.fecha_cierre ?? new Date().toISOString();
+    (extra ?? []).forEach(p => profileMap.set(p.id, p.nombre));
+  }
 
-    let ventasQ = supabase
-      .from('ventas')
-      .select('monto_efectivo')
-      .eq('estado', 'completada' as any)
-      .gte('fecha', caja.fecha_apertura)
-      .lte('fecha', fechaFin)
-      .limit(VENTAS_LIMIT);
-    if (signal) ventasQ = ventasQ.abortSignal(signal);
-
-    const { data: ventasData, error: ventasErr } = await ventasQ;
-    if (signal?.aborted) return { turnos: [], truncated };
-    if (ventasErr) throw ventasErr;
-
-    if ((ventasData?.length ?? 0) >= VENTAS_LIMIT) truncated = true;
-
-    const ventasEfectivo = (ventasData ?? []).reduce((s, v) => s + (v.monto_efectivo ?? 0), 0);
+  const results: CajaTurnoResumen[] = cajas.map(caja => {
     const cajaMovs = movimientos.filter(m => m.caja_id === caja.id);
     const entradas = cajaMovs.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.monto, 0);
     const salidas = cajaMovs.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
+    const ventasEfectivo = ventasPorCaja.get(caja.id) ?? 0;
     const esperado = caja.monto_apertura + ventasEfectivo + entradas - salidas;
-
-    // Profiles de usuarios que aparecen solo en movimientos
-    const movUserIds = [...new Set(cajaMovs.map(m => m.usuario_id))].filter(id => !profileMap.has(id));
-    if (movUserIds.length > 0) {
-      let extraQ = supabase.from('profiles').select('id, nombre').in('id', movUserIds);
-      if (signal) extraQ = extraQ.abortSignal(signal);
-      const { data: extra } = await extraQ;
-      (extra ?? []).forEach(p => profileMap.set(p.id, p.nombre));
-    }
-
-    results.push({
+    return {
       caja,
       nombreUsuario: profileMap.get(caja.usuario_id) ?? 'Desconocido',
       ventasEfectivo,
@@ -164,8 +197,8 @@ export async function fetchCajaResumen(
       salidas,
       esperado,
       movimientos: cajaMovs,
-    });
-  }
+    };
+  });
 
   return { turnos: results, truncated };
 }
