@@ -9,11 +9,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { ChevronDown, ChevronUp, XCircle, RefreshCw, CalendarIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, XCircle, RefreshCw, CalendarIcon, Printer } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { cdmxDateRange } from '@/lib/ventasUtils';
 import { CancelVentaDialog } from './CancelVentaDialog';
 import { CambiarMetodoPagoDialog } from './CambiarMetodoPagoDialog';
+import { TicketReimprimirDialog } from './TicketReimprimirDialog';
 
 interface VentaTurno {
   id: string;
