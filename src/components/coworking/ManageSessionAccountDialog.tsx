@@ -137,7 +137,21 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         precio_especial: 0,
         cantidad: 1,
       }]);
-      toast({ title: 'Beneficio restaurado' });
+
+      // Enviar a cocina
+      const kdsRes = await enviarASesionKDS({
+        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
+        items: [{
+          producto_id: amenity.producto_id,
+          nombre: amenity.nombre || 'Amenity',
+          cantidad: 1,
+          isAmenity: true,
+        }],
+      });
+      toast({
+        title: 'Beneficio restaurado',
+        description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} enviada a cocina` : undefined,
+      });
     }
   };
 
