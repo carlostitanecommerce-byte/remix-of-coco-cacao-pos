@@ -1,48 +1,31 @@
 ## Diagnóstico
 
-El reporte de Ingeniería de Menú muestra **"No hay productos con ventas en este periodo"** aunque en abril 2026 existen **221 ventas completadas** con **266 detalles tipo `producto`** + **6 `amenity`**.
+"Agua natural de 500 ml" aparece en el reporte porque la query actual cuenta tanto las filas con `tipo_concepto='producto'` (venta real, $585 en abril) como las de `tipo_concepto='amenity'` (cortesía incluida en tarifa, $0 ingreso). En total se contaron 68 unidades cuando solo 51 son ventas reales.
 
-### Causa raíz
+Este sesgo distorsiona la Ingeniería de Menú:
+- **Popularidad** sube artificialmente con consumos regalados.
+- **Contribución económica** queda mal calculada (se asume margen unitario de venta para unidades que se entregaron gratis).
 
-En la Fase I1 introduje este filtro en `MenuTab.tsx`:
-
-```ts
-.in('tipo_concepto', ['producto', 'paquete', 'amenity'] as any)
-```
-
-Pero el enum real `tipo_concepto` en la base de datos solo acepta tres valores: **`producto`, `coworking`, `amenity`**. **No existe `'paquete'`**.
-
-Postgres rechaza la query con:
-```
-22P02: invalid input value for enum tipo_concepto: "paquete"
-```
-
-El error se silenciaba porque el bloque no validaba `error` (lo arreglamos en I2, pero el `cast as any` evadió la validación de tipos de TypeScript). Resultado: `salesMap` queda vacío → todos los productos con `cantidadVendida = 0` → el scatter no muestra nada.
-
-### Hallazgo adicional
-
-Los paquetes **no** se guardan con un `tipo_concepto` propio. Se almacenan como filas `producto` con el campo `paquete_id` poblado cuando aplica. Hoy `paquete_id` está NULL en todos los registros (los paquetes se desglosan en componentes al cobrar), pero conviene dejar la lógica preparada por si se cambia esa política.
+Además, en la Fase I1 se sumaba también el consumo de `coworking_session_upsells`, que es el mismo problema: amenities/upsells incluidos en la tarifa, no ventas a precio de menú.
 
 ## Cambios
 
 **`src/components/reportes/MenuTab.tsx`** (única edición):
 
-1. Cambiar el filtro a los valores reales del enum:
+1. **Restringir el conteo a ventas reales del menú**:
    ```ts
-   .in('tipo_concepto', ['producto', 'amenity'])
+   .eq('tipo_concepto', 'producto')
    ```
-   (eliminando el `as any` que ocultaba el problema).
+   Eliminar `'amenity'` del filtro. La Ingeniería de Menú mide rentabilidad — los amenities no generan ingreso y deben excluirse.
 
-2. Ajustar la atribución del producto vendido para que, si `paquete_id` viene poblado, se atribuya al paquete maestro:
-   ```ts
-   const id = d.paquete_id ?? d.producto_id;
-   ```
+2. **Eliminar el bloque que agregaba `coworking_session_upsells` al `salesMap`**: ese consumo ya está cubierto por las filas de venta cuando aplica, y cuando son amenities incluidos no deben contar para popularidad de menú.
 
-No hace falta tocar `CoworkingAnalysis.tsx` ni `CoworkingOpsMetrics.tsx`: ahí el filtro `.in('tipo_concepto', ['producto', 'amenity'])` ya estaba correcto.
+3. Mantener la lógica de paquetes (`paquete_id ?? producto_id`).
 
-## Verificación post-fix
+No se tocan `CoworkingAnalysis.tsx` ni `CoworkingOpsMetrics.tsx`: ahí sí tiene sentido contar amenities porque el objetivo es analizar el comportamiento de coworking, no la rentabilidad del menú.
 
-Tras aplicar, el periodo "Este Mes" en abril 2026 debe mostrar:
-- Scatter con productos del catálogo activo que tengan ventas.
-- Tabla "Top Impacto Económico" con al menos los productos que aparezcan en los 272 detalles válidos del mes.
-- Sin banner de truncamiento (221 ventas << 5000).
+## Verificación esperada
+
+Tras el fix, en abril 2026:
+- "Agua natural de 500 ml" debería mostrar **51 vendidas** (no 68) y contribución acorde solo a ventas reales.
+- Productos cuyo único consumo del periodo fue como amenity desaparecerán del scatter / tabla.
