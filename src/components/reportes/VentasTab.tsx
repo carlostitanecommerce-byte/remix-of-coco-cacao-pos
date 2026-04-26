@@ -132,16 +132,33 @@ export default function VentasTab() {
         .select('fecha_inicio, fecha_fin_estimada, fecha_salida_real, estado, pax_count')
         .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
         .lte('fecha_inicio', hastaISO)
-        .or(`fecha_salida_real.gte.${desdeISO},fecha_salida_real.is.null`),
+        .or(`fecha_salida_real.gte.${desdeISO},fecha_salida_real.is.null`)
+        .limit(COWORK_LIMIT),
       supabase
         .from('areas_coworking')
         .select('capacidad_pax'),
     ]);
 
+    if (signal?.aborted) return;
+
+    if (sessionsRes.error || areasRes.error) {
+      toast({
+        title: 'Error al cargar coworking',
+        description: (sessionsRes.error || areasRes.error)?.message,
+        variant: 'destructive',
+      });
+      setLoadingCowork(false);
+      return;
+    }
+
     const sessions = sessionsRes.data ?? [];
     const areas = areasRes.data ?? [];
     const cap = areas.reduce((s, a) => s + a.capacidad_pax, 0);
     setTotalCapacidad(cap);
+    setCoworkLimitHit(sessions.length >= COWORK_LIMIT);
+
+    // Truncate "fin" to now() for active sessions to avoid inflating future hours.
+    const nowMs = Date.now();
 
     // For each day-hour slot in range, count pax of overlapping sessions
     const map: CoworkHeatmap = {};
@@ -157,14 +174,22 @@ export default function VentasTab() {
         const slotEnd = new Date(day);
         slotEnd.setHours(hora, 59, 59, 999);
 
+        // Skip future slots entirely (avoids forecasted occupancy)
+        if (slotStart.getTime() > nowMs) {
+          const key = `${diaIdx}-${hora}`;
+          if (!map[key]) map[key] = { personas: 0 };
+          return;
+        }
+
         let personas = 0;
         sessions.forEach(s => {
-          const inicio = new Date(s.fecha_inicio);
-          const fin = s.fecha_salida_real
-            ? new Date(s.fecha_salida_real)
-            : new Date(s.fecha_fin_estimada);
-          // Session overlaps slot if inicio < slotEnd AND fin > slotStart
-          if (inicio <= slotEnd && fin >= slotStart) {
+          const inicio = new Date(s.fecha_inicio).getTime();
+          // For sessions still active (no salida real), cap "fin" at now()
+          // so we don't count hours that haven't happened yet.
+          const finRaw = s.fecha_salida_real
+            ? new Date(s.fecha_salida_real).getTime()
+            : Math.min(new Date(s.fecha_fin_estimada).getTime(), nowMs);
+          if (inicio <= slotEnd.getTime() && finRaw >= slotStart.getTime()) {
             personas += s.pax_count;
           }
         });
