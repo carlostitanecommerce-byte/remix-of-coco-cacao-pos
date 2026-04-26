@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X } from 'lucide-react';
 import type { Area, CoworkingSession } from './types';
+import { enviarASesionKDS } from './sendToKitchen';
 
 interface SnapshotAmenity {
   producto_id: string;
@@ -136,7 +137,21 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         precio_especial: 0,
         cantidad: 1,
       }]);
-      toast({ title: 'Beneficio restaurado' });
+
+      // Enviar a cocina
+      const kdsRes = await enviarASesionKDS({
+        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
+        items: [{
+          producto_id: amenity.producto_id,
+          nombre: amenity.nombre || 'Amenity',
+          cantidad: 1,
+          isAmenity: true,
+        }],
+      });
+      toast({
+        title: 'Beneficio restaurado',
+        description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} enviada a cocina` : undefined,
+      });
     }
   };
 
@@ -214,7 +229,23 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         cantidad: 1,
       },
     ]);
-    toast({ title: `${producto.nombre} agregado`, description: `$${precio.toFixed(2)}` });
+
+    // Enviar a cocina
+    const kdsRes = await enviarASesionKDS({
+      context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
+      items: [{
+        producto_id: producto.id,
+        nombre: producto.nombre,
+        cantidad: 1,
+        isAmenity: precio === 0,
+      }],
+    });
+    toast({
+      title: `${producto.nombre} agregado`,
+      description: kdsRes.folio
+        ? `$${precio.toFixed(2)} · Comanda #${String(kdsRes.folio).padStart(4, '0')} a cocina`
+        : `$${precio.toFixed(2)}`,
+    });
   };
 
   const handleRemove = async (item: SessionItem) => {
@@ -265,6 +296,25 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       return;
     }
     setItems(prev => prev.map(i => (i.id === item.id ? { ...i, cantidad: newQty } : i)));
+
+    // Si fue un incremento, mandar el delta a cocina como nueva comanda
+    if (delta > 0 && session) {
+      const kdsRes = await enviarASesionKDS({
+        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
+        items: [{
+          producto_id: item.producto_id,
+          nombre: item.nombre,
+          cantidad: delta,
+          isAmenity: item.precio_especial === 0,
+        }],
+      });
+      if (kdsRes.folio) {
+        toast({
+          title: 'Cantidad actualizada',
+          description: `+${delta} a cocina (#${String(kdsRes.folio).padStart(4, '0')})`,
+        });
+      }
+    }
   };
 
   const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
@@ -305,14 +355,17 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
   const handleConfirmAmenityRecalc = async () => {
     if (!pendingAmenityUpdate || !session) return;
-    const { newPax: pax } = pendingAmenityUpdate;
+    const { newPax: pax, oldPax } = pendingAmenityUpdate;
     const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
 
     let okCount = 0;
     let errCount = 0;
+    const deltasParaCocina: { producto_id: string; nombre: string; cantidad: number }[] = [];
 
     for (const a of amenities) {
       const nuevaCantidad = (a.cantidad_incluida ?? 0) * pax;
+      const cantidadAnterior = (a.cantidad_incluida ?? 0) * oldPax;
+      const delta = nuevaCantidad - cantidadAnterior;
 
       if (nuevaCantidad <= 0) {
         const { error } = await supabase
@@ -350,10 +403,33 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           });
         if (error) errCount++; else okCount++;
       }
+
+      // Solo enviamos a cocina lo que aumentó (no descontamos comandas previas)
+      if (delta > 0) {
+        deltasParaCocina.push({
+          producto_id: a.producto_id,
+          nombre: a.nombre || 'Amenity',
+          cantidad: delta,
+        });
+      }
+    }
+
+    let kdsFolio: number | null = null;
+    if (deltasParaCocina.length > 0) {
+      const kdsRes = await enviarASesionKDS({
+        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
+        items: deltasParaCocina.map(d => ({ ...d, isAmenity: true })),
+      });
+      kdsFolio = kdsRes.folio;
     }
 
     if (errCount === 0) {
-      toast({ title: 'Amenities actualizados', description: `${okCount} amenity(s) recalculados a ${pax} pax.` });
+      toast({
+        title: 'Amenities actualizados',
+        description: kdsFolio
+          ? `${okCount} amenity(s) a ${pax} pax · cocina #${String(kdsFolio).padStart(4, '0')}`
+          : `${okCount} amenity(s) recalculados a ${pax} pax.`,
+      });
     } else {
       toast({ variant: 'destructive', title: 'Actualización parcial', description: `${okCount} ok · ${errCount} con error.` });
     }

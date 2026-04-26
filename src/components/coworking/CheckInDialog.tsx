@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { verificarStock } from '@/hooks/useValidarStock';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
+import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
 
 interface Tarifa {
   id: string;
@@ -255,14 +256,47 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         }
       }
 
+      // Enviar a Cocina los amenities + extras añadidos en check-in
+      const kitchenItems: KitchenItemInput[] = [
+        ...amenityOptions.map(a => ({
+          producto_id: a.producto_id,
+          nombre: a.nombre,
+          cantidad: a.cantidad_incluida * pax,
+          isAmenity: true,
+        })),
+        ...extraItems.map(it => ({
+          producto_id: it.producto_id,
+          nombre: it.nombre,
+          cantidad: 1,
+          isAmenity: false,
+        })),
+      ];
+
+      let kdsFolio: number | null = null;
+      if (kitchenItems.length > 0) {
+        const kdsRes = await enviarASesionKDS({
+          context: {
+            sessionId: sessionData.id,
+            clienteNombre: clienteNombre.trim(),
+            motivo: 'checkin',
+          },
+          items: kitchenItems,
+        });
+        kdsFolio = kdsRes.folio;
+        if (kdsRes.itemsEnviados === 0 && kitchenItems.some(i => true)) {
+          // No se envió nada (probable: ningún producto requiere preparación). Silencioso.
+        }
+      }
+
       await supabase.from('audit_logs').insert({
         user_id: user.id, accion: 'checkin_coworking',
-        descripcion: `Check-in: ${clienteNombre.trim()} (${pax} pax)`,
+        descripcion: `Check-in: ${clienteNombre.trim()} (${pax} pax)${kdsFolio ? ` · KDS #${String(kdsFolio).padStart(4, '0')}` : ''}`,
         metadata: {
           area_id: selectedAreaId,
           pax_count: pax,
           horas: horasNum,
           tarifa_id: selectedTarifaId || null,
+          kds_folio: kdsFolio,
           extra_items: extraItems.map(i => ({ producto_id: i.producto_id, precio: i.precio, isSpecial: i.isSpecial })),
           tarifa_snapshot_resumen: selectedTarifa
             ? {
@@ -275,7 +309,10 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             : null,
         },
       });
-      toast({ title: 'Entrada registrada exitosamente' });
+      toast({
+        title: 'Entrada registrada exitosamente',
+        description: kdsFolio ? `Comanda enviada a cocina (#${String(kdsFolio).padStart(4, '0')})` : undefined,
+      });
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
       setSelectedTarifaId(''); setExtraItems([]); setSearch('');
       setAmenityOptions([]);

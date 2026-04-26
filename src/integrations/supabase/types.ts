@@ -541,31 +541,34 @@ export type Database = {
       }
       kds_orders: {
         Row: {
+          coworking_session_id: string | null
           created_at: string
           estado: Database["public"]["Enums"]["kds_estado"]
           folio: number
           id: string
           tipo_consumo: string
           updated_at: string
-          venta_id: string
+          venta_id: string | null
         }
         Insert: {
+          coworking_session_id?: string | null
           created_at?: string
           estado?: Database["public"]["Enums"]["kds_estado"]
           folio: number
           id?: string
           tipo_consumo?: string
           updated_at?: string
-          venta_id: string
+          venta_id?: string | null
         }
         Update: {
+          coworking_session_id?: string | null
           created_at?: string
           estado?: Database["public"]["Enums"]["kds_estado"]
           folio?: number
           id?: string
           tipo_consumo?: string
           updated_at?: string
-          venta_id?: string
+          venta_id?: string | null
         }
         Relationships: [
           {
@@ -1117,6 +1120,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      next_kds_coworking_folio: { Args: never; Returns: number }
       validar_stock_carrito: { Args: { p_items: Json }; Returns: Json }
       validar_stock_disponible: {
         Args: { p_cantidad: number; p_producto_id: string }
