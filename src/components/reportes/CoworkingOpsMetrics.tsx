@@ -42,31 +42,49 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
   const [loading, setLoading] = useState(false);
   const [cancel, setCancel] = useState<CancelMetrics | null>(null);
   const [kds, setKds] = useState<KdsMetrics | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const desdeISO = format(desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
   const hastaISO = format(hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
   useEffect(() => {
-    void fetchAll();
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    void fetchAll(ctrl.signal);
+    return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desdeISO, hastaISO]);
 
-  const fetchAll = async () => {
+  const fetchAll = async (signal: AbortSignal) => {
     setLoading(true);
+    setTruncated(false);
     try {
-      await Promise.all([fetchCancelMetrics(), fetchKdsMetrics()]);
+      await Promise.all([fetchCancelMetrics(signal), fetchKdsMetrics(signal)]);
+    } catch (err: any) {
+      if (signal.aborted || err?.name === 'AbortError') return;
+      console.error('[CoworkingOpsMetrics] fetchAll error', err);
+      toast.error('No se pudieron cargar las métricas operativas', {
+        description: err?.message ?? 'Error de conexión con el servidor.',
+      });
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   };
 
-  const fetchCancelMetrics = async () => {
-    const { data: logs } = await supabase
+  const fetchCancelMetrics = async (signal: AbortSignal) => {
+    const { data: logs, error } = await supabase
       .from('audit_logs')
       .select('descripcion, metadata, created_at')
       .eq('accion', 'cancelar_sesion_coworking')
       .gte('created_at', desdeISO)
-      .lte('created_at', hastaISO);
+      .lte('created_at', hastaISO)
+      .limit(ROWS_LIMIT)
+      .abortSignal(signal);
+    if (signal.aborted) return;
+    if (error) throw error;
+    if ((logs?.length ?? 0) >= ROWS_LIMIT) setTruncated(true);
 
     const rows = (logs ?? []) as any[];
     const motivosMap = new Map<string, number>();
