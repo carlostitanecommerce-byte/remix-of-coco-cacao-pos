@@ -32,9 +32,8 @@ export default function VentasTab() {
   const [heatmap, setHeatmap] = useState<HeatmapData>({});
   const [coworkMap, setCoworkMap] = useState<CoworkHeatmap>({});
   const [totalCapacidad, setTotalCapacidad] = useState(0);
-  const [ventasDia, setVentasDia] = useState(0);
-  const [ventasMes, setVentasMes] = useState(0);
-  const [loadingKpis, setLoadingKpis] = useState(false);
+  const [periodoTotal, setPeriodoTotal] = useState(0);
+  const [periodoTransacciones, setPeriodoTransacciones] = useState(0);
 
   const handleSetPeriodo = (p: 'semana' | 'mes') => {
     setPeriodo(p);
