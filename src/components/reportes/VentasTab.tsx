@@ -234,11 +234,13 @@ export default function VentasTab() {
               <DollarSign className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Ventas del Día</p>
-              {loadingKpis ? (
+              <p className="text-xs text-muted-foreground">
+                Ventas del Período ({periodo === 'semana' ? 'Semana' : 'Mes'})
+              </p>
+              {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin mt-1 text-muted-foreground" />
               ) : (
-                <p className="text-lg font-bold text-primary truncate">{fmt(ventasDia)}</p>
+                <p className="text-lg font-bold text-primary truncate">{fmt(periodoTotal)}</p>
               )}
             </div>
           </CardContent>
@@ -249,11 +251,11 @@ export default function VentasTab() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Ventas del Mes</p>
-              {loadingKpis ? (
+              <p className="text-xs text-muted-foreground">Transacciones del Período</p>
+              {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin mt-1 text-muted-foreground" />
               ) : (
-                <p className="text-lg font-bold text-accent truncate">{fmt(ventasMes)}</p>
+                <p className="text-lg font-bold text-accent truncate">{periodoTransacciones.toLocaleString('es-MX')}</p>
               )}
             </div>
           </CardContent>
