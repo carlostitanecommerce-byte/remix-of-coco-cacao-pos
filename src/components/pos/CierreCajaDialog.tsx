@@ -117,6 +117,14 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
       toast.error('Ingresa el monto contado');
       return;
     }
+    if (sesionesActivas.length > 0) {
+      const ok = window.confirm(
+        `Hay ${sesionesActivas.length} sesión(es) de coworking sin cobrar:\n\n` +
+        sesionesActivas.map(s => `• ${s.cliente_nombre}`).join('\n') +
+        `\n\n¿Cerrar la caja de todas formas? Estas sesiones quedarán pendientes para el siguiente turno.`
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     const result = await onCerrarCaja(contado, notasCierre.trim() || undefined);
     setSaving(false);
