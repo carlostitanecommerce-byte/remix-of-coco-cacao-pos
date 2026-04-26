@@ -159,7 +159,7 @@ export default function CoworkingAnalysis({ desde, hasta }: Props) {
       .from('coworking_sessions')
       .select('id')
       .eq('tarifa_id', tarifaId)
-      .in('estado', ['finalizado', 'pendiente_pago'])
+      .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
       .gte('fecha_inicio', desdeISO)
       .lte('fecha_inicio', hastaISO);
 
@@ -172,11 +172,12 @@ export default function CoworkingAnalysis({ desde, hasta }: Props) {
       const batch = sessionIds.slice(i, i + 100);
       const { data } = await supabase
         .from('detalle_ventas')
-        .select('producto_id, cantidad, subtotal, tipo_concepto')
+        .select('producto_id, cantidad, subtotal, tipo_concepto, ventas!inner(estado)')
         .in('coworking_session_id', batch)
         .not('producto_id', 'is', null)
-        .in('tipo_concepto', ['producto', 'amenity']);
-      (data ?? []).forEach(d => {
+        .in('tipo_concepto', ['producto', 'amenity'])
+        .eq('ventas.estado', 'completada');
+      ((data ?? []) as any[]).forEach(d => {
         if (!d.producto_id) return;
         const existing = productSales.get(d.producto_id) || { cantidad: 0, ingreso: 0 };
         existing.cantidad += d.cantidad;
