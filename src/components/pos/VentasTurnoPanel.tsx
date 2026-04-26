@@ -20,6 +20,7 @@ interface VentaTurno {
   id: string;
   folio: number;
   total_neto: number;
+  iva?: number;
   monto_propina: number;
   metodo_pago: string;
   monto_efectivo: number;
