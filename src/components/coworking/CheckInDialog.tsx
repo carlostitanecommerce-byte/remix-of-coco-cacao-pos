@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { verificarStock } from '@/hooks/useValidarStock';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
+import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
 
 interface Tarifa {
   id: string;
