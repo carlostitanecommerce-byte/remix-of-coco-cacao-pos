@@ -112,7 +112,11 @@ export default function MenuTab() {
           .from('detalle_ventas')
           .select('producto_id, paquete_id, cantidad, tipo_concepto')
           .in('venta_id', batch)
-          .in('tipo_concepto', ['producto', 'amenity'])
+          // Solo ventas reales del menú: excluimos 'amenity' (cortesía incluida
+          // en la tarifa, ingreso $0) y 'coworking' (renta de espacio).
+          // Mezclar amenities infla popularidad y distorsiona la contribución
+          // económica del análisis de Ingeniería de Menú.
+          .eq('tipo_concepto', 'producto')
           .limit(DETALLES_LIMIT)
           .abortSignal(signal);
         if (error) throw error;
@@ -128,19 +132,6 @@ export default function MenuTab() {
       }
 
       if (signal.aborted) return;
-
-      const { data: csu, error: csuErr } = await supabase
-        .from('coworking_session_upsells')
-        .select('producto_id, cantidad, coworking_sessions!inner(fecha_inicio, estado)')
-        .gte('coworking_sessions.fecha_inicio', desdeISO)
-        .lte('coworking_sessions.fecha_inicio', hastaISO)
-        .in('coworking_sessions.estado', ['activo', 'finalizado', 'pendiente_pago'])
-        .limit(DETALLES_LIMIT)
-        .abortSignal(signal);
-      if (csuErr) throw csuErr;
-      (csu ?? []).forEach(u => {
-        if (u.producto_id) salesMap[u.producto_id] = (salesMap[u.producto_id] || 0) + (u.cantidad || 0);
-      });
 
       const items: MenuProduct[] = productos.map(p => {
         const precioSinIVA = p.precio_venta / 1.16;
