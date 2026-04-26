@@ -112,7 +112,7 @@ export default function MenuTab() {
           .from('detalle_ventas')
           .select('producto_id, paquete_id, cantidad, tipo_concepto')
           .in('venta_id', batch)
-          .in('tipo_concepto', ['producto', 'paquete', 'amenity'] as any)
+          .in('tipo_concepto', ['producto', 'amenity'])
           .limit(DETALLES_LIMIT)
           .abortSignal(signal);
         if (error) throw error;
@@ -120,7 +120,9 @@ export default function MenuTab() {
         totalDetalles += rows.length;
         if (rows.length >= DETALLES_LIMIT) localTruncated = true;
         rows.forEach((d: any) => {
-          const id = d.tipo_concepto === 'paquete' ? d.paquete_id : d.producto_id;
+          // Los paquetes se registran como 'producto' con paquete_id poblado;
+          // si existe, atribuimos la venta al paquete maestro, no al componente.
+          const id = d.paquete_id ?? d.producto_id;
           if (id) salesMap[id] = (salesMap[id] || 0) + d.cantidad;
         });
       }

@@ -1,23 +1,48 @@
-# Auditoría End-to-End — Módulo Inventarios
+## Diagnóstico
 
-## Estado: ✅ FASES G1 + G2 COMPLETADAS — Production-ready
+El reporte de Ingeniería de Menú muestra **"No hay productos con ventas en este periodo"** aunque en abril 2026 existen **221 ventas completadas** con **266 detalles tipo `producto`** + **6 `amenity`**.
 
-### Fase G1 — Integridad (críticos)
-- ✅ RPC atómica `registrar_merma` con `FOR UPDATE` (sin race conditions)
-- ✅ Validación extendida de borrado de productos (paquetes, tarifa_upsells, tarifa_amenities_incluidos, sesiones activas)
-- ✅ `AlertDialog` reemplaza `confirm()` nativo en ProductosTab
-- ✅ RLS de `compras_insumos` endurecida (solo admin/supervisor INSERT)
+### Causa raíz
 
-### Fase G2 — Consistencia y pulido
-- ✅ RPC `recalcular_costos_productos(insumo_id)` + trigger automático en UPDATE de `insumos.costo_unitario` → costos y márgenes de productos siempre frescos
-- ✅ Índices únicos case-insensitive en `insumos.nombre` y `productos.nombre`
-- ✅ Manejo amigable de error de unicidad en InsumosTab (mensaje claro al duplicar)
-- ✅ MermasTab montado como sub-tab en InventariosPage (visible para admin/supervisor)
-- ✅ ComprasTab: paginación de 50 en 50 + filtros por rango de fechas + contador total
-- ✅ Fragment con key en ProductosTab (sin warnings React)
+En la Fase I1 introduje este filtro en `MenuTab.tsx`:
 
-## Archivos modificados (G2)
-- `supabase/migrations/...recalcular_costos_y_unique_idx.sql`
-- `src/pages/InventariosPage.tsx`
-- `src/components/inventarios/InsumosTab.tsx`
-- `src/components/inventarios/ComprasTab.tsx`
+```ts
+.in('tipo_concepto', ['producto', 'paquete', 'amenity'] as any)
+```
+
+Pero el enum real `tipo_concepto` en la base de datos solo acepta tres valores: **`producto`, `coworking`, `amenity`**. **No existe `'paquete'`**.
+
+Postgres rechaza la query con:
+```
+22P02: invalid input value for enum tipo_concepto: "paquete"
+```
+
+El error se silenciaba porque el bloque no validaba `error` (lo arreglamos en I2, pero el `cast as any` evadió la validación de tipos de TypeScript). Resultado: `salesMap` queda vacío → todos los productos con `cantidadVendida = 0` → el scatter no muestra nada.
+
+### Hallazgo adicional
+
+Los paquetes **no** se guardan con un `tipo_concepto` propio. Se almacenan como filas `producto` con el campo `paquete_id` poblado cuando aplica. Hoy `paquete_id` está NULL en todos los registros (los paquetes se desglosan en componentes al cobrar), pero conviene dejar la lógica preparada por si se cambia esa política.
+
+## Cambios
+
+**`src/components/reportes/MenuTab.tsx`** (única edición):
+
+1. Cambiar el filtro a los valores reales del enum:
+   ```ts
+   .in('tipo_concepto', ['producto', 'amenity'])
+   ```
+   (eliminando el `as any` que ocultaba el problema).
+
+2. Ajustar la atribución del producto vendido para que, si `paquete_id` viene poblado, se atribuya al paquete maestro:
+   ```ts
+   const id = d.paquete_id ?? d.producto_id;
+   ```
+
+No hace falta tocar `CoworkingAnalysis.tsx` ni `CoworkingOpsMetrics.tsx`: ahí el filtro `.in('tipo_concepto', ['producto', 'amenity'])` ya estaba correcto.
+
+## Verificación post-fix
+
+Tras aplicar, el periodo "Este Mes" en abril 2026 debe mostrar:
+- Scatter con productos del catálogo activo que tengan ventas.
+- Tabla "Top Impacto Económico" con al menos los productos que aparezcan en los 272 detalles válidos del mes.
+- Sin banner de truncamiento (221 ventas << 5000).
