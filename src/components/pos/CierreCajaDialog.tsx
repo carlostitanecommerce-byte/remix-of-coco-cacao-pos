@@ -240,6 +240,18 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
         </DialogHeader>
 
         <div className="space-y-4 text-sm max-h-[60vh] overflow-y-auto">
+          {sesionesActivas.length > 0 && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs space-y-1">
+              <p className="font-semibold text-destructive">⚠️ {sesionesActivas.length} sesión(es) de coworking sin cobrar</p>
+              <ul className="text-muted-foreground list-disc list-inside">
+                {sesionesActivas.slice(0, 5).map(s => (
+                  <li key={s.id}>{s.cliente_nombre}</li>
+                ))}
+                {sesionesActivas.length > 5 && <li>…y {sesionesActivas.length - 5} más</li>}
+              </ul>
+              <p className="text-muted-foreground">Si cierras ahora, quedarán pendientes para el siguiente turno.</p>
+            </div>
+          )}
           <div className="space-y-1">
             <p className="font-semibold text-xs uppercase text-muted-foreground">Movimientos de caja</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
