@@ -67,22 +67,36 @@ export default function VentasTab() {
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
-    const { data: ventas } = await supabase
+    const { data: ventas, error } = await supabase
       .from('ventas')
       .select('id, fecha, total_neto')
       .eq('estado', 'completada')
       .gte('fecha', desdeISO)
-      .lte('fecha', hastaISO);
+      .lte('fecha', hastaISO)
+      .limit(RETAIL_LIMIT);
 
     if (signal?.aborted) return;
+
+    if (error) {
+      toast({
+        title: 'Error al cargar ventas',
+        description: error.message,
+        variant: 'destructive',
+      });
+      setLoading(false);
+      return;
+    }
 
     if (!ventas || ventas.length === 0) {
       setHeatmap({});
       setPeriodoTotal(0);
       setPeriodoTransacciones(0);
+      setRetailLimitHit(false);
       setLoading(false);
       return;
     }
+
+    setRetailLimitHit(ventas.length >= RETAIL_LIMIT);
 
     const map: HeatmapData = {};
     let total = 0;
