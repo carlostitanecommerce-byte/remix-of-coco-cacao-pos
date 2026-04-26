@@ -113,6 +113,24 @@ export default function VentasTab() {
       total += Number(v.total_neto);
     });
 
+    // Monthly view: average each (day-of-week, hour) cell by # of occurrences
+    // of that weekday in the range — matches coworking's monthly behavior.
+    if (periodo === 'mes') {
+      const days = eachDayOfInterval({ start: rango.desde, end: rango.hasta });
+      const dayCount: Record<number, number> = {};
+      days.forEach(day => {
+        const jsDay = getDay(day);
+        const diaIdx = jsDay === 0 ? 6 : jsDay - 1;
+        dayCount[diaIdx] = (dayCount[diaIdx] || 0) + 1;
+      });
+      Object.entries(map).forEach(([key, cell]) => {
+        const diaIdx = parseInt(key.split('-')[0]);
+        const count = dayCount[diaIdx] || 1;
+        cell.total = cell.total / count;
+        cell.count = cell.count / count;
+      });
+    }
+
     setHeatmap(map);
     setPeriodoTotal(total);
     setPeriodoTransacciones(ventas.length);
@@ -324,6 +342,9 @@ export default function VentasTab() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-heading font-bold text-foreground">Mapa de Calor — Chocolatería</h2>
+          <p className="text-sm text-muted-foreground">
+            {periodo === 'mes' ? 'Promedio diario del mes por hora' : 'Ventas totales por hora'}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -368,6 +389,10 @@ export default function VentasTab() {
             <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
               <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
             </div>
+          ) : Object.keys(heatmap).length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-16">
+              No hay ventas registradas en este período.
+            </div>
           ) : (
             <TooltipProvider delayDuration={100}>
               <div className="overflow-x-auto">
@@ -402,8 +427,14 @@ export default function VentasTab() {
                             </TooltipTrigger>
                             <TooltipContent side="top" className="text-xs">
                               <p className="font-semibold">{dia}, {fmtHoraFull(hora)}</p>
-                              <p>Ventas Totales: {fmt(cell.total)}</p>
-                              <p># Transacciones: {cell.count}</p>
+                              <p>
+                                {periodo === 'mes' ? 'Ventas (promedio diario): ' : 'Ventas Totales: '}
+                                {fmt(cell.total)}
+                              </p>
+                              <p>
+                                {periodo === 'mes' ? '# Transacciones (promedio): ' : '# Transacciones: '}
+                                {periodo === 'mes' ? cell.count.toFixed(1) : cell.count}
+                              </p>
                             </TooltipContent>
                           </Tooltip>
                         );
@@ -442,6 +473,10 @@ export default function VentasTab() {
             {loadingCowork ? (
               <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
                 <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
+              </div>
+            ) : Object.values(coworkMap).every(c => c.personas === 0) ? (
+              <div className="text-center text-sm text-muted-foreground py-16">
+                No hay sesiones de coworking en este período.
               </div>
             ) : (
               <TooltipProvider delayDuration={100}>
