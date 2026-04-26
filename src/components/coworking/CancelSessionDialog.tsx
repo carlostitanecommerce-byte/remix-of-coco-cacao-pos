@@ -21,8 +21,7 @@ import type { CoworkingSession } from './types';
 import { nowCDMX } from '@/lib/utils';
 import {
   fetchSessionUpsellsForCancel,
-  aplicarEntregasComoMermas,
-  limpiarUpsellsSesion,
+  cancelarSesionAtomico,
   type SessionUpsellRow,
   type EntregaItem,
 } from './cancelacionUtils';
@@ -108,50 +107,19 @@ export function CancelSessionDialog({ session, isAdmin, onClose, onSuccess }: Pr
     setLoading(true);
 
     if (isAdmin) {
-      // Admin: cancela directo. Aplica entregas como mermas, limpia upsells, marca cancelado.
-      const resumen = entregadosFinal.length > 0
-        ? await aplicarEntregasComoMermas({
-            userId: user.id,
-            clienteNombre: session.cliente_nombre,
-            sessionId: session.id,
-            motivoCancelacion: motivo.trim(),
-            entregados: entregadosFinal,
-          })
-        : { mermasCreadas: 0, insumosAfectados: 0, errores: [] };
+      // Admin: cancelación atómica vía RPC (mermas + stock + limpieza + estado + audit en una sola transacción)
+      const resumen = await cancelarSesionAtomico({
+        sessionId: session.id,
+        motivo: motivo.trim(),
+        entregados: entregadosFinal,
+        isAdmin: true,
+      });
 
-      await limpiarUpsellsSesion(session.id);
-
-      const { error } = await supabase
-        .from('coworking_sessions')
-        .update({
-          estado: 'cancelado',
-          monto_acumulado: 0,
-          fecha_salida_real: nowCDMX(),
-        })
-        .eq('id', session.id);
-
-      if (error) {
-        toast({ variant: 'destructive', title: 'Error', description: error.message });
+      if (!resumen.ok) {
+        toast({ variant: 'destructive', title: 'Error al cancelar', description: resumen.error ?? 'Operación rechazada' });
         setLoading(false);
         return;
       }
-
-      await supabase.from('audit_logs').insert([{
-        user_id: user.id,
-        accion: 'cancelar_sesion_coworking',
-        descripcion: `Cancelación directa: ${session.cliente_nombre} — Motivo: ${motivo.trim()} — Entregados: ${entregadosFinal.length} item(s) · Liberados: ${upsells.length - entregadosFinal.length}`,
-        metadata: {
-          session_id: session.id,
-          area_id: session.area_id,
-          cliente_nombre: session.cliente_nombre,
-          pax_count: session.pax_count,
-          motivo: motivo.trim(),
-          cancelado_por: user.id,
-          entregados: entregadosFinal as any,
-          liberados_count: upsells.length - entregadosFinal.length,
-          mermas_creadas: resumen.mermasCreadas,
-        } as any,
-      }]);
 
       const desc = entregadosFinal.length > 0
         ? `Cancelada. ${resumen.mermasCreadas} merma(s) registrada(s) por entregas reales.`
