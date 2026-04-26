@@ -128,7 +128,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                       <TableHead>Total</TableHead>
                       <TableHead>Pago</TableHead>
                       <TableHead>Estado</TableHead>
-                      {isAdmin && <TableHead className="w-[100px]"></TableHead>}
+                      <TableHead className="w-[120px]">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -147,22 +147,27 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                             <Badge variant="destructive" className="text-xs">Cancelada</Badge>
                           )}
                         </TableCell>
-                        {isAdmin && (
-                          <TableCell>
-                            <div className="flex gap-1">
-                              {v.estado === 'completada' && (
-                                <>
-                                  <Button variant="ghost" size="icon" title="Cambiar método de pago" onClick={() => setEditPagoVenta(v)}>
-                                    <RefreshCw className="h-4 w-4 text-primary" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" title="Cancelar venta" onClick={() => setCancelVenta(v)}>
-                                    <XCircle className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {v.estado === 'completada' && (
+                              <>
+                                <Button variant="ghost" size="icon" title="Reimprimir ticket" onClick={() => setReprintVenta(v)}>
+                                  <Printer className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                                {isAdmin && (
+                                  <>
+                                    <Button variant="ghost" size="icon" title="Cambiar método de pago" onClick={() => setEditPagoVenta(v)}>
+                                      <RefreshCw className="h-4 w-4 text-primary" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" title="Cancelar venta" onClick={() => setCancelVenta(v)}>
+                                      <XCircle className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
