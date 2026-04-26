@@ -94,7 +94,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         iva: summary.iva,
         comisiones_bancarias: 0,
         monto_propina: propinaAmount,
-        total_neto: summary.total,
+        total_neto: summary.subtotal,
         metodo_pago: summary.metodo_pago as any,
         tipo_consumo: summary.tipo_consumo as any,
         estado: 'completada' as any,
