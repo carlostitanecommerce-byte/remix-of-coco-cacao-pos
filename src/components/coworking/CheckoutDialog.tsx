@@ -76,16 +76,36 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
     }
   };
 
+  const handlePrint = () => window.print();
+
+  const fechaSalida = summary.session.fecha_salida_real
+    ? new Date(summary.session.fecha_salida_real)
+    : new Date();
+
   return (
     <Dialog open={!!summary} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-md print:shadow-none print:border-0 print:max-w-full">
+        <style>{`
+          @media print {
+            body * { visibility: hidden !important; }
+            #coworking-checkout-area, #coworking-checkout-area * { visibility: visible !important; }
+            #coworking-checkout-area { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; font-size: 12px; }
+            .no-print, .no-print * { display: none !important; }
+          }
+        `}</style>
+        <DialogHeader className="no-print">
           <DialogTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-primary" />
             Resumen de Check-out
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 mt-2">
+        <div id="coworking-checkout-area" className="space-y-4 mt-2">
+          <div className="hidden print:block text-center space-y-1 mb-2">
+            <div className="font-bold text-base">Coco & Cacao + Kúuchil Meyaj</div>
+            <p className="text-xs">Resumen de Coworking (Pre-cobro)</p>
+            <p className="text-[10px]">{fechaSalida.toLocaleString('es-MX')}</p>
+          </div>
+
           <div className="rounded-lg border border-border p-4 space-y-2">
             <p className="font-medium text-foreground">{summary.session.cliente_nombre}</p>
             <p className="text-sm text-muted-foreground">{summary.area.nombre_area} · {summary.session.pax_count} pax</p>
@@ -150,9 +170,18 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
             </div>
           </div>
 
-          <Button onClick={handleConfirm} className="w-full" disabled={confirming}>
-            {confirming ? 'Procesando...' : 'Finalizar Estancia y Pasar a Caja'}
-          </Button>
+          <p className="hidden print:block text-center text-[10px] italic pt-2">
+            ** Resumen previo al cobro — Pase a Caja para liquidar **
+          </p>
+
+          <div className="no-print flex flex-col gap-2">
+            <Button onClick={handleConfirm} className="w-full" disabled={confirming}>
+              {confirming ? 'Procesando...' : 'Finalizar Estancia y Pasar a Caja'}
+            </Button>
+            <Button onClick={handlePrint} variant="outline" className="w-full" disabled={confirming}>
+              <Printer className="h-4 w-4 mr-2" /> Imprimir resumen
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
