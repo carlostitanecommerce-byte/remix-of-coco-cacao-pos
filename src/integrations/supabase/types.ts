@@ -541,31 +541,34 @@ export type Database = {
       }
       kds_orders: {
         Row: {
+          coworking_session_id: string | null
           created_at: string
           estado: Database["public"]["Enums"]["kds_estado"]
           folio: number
           id: string
           tipo_consumo: string
           updated_at: string
-          venta_id: string
+          venta_id: string | null
         }
         Insert: {
+          coworking_session_id?: string | null
           created_at?: string
           estado?: Database["public"]["Enums"]["kds_estado"]
           folio: number
           id?: string
           tipo_consumo?: string
           updated_at?: string
-          venta_id: string
+          venta_id?: string | null
         }
         Update: {
+          coworking_session_id?: string | null
           created_at?: string
           estado?: Database["public"]["Enums"]["kds_estado"]
           folio?: number
           id?: string
           tipo_consumo?: string
           updated_at?: string
-          venta_id?: string
+          venta_id?: string | null
         }
         Relationships: [
           {
