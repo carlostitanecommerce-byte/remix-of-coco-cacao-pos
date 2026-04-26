@@ -84,6 +84,13 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
 
   useEffect(() => {
     fetchSessions();
+
+    const channel = supabase
+      .channel('pos-coworking-sessions-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_sessions' }, () => fetchSessions())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_session_upsells' }, () => fetchSessions())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // Auto-import pending session from coworking checkout redirect

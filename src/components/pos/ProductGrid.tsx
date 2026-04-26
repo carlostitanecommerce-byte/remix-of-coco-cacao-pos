@@ -43,13 +43,20 @@ export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
   
 
   useEffect(() => {
-    supabase.from('productos').select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo')
-      .eq('activo', true)
-      .then(({ data }) => {
-        if (data) {
-          setProductos(data as Producto[]);
-        }
-      });
+    const fetchProductos = async () => {
+      const { data } = await supabase
+        .from('productos')
+        .select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo')
+        .eq('activo', true);
+      if (data) setProductos(data as Producto[]);
+    };
+    fetchProductos();
+
+    const channel = supabase
+      .channel('pos-productos-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => fetchProductos())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // Only show categories that have at least one active product

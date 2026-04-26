@@ -56,6 +56,14 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
 
   useEffect(() => {
     fetchVentas();
+
+    const channel = supabase
+      .channel('pos-ventas-turno-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' }, () => fetchVentas())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchVentas())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
   const completadas = ventas.filter(v => v.estado === 'completada');
