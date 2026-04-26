@@ -26,11 +26,9 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
     if (!user || !summary) return;
     setSaving(true);
     try {
-      // 0. Pre-validar inventario para no registrar venta si falta stock
-      // Sumamos cantidades de productos simples + componentes expandidos de paquetes
+      // 0. Pre-validar inventario unificado vía RPC (considera consumos comprometidos en coworking)
       const qtyByProduct = new Map<string, number>();
 
-      // Productos simples directos
       const productoItems = summary.items.filter(
         (item) => item.tipo_concepto === 'producto' && !!item.producto_id && !item.producto_id.startsWith('coworking-')
       );
@@ -39,7 +37,6 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         qtyByProduct.set(productId, (qtyByProduct.get(productId) ?? 0) + item.cantidad);
       }
 
-      // Componentes de paquetes (expandidos en cantidad)
       const paqueteItems = summary.items.filter(item => item.tipo_concepto === 'paquete');
       for (const pq of paqueteItems) {
         for (const comp of (pq.componentes ?? [])) {
@@ -49,39 +46,18 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       }
 
       if (qtyByProduct.size > 0) {
-        const { data: recetas, error: recetasErr } = await supabase
-          .from('recetas')
-          .select('producto_id, insumo_id, cantidad_necesaria')
-          .in('producto_id', Array.from(qtyByProduct.keys()));
-
-        if (recetasErr) throw recetasErr;
-
-        const requiredByInsumo = new Map<string, number>();
-        for (const receta of recetas ?? []) {
-          const productQty = qtyByProduct.get(receta.producto_id) ?? 0;
-          const required = Number(receta.cantidad_necesaria) * productQty;
-          requiredByInsumo.set(receta.insumo_id, (requiredByInsumo.get(receta.insumo_id) ?? 0) + required);
-        }
-
-        if (requiredByInsumo.size > 0) {
-          const { data: insumos, error: insumosErr } = await supabase
-            .from('insumos')
-            .select('id, nombre, stock_actual')
-            .in('id', Array.from(requiredByInsumo.keys()));
-
-          if (insumosErr) throw insumosErr;
-
-          const faltantes = (insumos ?? []).filter(
-            (insumo) => Number(insumo.stock_actual) < (requiredByInsumo.get(insumo.id) ?? 0)
-          );
-
-          if (faltantes.length > 0) {
-            const detalle = faltantes
-              .map((insumo) => `${insumo.nombre} (disp: ${Number(insumo.stock_actual).toFixed(2)})`)
-              .join(', ');
-            toast.error(`Stock insuficiente: ${detalle}`);
-            return;
-          }
+        const cartItems = Array.from(qtyByProduct.entries()).map(([producto_id, cantidad]) => ({
+          producto_id,
+          cantidad,
+        }));
+        const { data: validacion, error: valErr } = await supabase.rpc('validar_stock_carrito' as any, {
+          p_items: cartItems as any,
+        });
+        if (valErr) throw valErr;
+        const result = validacion as { valido: boolean; error?: string };
+        if (!result?.valido) {
+          toast.error(result?.error ?? 'Stock insuficiente para completar la venta');
+          return;
         }
       }
 
@@ -118,7 +94,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         iva: summary.iva,
         comisiones_bancarias: 0,
         monto_propina: propinaAmount,
-        total_neto: summary.total,
+        total_neto: summary.subtotal,
         metodo_pago: summary.metodo_pago as any,
         tipo_consumo: summary.tipo_consumo as any,
         estado: 'completada' as any,
