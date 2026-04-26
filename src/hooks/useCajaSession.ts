@@ -85,7 +85,14 @@ export function useCajaSession() {
       estado: 'abierta' as any,
     }).select().single();
 
-    if (error) return { error: error.message };
+    if (error) {
+      // Índice único parcial: solo una caja abierta a la vez
+      if (error.code === '23505' || /unique/i.test(error.message)) {
+        await fetchCaja();
+        return { error: 'Ya hay una caja abierta en el sistema. Sincronizando...' };
+      }
+      return { error: error.message };
+    }
 
     await supabase.from('audit_logs').insert({
       user_id: user.id,
