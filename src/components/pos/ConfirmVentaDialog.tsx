@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -19,11 +19,15 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
   const { user, profile } = useAuth();
   const [saving, setSaving] = useState(false);
   const [ticket, setTicket] = useState<VentaSummary | null>(null);
+  const inFlightRef = useRef(false);
 
   if (!summary && !ticket) return null;
 
   const handleConfirm = async () => {
     if (!user || !summary) return;
+    // Anti doble-clic: lock síncrono que bloquea aunque setState aún no haya hecho re-render
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setSaving(true);
     try {
       // 0. Pre-validar inventario unificado vía RPC (considera consumos comprometidos en coworking)
@@ -308,16 +312,24 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       });
 
       if (kdsItemsFiltered.length > 0) {
-        const { data: kdsOrder } = await supabase.from('kds_orders').insert({
-          venta_id: venta.id,
-          folio: venta.folio,
-          tipo_consumo: summary.tipo_consumo,
-          estado: 'pendiente' as any,
-        }).select('id').single();
+        try {
+          const { data: kdsOrder, error: kdsOrderErr } = await supabase.from('kds_orders').insert({
+            venta_id: venta.id,
+            folio: venta.folio,
+            tipo_consumo: summary.tipo_consumo,
+            estado: 'pendiente' as any,
+          }).select('id').single();
 
-        if (kdsOrder) {
-          const kdsItems = kdsItemsFiltered.map(it => ({ kds_order_id: kdsOrder.id, ...it }));
-          await supabase.from('kds_order_items').insert(kdsItems as any);
+          if (kdsOrderErr) throw kdsOrderErr;
+
+          if (kdsOrder) {
+            const kdsItems = kdsItemsFiltered.map(it => ({ kds_order_id: kdsOrder.id, ...it }));
+            const { error: kdsItemsErr } = await supabase.from('kds_order_items').insert(kdsItems as any);
+            if (kdsItemsErr) throw kdsItemsErr;
+          }
+        } catch (kdsErr: any) {
+          console.error('Error creando orden KDS:', kdsErr);
+          toast.warning('Venta registrada, pero la orden no llegó a Cocina. Notifica al barista manualmente.');
         }
       }
 
@@ -350,6 +362,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       toast.error(err.message || 'Error al procesar la venta');
     } finally {
       setSaving(false);
+      inFlightRef.current = false;
     }
   };
 
