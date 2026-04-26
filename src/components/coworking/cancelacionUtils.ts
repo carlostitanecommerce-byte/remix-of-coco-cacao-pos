@@ -40,96 +40,49 @@ export interface EntregaItem {
   cantidad: number;
 }
 
-/**
- * Por cada item entregado, busca la receta y descuenta el insumo del stock,
- * registrando una merma con motivo trazable. Devuelve resumen para auditoría.
- */
-export async function aplicarEntregasComoMermas(params: {
-  userId: string;
-  clienteNombre: string;
-  sessionId: string;
-  motivoCancelacion: string;
-  entregados: EntregaItem[];
-}): Promise<{ mermasCreadas: number; insumosAfectados: number; errores: string[] }> {
-  const { userId, clienteNombre, sessionId, motivoCancelacion, entregados } = params;
-  const errores: string[] = [];
-  let mermasCreadas = 0;
-  let insumosAfectados = 0;
-
-  for (const item of entregados) {
-    if (item.cantidad <= 0) continue;
-
-    const { data: recetas, error: recetaErr } = await supabase
-      .from('recetas')
-      .select('insumo_id, cantidad_necesaria, insumos:insumo_id(nombre, stock_actual)')
-      .eq('producto_id', item.producto_id);
-
-    if (recetaErr) {
-      errores.push(`${item.nombre}: ${recetaErr.message}`);
-      continue;
-    }
-    if (!recetas || recetas.length === 0) continue;
-
-    for (const r of recetas as any[]) {
-      const cantidadDescontar = Number(r.cantidad_necesaria) * item.cantidad;
-      const stockActual = Number(r.insumos?.stock_actual ?? 0);
-      const cantidadFinal = Math.min(cantidadDescontar, Math.max(0, stockActual));
-
-      if (cantidadFinal <= 0) continue;
-
-      const { error: mermaErr } = await supabase.from('mermas').insert({
-        insumo_id: r.insumo_id,
-        cantidad: cantidadFinal,
-        motivo: `Entrega en sesión cancelada — ${clienteNombre} (${item.nombre} ×${item.cantidad})`,
-        usuario_id: userId,
-      });
-
-      if (mermaErr) {
-        errores.push(`${r.insumos?.nombre ?? 'insumo'}: ${mermaErr.message}`);
-        continue;
-      }
-
-      const { error: stockErr } = await supabase
-        .from('insumos')
-        .update({ stock_actual: stockActual - cantidadFinal })
-        .eq('id', r.insumo_id);
-
-      if (stockErr) {
-        errores.push(`stock ${r.insumos?.nombre ?? 'insumo'}: ${stockErr.message}`);
-        continue;
-      }
-
-      mermasCreadas++;
-      insumosAfectados++;
-    }
-  }
-
-  // Auditoría adicional del descuento por entrega
-  if (entregados.length > 0) {
-    await supabase.from('audit_logs').insert([{
-      user_id: userId,
-      accion: 'descuento_inventario_cancelacion_sesion',
-      descripcion: `Descuento por entregas reales en sesión cancelada — ${clienteNombre}`,
-      metadata: {
-        session_id: sessionId,
-        motivo_cancelacion: motivoCancelacion,
-        entregados: entregados as any,
-        mermas_creadas: mermasCreadas,
-        errores,
-      } as any,
-    }]);
-  }
-
-  return { mermasCreadas, insumosAfectados, errores };
+export interface CancelarSesionResult {
+  ok: boolean;
+  mermasCreadas: number;
+  entregadosCount: number;
+  error?: string;
 }
 
 /**
- * Borra todos los upsells de una sesión cancelada (lo que antes hacía el trigger).
- * Se llama tras procesar las entregas reales.
+ * Cancela una sesión de forma atómica vía RPC `cancelar_sesion_coworking`.
+ * Toda la lógica (mermas, descuento de stock, limpieza de upsells, update de
+ * sesión, cierre de solicitud y audit log) ocurre en una sola transacción
+ * en el servidor. Si algo falla, nada se aplica.
  */
-export async function limpiarUpsellsSesion(sessionId: string): Promise<void> {
-  await supabase
-    .from('coworking_session_upsells')
-    .delete()
-    .eq('session_id', sessionId);
+export async function cancelarSesionAtomico(params: {
+  sessionId: string;
+  motivo: string;
+  entregados: EntregaItem[];
+  isAdmin: boolean;
+  solicitudId?: string;
+}): Promise<CancelarSesionResult> {
+  const { sessionId, motivo, entregados, isAdmin, solicitudId } = params;
+
+  const { data, error } = await supabase.rpc('cancelar_sesion_coworking' as any, {
+    p_session_id: sessionId,
+    p_motivo: motivo,
+    p_entregados: entregados as any,
+    p_solicitud_id: solicitudId ?? null,
+    p_is_admin: isAdmin,
+  });
+
+  if (error) {
+    return {
+      ok: false,
+      mermasCreadas: 0,
+      entregadosCount: 0,
+      error: error.message,
+    };
+  }
+
+  const result = data as { ok: boolean; mermas_creadas: number; entregados_count: number };
+  return {
+    ok: result?.ok === true,
+    mermasCreadas: result?.mermas_creadas ?? 0,
+    entregadosCount: result?.entregados_count ?? 0,
+  };
 }
