@@ -1,128 +1,76 @@
-# Auditoría End-to-End del Módulo POS
+# Auditoría End-to-End — Módulo Coworking
 
-## Veredicto: 🔴 NO PRODUCTION-READY
-
-El POS tiene una arquitectura sólida tras las Fases 1-3, pero contiene **un defecto crítico de integridad de datos** que invalida cualquier despliegue real, además de varios huecos operativos. Detalle abajo.
+Veredicto: **Funcional y maduro, pero NO production-ready** sin correcciones. La arquitectura es sólida (snapshot inmutable de tarifas, ciclo de vida coordinado con POS, validación de conflictos en reservaciones, RLS aplicada), pero hay **6 hallazgos** que afectan integridad de datos, integridad de inventario y experiencia operativa. 3 son de prioridad alta.
 
 ---
 
-## 🔴 BLOQUEADORES (deben resolverse antes de producir)
+## Hallazgos
 
-### B1. Triggers de base de datos NO existen — el inventario NO se descuenta
-Este es el hallazgo más grave. Verifiqué directamente `pg_trigger` y `information_schema.triggers`: **la base de datos no tiene NINGÚN trigger en el esquema public**. Las funciones existen pero están huérfanas:
+### 🔴 ALTA — Integridad de datos
 
-- `descontar_inventario_venta()` → no se ejecuta al insertar `detalle_ventas` ⇒ **las ventas no descuentan stock**.
-- `reintegrar_inventario_cancelacion()` → no se ejecuta al cancelar una venta ⇒ **el stock cancelado no se devuelve**.
-- `cleanup_kds_on_venta_cancel()` → no se ejecuta ⇒ **órdenes canceladas siguen en cocina**.
-- `sumar_stock_compra()` → no se ejecuta ⇒ **las compras no incrementan stock** (probablemente ya causa fricción operativa).
+**H1. Cancelación de sesión no libera inventario comprometido (amenities)**
+Cuando una sesión activa se cancela (admin directo o vía solicitud aprobada), sólo se cambia `estado='cancelado'` y se pone `monto_acumulado=0`. **Pero los registros de `coworking_session_upsells` permanecen** y, aún más grave, las amenities ya entregadas físicamente al cliente **no descuentan inventario** porque el descuento real ocurre cuando el POS factura la venta — que ya no se hará.
+Consecuencia: stock teórico queda inflado vs stock real (cliente se llevó el café cortesía pero el sistema cree que sigue ahí).
 
-**Impacto**: el `stock_actual` de `insumos` queda desincronizado desde la primera venta. La validación previa (`validar_stock_carrito`) seguirá viendo el mismo stock siempre, así que en pocas horas el sistema permitirá vender sin existencias reales.
+**H2. Race condition en `getAvailablePax` durante check-in concurrente**
+`CheckInDialog` y `QuickCheckInButton` validan capacidad en cliente con `getAvailablePax`, que lee del estado React local (snapshot del último realtime). Dos cajeros que registren entradas simultáneas en la misma área pública pueden **superar la capacidad** del área. No hay validación atómica en el servidor (no existe trigger ni constraint).
 
-**Causa probable**: una migración previa los eliminó (DROP TRIGGER) o nunca se crearon en este proyecto Cloud aunque las funciones sí.
+**H3. `QuickCheckInButton` no congela tarifa, amenities ni upsells**
+A diferencia de `CheckInDialog`, el check-in rápido desde reservación inserta la sesión **sin** `tarifa_id`, `tarifa_snapshot`, ni inserta amenities/upsells incluidos. Resultado: al hacer checkout, el cálculo cae al precio base del área (no a la tarifa aplicable) y el cliente **no recibe los amenities incluidos** a los que tendría derecho. Inconsistencia comercial directa.
 
-### B2. Race condition en validación → inserción de venta
-Entre `validar_stock_carrito` (línea 53 de `ConfirmVentaDialog.tsx`) y la inserción real puede haber una venta concurrente que consuma el mismo insumo. Sin trigger `descontar_inventario_venta` con `RAISE EXCEPTION` en stock negativo (B1), no hay segunda línea de defensa.
+### 🟡 MEDIA — Integridad operativa
 
----
+**H4. Falta lock anti doble-clic en check-in y check-out**
+- `CheckInDialog.handleCheckIn`: no usa `useRef` lock; doble-click rápido puede crear **dos sesiones** simultáneas para el mismo cliente (el `setCreating` no es síncrono).
+- `CheckoutDialog.handleConfirm`: no tiene `disabled` ni lock; doble-click puede mover la sesión 2 veces a `pendiente_pago` y disparar dos navegaciones al POS.
+- `QuickCheckInButton`: sí tiene `disabled={loading}`, pero también necesita ref-lock síncrono.
 
-## 🟠 RIESGOS ALTOS (corregir antes de operar a escala)
+**H5. Inserts secuenciales en bucle (no batch) durante check-in**
+`CheckInDialog` inserta amenities y extras en bucle `for ... await` (1 round-trip por item). Con tarifa que tenga 4 amenities + 2 upsells + 5 pax, son **6 INSERTs en serie** = ~600-1200ms de latencia post-check-in. Riesgo: si una falla a mitad, la sesión queda con cuenta incompleta sin rollback.
 
-### R1. Si KDS falla, la venta queda sin orden a cocina sin alerta
-En `ConfirmVentaDialog.tsx` líneas 310-322, la inserción a `kds_orders` y `kds_order_items` no tiene manejo de error. Si falla por RLS o conexión, la venta se completa pero la cocina nunca recibe la orden y el usuario no se entera.
+### 🟢 BAJA — UX / pulido
 
-### R2. Restauración de upsells al limpiar carrito no es atómica
-`handleClearCart` (PosPage.tsx 178-213) hace inserts/updates uno por uno sin transacción. Si el usuario cierra el navegador a mitad, la sesión coworking queda en un estado intermedio entre lo que se importó y lo que originalmente tenía.
-
-### R3. Congelar `coworking_sessions` a `pendiente_pago` con `fecha_salida_real` puede perder datos al hacer rollback
-Línea 64-69 + 110-114 de `ConfirmVentaDialog`: si la venta falla, se revierte `estado` y `fecha_salida_real = null`. Pero si la sesión ya estaba en `pendiente_pago` (re-cobro), perdemos su `fecha_salida_real` original.
-
-### R4. Sin protección contra doble-clic en "Procesar Venta"
-El botón se deshabilita por `saving`, pero si el usuario hace doble clic muy rápido antes de que React aplique el estado, puede generar dos ventas. Falta debounce o lock por `useRef`.
+**H6. Sin botón de "Imprimir resumen de check-out"**
+El `CheckoutDialog` muestra un desglose detallado (tiempo contratado, excedente, tolerancia, upsells), pero al confirmar redirige al POS y se pierde. No hay forma de imprimir/entregar al cliente el detalle del cobro de coworking previo al ticket fiscal.
 
 ---
 
-## 🟡 MEJORAS RECOMENDADAS (calidad profesional)
+## Plan de remediación
 
-### M1. Ticket: información fiscal/comercial faltante
-Solo muestra nombre del negocio. Falta:
-- RFC / dirección fiscal
-- Folio con prefijo (ej. "A-0042")
-- Leyenda "Este ticket no es un comprobante fiscal"
-- Código QR opcional para validación
+### Fase A — Integridad crítica (urgente)
 
-### M2. Sin re-impresión de ticket
-Una vez cerrado el diálogo, el ticket se pierde. En `VentasTurnoPanel` no hay botón "Re-imprimir ticket" (caso muy común: el cliente lo pide después).
+1. **Limpiar upsells y reintegrar inventario al cancelar sesión**
+   Crear trigger DB `trg_cleanup_session_on_cancel` sobre `coworking_sessions` que, cuando `estado` pase a `cancelado`:
+   - Borre `coworking_session_upsells` de la sesión.
+   - **No** descuente inventario (la lógica actual no descontó porque la venta nunca se completó — el upsell sólo "compromete" stock; al cancelar simplemente lo libera).
+   - Si en el futuro la cancelación ocurre **después** de entregar amenities físicos, requerir registrar merma manual desde el flujo de cancelación.
 
-### M3. Inputs numéricos permiten valores negativos
-En CartPanel (propinas, mixed payment) se usan `min={0}` pero el navegador permite escribir `-`. Falta `Math.max(0, value)` en el `onChange`.
+2. **Validación atómica de capacidad en INSERT de `coworking_sessions`**
+   Trigger `BEFORE INSERT` que recalcule en servidor `SUM(pax_count) WHERE area_id = X AND estado = 'activo'` y rechace si supera `capacidad_pax` (privadas: rechazar si ya existe alguna activa). Cierra H2 sin tocar UI.
 
-### M4. El estado `pending_payment` no tiene timeout
-Si una sesión queda atorada en `pendiente_pago` (por ejemplo el cobro falló y nadie volvió), no hay job que la regrese a `activo` ni alerta visible. Acumula ruido en el selector.
+3. **`QuickCheckInButton` debe replicar la lógica de `CheckInDialog`**
+   - Cargar tarifas aplicables al área de la reservación.
+   - Si hay exactamente 1 tarifa aplicable: usarla automáticamente con su snapshot completo.
+   - Si hay >1: abrir el `CheckInDialog` pre-poblado en lugar del check-in directo (cajero elige tarifa).
+   - Insertar amenities con cantidad `cantidad_incluida * pax`.
 
-### M5. Console warning persistente
-`SolicitudesCancelacionSesionesPanel` produce warning React de `forwardRef` en cada render (visible en el log de consola actual). Es del módulo coworking pero contamina el log y puede ocultar errores reales del POS.
+### Fase B — Robustez operativa
 
-### M6. Falta indicador de conectividad/realtime
-Si la suscripción realtime se cae (red intermitente), el catálogo y las sesiones se desincronizan en silencio. Un badge "🟢 Tiempo real activo" / "🔴 Reconectando" daría confianza.
+4. **Locks anti doble-clic con `useRef`** en `CheckInDialog`, `CheckoutDialog`, `QuickCheckInButton` (mismo patrón usado en `ConfirmVentaDialog` Fase B del POS).
 
----
+5. **Batch insert de amenities + extras** en check-in usando `supabase.from('coworking_session_upsells').insert([...])` con un único array. Si falla, abortar y borrar la sesión recién creada (rollback explícito).
 
-## ✅ FORTALEZAS YA IMPLEMENTADAS
+### Fase C — Pulido UX
 
-- Validación de stock unificada (cartera completa) vía RPC.
-- Índice único parcial `cajas_unique_open` impide doble apertura.
-- Realtime en `productos`, `coworking_sessions`, `coworking_session_upsells`, `ventas`, `detalle_ventas`.
-- Folios secuenciales, audit logs en cada acción crítica, arqueo ciego.
-- RLS correcta para roles `recepcion`, `caja`, `administrador` en KDS.
-- Advertencia al cerrar caja con sesiones activas.
-- Snapshot de tarifas congeladas en coworking.
-- Total neto sin propina (contabilidad correcta).
+6. **Botón "Imprimir Resumen Pre-cobro" en `CheckoutDialog`** que reutiliza el mismo patrón CSS `@media print` ya existente en `ConfirmVentaDialog`/`TicketReimprimirDialog`. Permite entregar al cliente el desglose de coworking antes de pasar a caja.
 
 ---
 
-## 📋 PLAN DE REMEDIACIÓN PROPUESTO
+## Notas técnicas
 
-### Fase A — Bloqueador (urgente)
-**A1.** Crear migración que recree los 4 triggers faltantes:
-```text
-- trg_descontar_inventario_venta  → AFTER INSERT ON detalle_ventas
-- trg_reintegrar_inventario_cancelacion  → AFTER UPDATE OF estado ON ventas
-- trg_cleanup_kds_on_venta_cancel  → AFTER UPDATE OF estado ON ventas
-- trg_sumar_stock_compra  → AFTER INSERT ON compras_insumos
-```
-Verificar con `pg_trigger` que quedaron activos.
+- Las RLS sobre `coworking_sessions`, `coworking_session_upsells` y `coworking_reservaciones` son correctas (insert restringido a `auth.uid()`, update propio o admin).
+- El snapshot inmutable `tarifa_snapshot` está bien implementado y resiste cambios futuros de tarifas — esto es excelente.
+- El sistema de conflictos de reservación (`conflictCheck.ts`) cubre tanto reservaciones contra reservaciones como reservaciones contra sesiones activas. Diferencia bien áreas privadas vs públicas.
+- El ciclo `activo → pendiente_pago → finalizado/cancelado` está coordinado con el POS vía `coworking_session_id` en `ventas`.
 
-### Fase B — Riesgos
-- B1. Manejar error de KDS con toast + retry + audit log.
-- B2. Envolver `handleClearCart` en mensajes claros si falla y deshabilitar botón mientras corre.
-- B3. Guardar `fecha_salida_real` original en variable antes del update y restaurarlo en rollback.
-- B4. Agregar `useRef` lock en `handleConfirm` para anti-doble-clic.
-
-### Fase C — Pulido (opcional pero recomendado)
-- C1. Configuración fiscal (RFC, dirección) editable desde Reportes/Config.
-- C2. Botón "Re-imprimir ticket" en VentasTurnoPanel (rearma el ticket desde la BD).
-- C3. Sanitizar inputs numéricos.
-- C4. Job/cron edge function para liberar sesiones `pendiente_pago` antiguas (>24h).
-- C5. Convertir `Badge` en `SolicitudesCancelacionSesionesPanel` para no recibir refs.
-- C6. Indicador de salud de realtime.
-
-### Tiempo estimado
-- Fase A: ~15 min (1 migración + verificación)
-- Fase B: ~45 min
-- Fase C: ~1.5 h
-
----
-
-## Detalles técnicos
-
-**Verificación SQL ejecutada:**
-```sql
-SELECT tgname FROM pg_trigger
-WHERE NOT tgisinternal AND tgrelid::regclass::text LIKE 'public.%';
--- Resultado: 0 filas
-```
-
-**Funciones huérfanas confirmadas en `pg_proc`:**
-`descontar_inventario_venta`, `reintegrar_inventario_cancelacion`, `cleanup_kds_on_venta_cancel`, `sumar_stock_compra`, `replicate_to_destination`, `handle_new_user`, `update_updated_at_column`.
-
-**Aprueba** este plan si quieres que proceda con la **Fase A** de inmediato (la única estrictamente necesaria para no perder integridad de inventario), o indica si quieres A+B juntas, o el plan completo A+B+C.
+Tras Fases A+B+C el módulo queda production-ready con el mismo nivel que el POS post-auditoría.
