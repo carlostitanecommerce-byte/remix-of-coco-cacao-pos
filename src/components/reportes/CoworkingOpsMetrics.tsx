@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -7,6 +7,11 @@ import {
 } from '@/components/ui/table';
 import { Loader2, XCircle, ChefHat, Clock, Package, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
+
+const ROWS_LIMIT = 5000;
+// Pre-filtro: descartar comandas con duración > 2h (ticket olvidado / cierre tardío)
+const KDS_MAX_PREP_MS = 1000 * 60 * 120;
 
 interface Props {
   desde: Date;
