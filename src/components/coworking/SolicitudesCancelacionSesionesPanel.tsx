@@ -21,8 +21,7 @@ import { toast } from 'sonner';
 import { nowCDMX } from '@/lib/utils';
 import {
   fetchSessionUpsellsForCancel,
-  aplicarEntregasComoMermas,
-  limpiarUpsellsSesion,
+  cancelarSesionAtomico,
   type SessionUpsellRow,
   type EntregaItem,
 } from './cancelacionUtils';
@@ -188,43 +187,19 @@ export function SolicitudesCancelacionSesionesPanel({ onSessionCancelled }: Prop
     try {
       const entregadosFinal = buildApprovalEntregados();
 
-      const resumen = entregadosFinal.length > 0
-        ? await aplicarEntregasComoMermas({
-            userId: user.id,
-            clienteNombre: approving.cliente_nombre ?? 'Cliente',
-            sessionId: approving.session_id,
-            motivoCancelacion: approving.motivo,
-            entregados: entregadosFinal,
-          })
-        : { mermasCreadas: 0, insumosAfectados: 0, errores: [] };
+      // Cancelación atómica vía RPC: aplica mermas + descuento + limpieza upsells +
+      // estado sesión + cierre de solicitud + audit log en una sola transacción.
+      const resumen = await cancelarSesionAtomico({
+        sessionId: approving.session_id,
+        motivo: approving.motivo,
+        entregados: entregadosFinal,
+        isAdmin: true,
+        solicitudId: approving.id,
+      });
 
-      await limpiarUpsellsSesion(approving.session_id);
-
-      const { error } = await supabase.from('coworking_sessions').update({
-        estado: 'cancelado' as any,
-        monto_acumulado: 0,
-        fecha_salida_real: nowCDMX(),
-      }).eq('id', approving.session_id);
-      if (error) throw error;
-
-      await supabase.from('solicitudes_cancelacion_sesiones' as any).update({
-        estado: 'aprobada',
-        revisado_por: user.id,
-      }).eq('id', approving.id);
-
-      await supabase.from('audit_logs').insert([{
-        user_id: user.id,
-        accion: 'aprobar_cancelacion_sesion',
-        descripcion: `Cancelación aprobada por ${profile?.nombre ?? 'Admin'}. Cliente: ${approving.cliente_nombre}. Entregados: ${entregadosFinal.length} item(s) · ${resumen.mermasCreadas} merma(s).`,
-        metadata: {
-          solicitud_id: approving.id,
-          session_id: approving.session_id,
-          motivo: approving.motivo,
-          declarado_por_operador: approving.items_entregados as any,
-          aprobado_final: entregadosFinal as any,
-          mermas_creadas: resumen.mermasCreadas,
-        } as any,
-      }]);
+      if (!resumen.ok) {
+        throw new Error(resumen.error ?? 'No se pudo aprobar la cancelación');
+      }
 
       toast.success(
         entregadosFinal.length > 0
