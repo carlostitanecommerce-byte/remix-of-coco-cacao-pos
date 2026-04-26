@@ -67,6 +67,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [paxCount, setPaxCount] = useState('1');
   const [horas, setHoras] = useState('1');
   const [creating, setCreating] = useState(false);
+  const inFlightRef = useRef(false);
 
   // Tarifa & upsell state
   const [tarifas, setTarifas] = useState<Tarifa[]>([]);
