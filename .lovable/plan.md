@@ -1,31 +1,71 @@
 ## Diagnóstico
 
-"Agua natural de 500 ml" aparece en el reporte porque la query actual cuenta tanto las filas con `tipo_concepto='producto'` (venta real, $585 en abril) como las de `tipo_concepto='amenity'` (cortesía incluida en tarifa, $0 ingreso). En total se contaron 68 unidades cuando solo 51 son ventas reales.
+Verifiqué `src/components/reportes/MenuTab.tsx` y `VentasTab.tsx`. De las cuatro subtareas de la Fase I3:
 
-Este sesgo distorsiona la Ingeniería de Menú:
-- **Popularidad** sube artificialmente con consumos regalados.
-- **Contribución económica** queda mal calculada (se asume margen unitario de venta para unidades que se entregaron gratis).
+| # | Subtarea | Estado actual |
+|---|---|---|
+| 1 | Navegación períodos pasados (◀ ▶ + "Hoy") | ❌ No implementada — solo botones "Esta Semana" / "Este Mes" sin offset |
+| 2 | Tooltip scatter con descripción del cuadrante | ⚠️ Parcial — muestra el label pero no `info.desc` |
+| 3 | Loading skeleton fino por sección | ❌ No — pantalla completa "Cargando análisis…" oculta todo el contenido |
+| 4 | Etiqueta "Upsell" por ventas reales del período | ❌ No — se calcula desde `precio_upsell_coworking` (config del producto), no desde ventas |
 
-Además, en la Fase I1 se sumaba también el consumo de `coworking_session_upsells`, que es el mismo problema: amenities/upsells incluidos en la tarifa, no ventas a precio de menú.
+Procede implementar las cuatro.
 
 ## Cambios
 
-**`src/components/reportes/MenuTab.tsx`** (única edición):
+Edición exclusiva de `src/components/reportes/MenuTab.tsx`. No se tocan `CoworkingAnalysis.tsx` ni `CoworkingOpsMetrics.tsx`.
 
-1. **Restringir el conteo a ventas reales del menú**:
-   ```ts
-   .eq('tipo_concepto', 'producto')
-   ```
-   Eliminar `'amenity'` del filtro. La Ingeniería de Menú mide rentabilidad — los amenities no generan ingreso y deben excluirse.
+### 1. Navegación de períodos pasados
 
-2. **Eliminar el bloque que agregaba `coworking_session_upsells` al `salesMap`**: ese consumo ya está cubierto por las filas de venta cuando aplica, y cuando son amenities incluidos no deben contar para popularidad de menú.
+- Agregar estado `offset` (default `0`).
+- Computar `rango` con `subWeeks(now, offset)` o `subMonths(now, offset)`, igual que VentasTab.
+- En el header, junto al toggle Semana/Mes:
+  - Botón ◀ `ChevronLeft` → `setOffset(o => o + 1)`.
+  - Etiqueta del período (la actual `periodoLabel`).
+  - Botón ▶ `ChevronRight` → `setOffset(o => o - 1)`, deshabilitado cuando `offset === 0`.
+  - Botón "Hoy" visible solo cuando `offset !== 0` → `setOffset(0)`.
+- Al cambiar de modo (Semana/Mes) resetear `offset = 0`.
 
-3. Mantener la lógica de paquetes (`paquete_id ?? producto_id`).
+### 2. Tooltip del scatter con descripción del cuadrante
 
-No se tocan `CoworkingAnalysis.tsx` ni `CoworkingOpsMetrics.tsx`: ahí sí tiene sentido contar amenities porque el objetivo es analizar el comportamiento de coworking, no la rentabilidad del menú.
+En `CustomTooltip` añadir, debajo del badge de clasificación, una línea de descripción tomada de `CUADRANTE_LABELS[p.cuadrante].desc` con tipografía `text-[10px] text-muted-foreground` para mantener el chip compacto.
+
+### 3. Loading skeleton fino por sección
+
+- Eliminar el bloque `loading ? <Loader2 …/> : <>…</>` que envuelve toda la vista.
+- Renderizar siempre la estructura (scatter card + tabla + Coworking subsecciones).
+- Cuando `loading === true`, dentro de cada `Card` mostrar `Skeleton` (de `@/components/ui/skeleton`) en lugar de su contenido:
+  - Scatter card: `Skeleton` de `h-[420px] w-full`.
+  - Tabla card: 6 filas de `Skeleton` (`h-8 w-full`) y header skeleton.
+- Pasar prop opcional `loading?: boolean` a `CoworkingAnalysis` y `CoworkingOpsMetrics`… **no se hará**: para mantener el cambio acotado a MenuTab, esas dos subsecciones conservan su loading interno propio (ya lo tienen por su `useEffect` con `desde/hasta`). El usuario percibe el header y los KPIs estables al cambiar período, mientras cada card carga independientemente.
+
+### 4. Etiqueta "Upsell" basada en ventas reales del período
+
+Reemplazar la heurística actual (`precio_upsell_coworking != null`) por un flag operativo `isUpselled` derivado de los datos del período:
+
+- En `fetchData`, además de `detalle_ventas`, consultar `coworking_session_upsells` filtrando por sesiones cuyo `created_at` cae en el rango (o por `session_id` ligado a sesiones del período):
+
+  ```ts
+  const { data: upsellRows } = await supabase
+    .from('coworking_session_upsells')
+    .select('producto_id, created_at')
+    .gte('created_at', desdeISO)
+    .lte('created_at', hastaISO)
+    .abortSignal(signal);
+  ```
+
+- Construir `upsellSet = new Set(upsellRows.map(r => r.producto_id))`.
+- En el `map` de productos: `isUpsell: upsellSet.has(p.id)`.
+- Renombrar conceptualmente la etiqueta en UI a "Upsell" (sin cambio visual) — semánticamente ahora indica "se vendió como upsell de coworking en este período", no "está configurado como upsellable".
+- Conservar también el badge en tooltip y tabla (ya existen).
 
 ## Verificación esperada
 
-Tras el fix, en abril 2026:
-- "Agua natural de 500 ml" debería mostrar **51 vendidas** (no 68) y contribución acorde solo a ventas reales.
-- Productos cuyo único consumo del periodo fue como amenity desaparecerán del scatter / tabla.
+- Se puede navegar a semanas/meses anteriores y regresar a "Hoy" en la pestaña Menú con la misma UX que Ventas.
+- Hover en cualquier punto del scatter muestra el cuadrante y su descripción ("Alta popularidad y alta rentabilidad", etc.).
+- Al cambiar de período, el header y KPIs siguen visibles; cada card muestra un skeleton mientras se recargan datos, sin parpadeo de pantalla completa.
+- Un producto con `precio_upsell_coworking` configurado pero **sin ventas** como upsell en el período no muestra badge "Upsell". Un producto vendido vía `coworking_session_upsells` en el período sí lo muestra.
+
+## Archivos editados
+
+- `src/components/reportes/MenuTab.tsx` (única edición)
