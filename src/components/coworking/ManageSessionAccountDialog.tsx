@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X } from 'lucide-react';
 import type { Area, CoworkingSession } from './types';
+import { enviarASesionKDS } from './sendToKitchen';
 
 interface SnapshotAmenity {
   producto_id: string;
