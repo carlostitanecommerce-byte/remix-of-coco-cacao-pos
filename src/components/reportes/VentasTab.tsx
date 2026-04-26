@@ -50,95 +50,54 @@ export default function VentasTab() {
   }, [periodo, offset]);
 
   useEffect(() => {
-    fetchRetailData();
-    fetchCoworkData();
+    const ac = new AbortController();
+    fetchRetailData(ac.signal);
+    fetchCoworkData(ac.signal);
+    return () => ac.abort();
   }, [rango]);
 
-  // Fetch KPI data on mount
-  useEffect(() => {
-    fetchKpis();
-  }, []);
-
-  const fetchKpis = async () => {
-    setLoadingKpis(true);
-    const now = new Date();
-    const todayStart = format(startOfDay(now), 'yyyy-MM-dd') + 'T00:00:00-06:00';
-    const todayEnd = format(endOfDay(now), 'yyyy-MM-dd') + 'T23:59:59-06:00';
-    const monthStart = format(startOfMonth(now), 'yyyy-MM-dd') + 'T00:00:00-06:00';
-    const monthEnd = format(endOfMonth(now), 'yyyy-MM-dd') + 'T23:59:59-06:00';
-
-    const [diaRes, mesRes] = await Promise.all([
-      supabase
-        .from('ventas')
-        .select('total_neto, monto_propina')
-        .eq('estado', 'completada')
-        .gte('fecha', todayStart)
-        .lte('fecha', todayEnd),
-      supabase
-        .from('ventas')
-        .select('total_neto, monto_propina')
-        .eq('estado', 'completada')
-        .gte('fecha', monthStart)
-        .lte('fecha', monthEnd),
-    ]);
-
-    setVentasDia((diaRes.data ?? []).reduce((s, v) => s + v.total_neto + (v.monto_propina ?? 0), 0));
-    setVentasMes((mesRes.data ?? []).reduce((s, v) => s + v.total_neto + (v.monto_propina ?? 0), 0));
-    setLoadingKpis(false);
-  };
-
-  // ── Retail Heatmap ──
-  const fetchRetailData = async () => {
+  // ── Retail Heatmap + KPIs (single source: ventas.total_neto) ──
+  const fetchRetailData = async (signal?: AbortSignal) => {
     setLoading(true);
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
     const { data: ventas } = await supabase
       .from('ventas')
-      .select('id, fecha')
+      .select('id, fecha, total_neto')
       .eq('estado', 'completada')
       .gte('fecha', desdeISO)
-      .lte('fecha', hastaISO);
+      .lte('fecha', hastaISO)
+      .abortSignal(signal ?? new AbortController().signal);
+
+    if (signal?.aborted) return;
 
     if (!ventas || ventas.length === 0) {
       setHeatmap({});
+      setPeriodoTotal(0);
+      setPeriodoTransacciones(0);
       setLoading(false);
       return;
     }
 
-    const ventaIds = ventas.map(v => v.id);
-    const allDetalles: { venta_id: string; subtotal: number }[] = [];
-    for (let i = 0; i < ventaIds.length; i += 100) {
-      const batch = ventaIds.slice(i, i + 100);
-      const { data } = await supabase
-        .from('detalle_ventas')
-        .select('venta_id, subtotal')
-        .in('venta_id', batch);
-      if (data) allDetalles.push(...data);
-    }
-
-    const ventaFechaMap = new Map(ventas.map(v => [v.id, new Date(v.fecha)]));
     const map: HeatmapData = {};
-    const ventaCountMap: Record<string, Set<string>> = {};
+    let total = 0;
 
-    allDetalles.forEach(d => {
-      const fecha = ventaFechaMap.get(d.venta_id);
-      if (!fecha) return;
+    ventas.forEach(v => {
+      const fecha = new Date(v.fecha);
       const jsDay = getDay(fecha);
       const diaIdx = jsDay === 0 ? 6 : jsDay - 1;
       const hora = getHours(fecha);
       const key = `${diaIdx}-${hora}`;
       if (!map[key]) map[key] = { total: 0, count: 0 };
-      map[key].total += d.subtotal;
-      if (!ventaCountMap[key]) ventaCountMap[key] = new Set();
-      ventaCountMap[key].add(d.venta_id);
-    });
-
-    Object.entries(ventaCountMap).forEach(([key, set]) => {
-      if (map[key]) map[key].count = set.size;
+      map[key].total += Number(v.total_neto);
+      map[key].count += 1;
+      total += Number(v.total_neto);
     });
 
     setHeatmap(map);
+    setPeriodoTotal(total);
+    setPeriodoTransacciones(ventas.length);
     setLoading(false);
   };
 
