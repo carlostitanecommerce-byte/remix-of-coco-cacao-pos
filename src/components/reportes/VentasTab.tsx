@@ -306,6 +306,20 @@ export default function VentasTab() {
         </Card>
       </div>
 
+      {(retailLimitHit || coworkLimitHit) && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Período con muchos registros</p>
+            <p className="text-xs opacity-90">
+              Se alcanzó el límite de carga ({retailLimitHit ? `${RETAIL_LIMIT.toLocaleString('es-MX')} ventas` : ''}
+              {retailLimitHit && coworkLimitHit ? ' y ' : ''}
+              {coworkLimitHit ? `${COWORK_LIMIT.toLocaleString('es-MX')} sesiones` : ''}). Los totales mostrados pueden estar incompletos. Reduce el rango.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
