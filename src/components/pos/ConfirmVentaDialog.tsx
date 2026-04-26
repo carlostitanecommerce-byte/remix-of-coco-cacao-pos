@@ -312,16 +312,24 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       });
 
       if (kdsItemsFiltered.length > 0) {
-        const { data: kdsOrder } = await supabase.from('kds_orders').insert({
-          venta_id: venta.id,
-          folio: venta.folio,
-          tipo_consumo: summary.tipo_consumo,
-          estado: 'pendiente' as any,
-        }).select('id').single();
+        try {
+          const { data: kdsOrder, error: kdsOrderErr } = await supabase.from('kds_orders').insert({
+            venta_id: venta.id,
+            folio: venta.folio,
+            tipo_consumo: summary.tipo_consumo,
+            estado: 'pendiente' as any,
+          }).select('id').single();
 
-        if (kdsOrder) {
-          const kdsItems = kdsItemsFiltered.map(it => ({ kds_order_id: kdsOrder.id, ...it }));
-          await supabase.from('kds_order_items').insert(kdsItems as any);
+          if (kdsOrderErr) throw kdsOrderErr;
+
+          if (kdsOrder) {
+            const kdsItems = kdsItemsFiltered.map(it => ({ kds_order_id: kdsOrder.id, ...it }));
+            const { error: kdsItemsErr } = await supabase.from('kds_order_items').insert(kdsItems as any);
+            if (kdsItemsErr) throw kdsItemsErr;
+          }
+        } catch (kdsErr: any) {
+          console.error('Error creando orden KDS:', kdsErr);
+          toast.warning('Venta registrada, pero la orden no llegó a Cocina. Notifica al barista manualmente.');
         }
       }
 
