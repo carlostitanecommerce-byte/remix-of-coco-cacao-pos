@@ -18,7 +18,6 @@ interface CancelMetrics {
   conItemsEntregados: number;
   sinItemsEntregados: number;
   totalItemsEntregados: number;
-  totalItemsLiberados: number;
   totalMermas: number;
   topMotivos: { motivo: string; count: number }[];
 }
