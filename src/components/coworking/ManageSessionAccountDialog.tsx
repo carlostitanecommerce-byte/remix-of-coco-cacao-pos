@@ -283,7 +283,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     toast({ title: 'Eliminado' });
   };
 
-  const handleUpdateQuantity = async (item: SessionItem, delta: number) => {
+  const handleUpdateQuantity = (item: SessionItem, delta: number) => withLock(() => doUpdateQuantity(item, delta));
+  const doUpdateQuantity = async (item: SessionItem, delta: number) => {
     const newQty = item.cantidad + delta;
     if (newQty < 0) return;
 
