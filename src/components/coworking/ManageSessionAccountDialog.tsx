@@ -67,6 +67,24 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const [isEditingPax, setIsEditingPax] = useState(false);
   const [tempPax, setTempPax] = useState('');
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
+  // Lock anti doble-clic: serializa todas las mutaciones del diálogo (agregar,
+  // quitar, ajustar cantidad, recalcular amenities, editar pax). Evita que un
+  // usuario impaciente envíe el mismo cambio dos veces y duplique items o
+  // comandas KDS.
+  const mutationLockRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+
+  const withLock = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    if (mutationLockRef.current) return undefined;
+    mutationLockRef.current = true;
+    setBusy(true);
+    try {
+      return await fn();
+    } finally {
+      mutationLockRef.current = false;
+      setBusy(false);
+    }
+  };
 
   // Snapshot de upsells disponibles para esta sesión (precio congelado al check-in)
   const upsellsMap = useMemo(() => {
