@@ -13,6 +13,7 @@ import { Loader2, Wallet, ArrowUpCircle, ArrowDownCircle, Clock, AlertTriangle, 
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { fetchCajaResumen, type CajaTurnoResumen } from '@/lib/cajaUtils';
 
 export default function CajaTab() {
