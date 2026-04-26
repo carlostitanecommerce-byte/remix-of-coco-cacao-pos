@@ -190,6 +190,11 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
         onClose={() => setEditPagoVenta(null)}
         onSuccess={() => { setEditPagoVenta(null); fetchVentas(); }}
       />
+
+      <TicketReimprimirDialog
+        venta={reprintVenta as any}
+        onClose={() => setReprintVenta(null)}
+      />
     </>
   );
 }
