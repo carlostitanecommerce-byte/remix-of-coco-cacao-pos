@@ -223,29 +223,55 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     fetchProductos();
   };
 
-  const handleDelete = async (p: Producto) => {
-    if (!confirm(`¿Eliminar "${p.nombre}"?`)) return;
+  const [deleteCandidate, setDeleteCandidate] = useState<Producto | null>(null);
+  const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
 
-    // Bloquear si el producto está usado en algún paquete
-    const { data: enPaquetes } = await supabase
-      .from('paquete_componentes')
-      .select('paquete_id')
-      .eq('producto_id', p.id);
+  const checkAndPromptDelete = async (p: Producto) => {
+    setDeleteBlock(null);
 
-    if (enPaquetes && enPaquetes.length > 0) {
-      const paqueteIds = [...new Set(enPaquetes.map((r: any) => r.paquete_id))];
-      const { data: paqs } = await supabase
-        .from('productos')
-        .select('nombre')
-        .in('id', paqueteIds);
-      const nombres = (paqs ?? []).map((r: any) => r.nombre).join(', ');
-      toast.error(`No se puede eliminar: forma parte de ${paqueteIds.length} paquete(s)${nombres ? `: ${nombres}` : ''}`);
+    // Bloqueos por dependencias
+    const [paqRes, upsellRes, amenityRes, sesionRes] = await Promise.all([
+      supabase.from('paquete_componentes').select('paquete_id').eq('producto_id', p.id),
+      supabase.from('tarifa_upsells').select('tarifa_id').eq('producto_id', p.id),
+      supabase.from('tarifa_amenities_incluidos').select('tarifa_id').eq('producto_id', p.id),
+      supabase.from('coworking_session_upsells')
+        .select('session_id, coworking_sessions!inner(estado)')
+        .eq('producto_id', p.id)
+        .eq('coworking_sessions.estado', 'activo'),
+    ]);
+
+    const bloqueos: string[] = [];
+    if (paqRes.data && paqRes.data.length > 0) bloqueos.push(`forma parte de ${paqRes.data.length} paquete(s)`);
+    if (upsellRes.data && upsellRes.data.length > 0) bloqueos.push(`está configurado como upsell en ${upsellRes.data.length} tarifa(s)`);
+    if (amenityRes.data && amenityRes.data.length > 0) bloqueos.push(`es amenity incluido en ${amenityRes.data.length} tarifa(s)`);
+    if (sesionRes.data && sesionRes.data.length > 0) bloqueos.push(`está consumido en ${sesionRes.data.length} sesión(es) activa(s) de coworking`);
+
+    if (bloqueos.length > 0) {
+      setDeleteBlock(`No se puede eliminar "${p.nombre}" porque ${bloqueos.join(', ')}.`);
+      setDeleteCandidate(p);
       return;
     }
+    setDeleteCandidate(p);
+  };
 
-    const { error } = await supabase.from('productos').delete().eq('id', p.id);
+  const confirmDelete = async () => {
+    if (!deleteCandidate) return;
+    const { error } = await supabase.from('productos').delete().eq('id', deleteCandidate.id);
     if (error) toast.error('Error al eliminar producto');
-    else { toast.success('Producto eliminado'); fetchProductos(); }
+    else {
+      toast.success('Producto eliminado');
+      if (user) {
+        await supabase.from('audit_logs').insert({
+          user_id: user.id,
+          accion: 'eliminar_producto',
+          descripcion: `Producto eliminado: ${deleteCandidate.nombre}`,
+          metadata: { producto_id: deleteCandidate.id, producto_nombre: deleteCandidate.nombre },
+        });
+      }
+      fetchProductos();
+    }
+    setDeleteCandidate(null);
+    setDeleteBlock(null);
   };
 
   const toggleReceta = async (productoId: string) => {
