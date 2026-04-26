@@ -9,16 +9,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { ChevronDown, ChevronUp, XCircle, RefreshCw, CalendarIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, XCircle, RefreshCw, CalendarIcon, Printer } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { cdmxDateRange } from '@/lib/ventasUtils';
 import { CancelVentaDialog } from './CancelVentaDialog';
 import { CambiarMetodoPagoDialog } from './CambiarMetodoPagoDialog';
+import { TicketReimprimirDialog } from './TicketReimprimirDialog';
 
 interface VentaTurno {
   id: string;
   folio: number;
   total_neto: number;
+  iva?: number;
   monto_propina: number;
   metodo_pago: string;
   monto_efectivo: number;
@@ -28,6 +30,7 @@ interface VentaTurno {
   fecha: string;
   motivo_cancelacion: string | null;
   coworking_session_id: string | null;
+  usuario_id?: string;
 }
 
 interface Props {
@@ -39,13 +42,14 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
   const [open, setOpen] = useState(false);
   const [cancelVenta, setCancelVenta] = useState<VentaTurno | null>(null);
   const [editPagoVenta, setEditPagoVenta] = useState<VentaTurno | null>(null);
+  const [reprintVenta, setReprintVenta] = useState<VentaTurno | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const fetchVentas = async () => {
     const { desdeISO, hastaISO } = cdmxDateRange(selectedDate, selectedDate);
     const { data } = await supabase
       .from('ventas')
-      .select('id, folio, total_neto, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id')
+      .select('id, folio, total_neto, iva, monto_propina, metodo_pago, monto_efectivo, monto_tarjeta, monto_transferencia, estado, fecha, motivo_cancelacion, coworking_session_id, usuario_id')
       .eq('estado', 'completada')
       .gte('fecha', desdeISO)
       .lte('fecha', hastaISO)
@@ -124,7 +128,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                       <TableHead>Total</TableHead>
                       <TableHead>Pago</TableHead>
                       <TableHead>Estado</TableHead>
-                      {isAdmin && <TableHead className="w-[100px]"></TableHead>}
+                      <TableHead className="w-[120px]">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -143,22 +147,27 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
                             <Badge variant="destructive" className="text-xs">Cancelada</Badge>
                           )}
                         </TableCell>
-                        {isAdmin && (
-                          <TableCell>
-                            <div className="flex gap-1">
-                              {v.estado === 'completada' && (
-                                <>
-                                  <Button variant="ghost" size="icon" title="Cambiar método de pago" onClick={() => setEditPagoVenta(v)}>
-                                    <RefreshCw className="h-4 w-4 text-primary" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" title="Cancelar venta" onClick={() => setCancelVenta(v)}>
-                                    <XCircle className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {v.estado === 'completada' && (
+                              <>
+                                <Button variant="ghost" size="icon" title="Reimprimir ticket" onClick={() => setReprintVenta(v)}>
+                                  <Printer className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                                {isAdmin && (
+                                  <>
+                                    <Button variant="ghost" size="icon" title="Cambiar método de pago" onClick={() => setEditPagoVenta(v)}>
+                                      <RefreshCw className="h-4 w-4 text-primary" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" title="Cancelar venta" onClick={() => setCancelVenta(v)}>
+                                      <XCircle className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -180,6 +189,11 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
         venta={editPagoVenta}
         onClose={() => setEditPagoVenta(null)}
         onSuccess={() => { setEditPagoVenta(null); fetchVentas(); }}
+      />
+
+      <TicketReimprimirDialog
+        venta={reprintVenta as any}
+        onClose={() => setReprintVenta(null)}
       />
     </>
   );
