@@ -40,6 +40,7 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
   const [totalIVA, setTotalIVA] = useState(0);
   const [totalComisiones, setTotalComisiones] = useState(0);
   const [ventasPorUsuario, setVentasPorUsuario] = useState<VentaPorUsuario[]>([]);
+  const [sesionesActivas, setSesionesActivas] = useState<{ id: string; cliente_nombre: string }[]>([]);
 
   useEffect(() => {
     if (!open) {
