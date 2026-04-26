@@ -355,14 +355,17 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
   const handleConfirmAmenityRecalc = async () => {
     if (!pendingAmenityUpdate || !session) return;
-    const { newPax: pax } = pendingAmenityUpdate;
+    const { newPax: pax, oldPax } = pendingAmenityUpdate;
     const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
 
     let okCount = 0;
     let errCount = 0;
+    const deltasParaCocina: { producto_id: string; nombre: string; cantidad: number }[] = [];
 
     for (const a of amenities) {
       const nuevaCantidad = (a.cantidad_incluida ?? 0) * pax;
+      const cantidadAnterior = (a.cantidad_incluida ?? 0) * oldPax;
+      const delta = nuevaCantidad - cantidadAnterior;
 
       if (nuevaCantidad <= 0) {
         const { error } = await supabase
@@ -400,10 +403,33 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           });
         if (error) errCount++; else okCount++;
       }
+
+      // Solo enviamos a cocina lo que aumentó (no descontamos comandas previas)
+      if (delta > 0) {
+        deltasParaCocina.push({
+          producto_id: a.producto_id,
+          nombre: a.nombre || 'Amenity',
+          cantidad: delta,
+        });
+      }
+    }
+
+    let kdsFolio: number | null = null;
+    if (deltasParaCocina.length > 0) {
+      const kdsRes = await enviarASesionKDS({
+        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
+        items: deltasParaCocina.map(d => ({ ...d, isAmenity: true })),
+      });
+      kdsFolio = kdsRes.folio;
     }
 
     if (errCount === 0) {
-      toast({ title: 'Amenities actualizados', description: `${okCount} amenity(s) recalculados a ${pax} pax.` });
+      toast({
+        title: 'Amenities actualizados',
+        description: kdsFolio
+          ? `${okCount} amenity(s) a ${pax} pax · cocina #${String(kdsFolio).padStart(4, '0')}`
+          : `${okCount} amenity(s) recalculados a ${pax} pax.`,
+      });
     } else {
       toast({ variant: 'destructive', title: 'Actualización parcial', description: `${okCount} ok · ${errCount} con error.` });
     }
