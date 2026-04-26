@@ -264,10 +264,40 @@ export default function CocinaPage() {
       cantidad: it.cantidad,
       notas: it.notas,
     }));
+
+    // Enriquecer con datos de coworking si aplica
+    let cwCliente: string | null = null;
+    let cwArea: string | null = null;
+    const cwSessionId = (o as any).coworking_session_id ?? null;
+    if (cwSessionId) {
+      const { data: s } = await supabase
+        .from('coworking_sessions')
+        .select('cliente_nombre, area_id')
+        .eq('id', cwSessionId)
+        .maybeSingle();
+      if (s) {
+        cwCliente = (s as any).cliente_nombre ?? null;
+        if ((s as any).area_id) {
+          const { data: a } = await supabase
+            .from('areas_coworking')
+            .select('nombre_area')
+            .eq('id', (s as any).area_id)
+            .maybeSingle();
+          cwArea = (a as any)?.nombre_area ?? null;
+        }
+      }
+    }
+
     setOrders((prev) => {
       if (prev.some((x) => x.id === o.id)) {
-        // Ya existe (insert optimista anterior); reemplaza items
-        return prev.map((x) => (x.id === o.id ? { ...x, items } : x));
+        // Ya existe (insert optimista anterior); reemplaza items + meta
+        return prev.map((x) => (x.id === o.id ? {
+          ...x,
+          items,
+          coworking_session_id: cwSessionId,
+          coworking_cliente: cwCliente ?? x.coworking_cliente,
+          coworking_area: cwArea ?? x.coworking_area,
+        } : x));
       }
       const next: KdsOrder = {
         id: o.id,
@@ -277,6 +307,9 @@ export default function CocinaPage() {
         estado: o.estado as KdsEstado,
         created_at: (o as any).created_at,
         items,
+        coworking_session_id: cwSessionId,
+        coworking_cliente: cwCliente,
+        coworking_area: cwArea,
       };
       knownIds.current.add(o.id);
       return [...prev, next].sort(
