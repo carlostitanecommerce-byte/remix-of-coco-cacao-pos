@@ -11,6 +11,7 @@ import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-f
 import { es } from 'date-fns/locale';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Label } from 'recharts';
 import CoworkingAnalysis from './CoworkingAnalysis';
+import CoworkingOpsMetrics from './CoworkingOpsMetrics';
 
 interface MenuProduct {
   id: string;
