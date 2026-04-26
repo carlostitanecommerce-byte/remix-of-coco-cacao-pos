@@ -11,6 +11,7 @@ import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-f
 import { es } from 'date-fns/locale';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Label } from 'recharts';
 import CoworkingAnalysis from './CoworkingAnalysis';
+import CoworkingOpsMetrics from './CoworkingOpsMetrics';
 
 interface MenuProduct {
   id: string;
@@ -307,6 +308,9 @@ export default function MenuTab() {
 
           {/* Coworking & Upsells Analysis */}
           <CoworkingAnalysis desde={rango.desde} hasta={rango.hasta} />
+
+          {/* Métricas operativas: cancelaciones y comandas KDS coworking */}
+          <CoworkingOpsMetrics desde={rango.desde} hasta={rango.hasta} />
         </>
       )}
     </div>
