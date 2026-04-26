@@ -6,8 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Loader2, Eye, ChevronDown, AlertTriangle } from 'lucide-react';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Eye, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, subWeeks, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Label } from 'recharts';
 import { toast } from 'sonner';
@@ -44,9 +45,11 @@ const CUADRANTE_COLORS: Record<string, string> = {
 const TOP_LIMIT = 15;
 const VENTAS_LIMIT = 5000;
 const DETALLES_LIMIT = 5000;
+const UPSELLS_LIMIT = 5000;
 
 export default function MenuTab() {
   const [periodo, setPeriodo] = useState<'semana' | 'mes'>('semana');
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState<MenuProduct[]>([]);
   const [showNoSales, setShowNoSales] = useState(false);
@@ -54,13 +57,19 @@ export default function MenuTab() {
   const [truncated, setTruncated] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  const handleSetPeriodo = (p: 'semana' | 'mes') => {
+    setPeriodo(p);
+    setOffset(0);
+  };
+
   const rango = useMemo(() => {
     const now = new Date();
+    const base = periodo === 'semana' ? subWeeks(now, offset) : subMonths(now, offset);
     if (periodo === 'semana') {
-      return { desde: startOfWeek(now, { weekStartsOn: 1 }), hasta: endOfWeek(now, { weekStartsOn: 1 }) };
+      return { desde: startOfWeek(base, { weekStartsOn: 1 }), hasta: endOfWeek(base, { weekStartsOn: 1 }) };
     }
-    return { desde: startOfMonth(now), hasta: endOfMonth(now) };
-  }, [periodo]);
+    return { desde: startOfMonth(base), hasta: endOfMonth(base) };
+  }, [periodo, offset]);
 
   useEffect(() => {
     abortRef.current?.abort();
@@ -78,10 +87,10 @@ export default function MenuTab() {
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
     try {
-      const [productosRes, ventasRes] = await Promise.all([
+      const [productosRes, ventasRes, upsellsRes] = await Promise.all([
         supabase
           .from('productos')
-          .select('id, nombre, categoria, precio_venta, costo_total, precio_upsell_coworking, activo, tipo')
+          .select('id, nombre, categoria, precio_venta, costo_total, activo, tipo')
           .eq('activo', true)
           .in('tipo', ['simple', 'paquete'])
           .abortSignal(signal),
@@ -93,18 +102,28 @@ export default function MenuTab() {
           .lte('fecha', hastaISO)
           .limit(VENTAS_LIMIT)
           .abortSignal(signal),
+        // Upsells reales del período: marcamos isUpsell por uso operativo,
+        // no por configuración de producto.
+        supabase
+          .from('coworking_session_upsells')
+          .select('producto_id')
+          .gte('created_at', desdeISO)
+          .lte('created_at', hastaISO)
+          .limit(UPSELLS_LIMIT)
+          .abortSignal(signal),
       ]);
 
       if (signal.aborted) return;
       if (productosRes.error) throw productosRes.error;
       if (ventasRes.error) throw ventasRes.error;
+      if (upsellsRes.error) throw upsellsRes.error;
 
       const productos = productosRes.data ?? [];
       const ventaIds = (ventasRes.data ?? []).map(v => v.id);
+      const upsellSet = new Set((upsellsRes.data ?? []).map((r: any) => r.producto_id).filter(Boolean));
       let localTruncated = ventaIds.length >= VENTAS_LIMIT;
 
       const salesMap: Record<string, number> = {};
-      let totalDetalles = 0;
       for (let i = 0; i < ventaIds.length; i += 100) {
         if (signal.aborted) return;
         const batch = ventaIds.slice(i, i + 100);
@@ -114,18 +133,14 @@ export default function MenuTab() {
           .in('venta_id', batch)
           // Solo ventas reales del menú: excluimos 'amenity' (cortesía incluida
           // en la tarifa, ingreso $0) y 'coworking' (renta de espacio).
-          // Mezclar amenities infla popularidad y distorsiona la contribución
-          // económica del análisis de Ingeniería de Menú.
           .eq('tipo_concepto', 'producto')
           .limit(DETALLES_LIMIT)
           .abortSignal(signal);
         if (error) throw error;
         const rows = data ?? [];
-        totalDetalles += rows.length;
         if (rows.length >= DETALLES_LIMIT) localTruncated = true;
         rows.forEach((d: any) => {
-          // Los paquetes se registran como 'producto' con paquete_id poblado;
-          // si existe, atribuimos la venta al paquete maestro, no al componente.
+          // Atribuir al paquete maestro si aplica.
           const id = d.paquete_id ?? d.producto_id;
           if (id) salesMap[id] = (salesMap[id] || 0) + d.cantidad;
         });
@@ -146,7 +161,9 @@ export default function MenuTab() {
           margen,
           cantidadVendida,
           contribucionTotal: +(margen * cantidadVendida).toFixed(2),
-          isUpsell: p.precio_upsell_coworking != null && p.precio_upsell_coworking > 0,
+          // Flag operativo: el producto se vendió como upsell de coworking
+          // dentro del período seleccionado.
+          isUpsell: upsellSet.has(p.id),
           cuadrante: 'perro' as const,
         };
       });
@@ -206,7 +223,7 @@ export default function MenuTab() {
     const p = payload[0].payload as MenuProduct;
     const info = CUADRANTE_LABELS[p.cuadrante];
     return (
-      <div className="rounded-lg border border-border bg-popover px-3 py-2.5 text-xs shadow-md max-w-[220px]">
+      <div className="rounded-lg border border-border bg-popover px-3 py-2.5 text-xs shadow-md max-w-[240px]">
         <p className="font-semibold text-foreground break-words">{p.nombre}</p>
         <p className="text-muted-foreground">{p.categoria}</p>
         {p.isUpsell && <Badge variant="outline" className="text-[9px] mt-1 px-1.5 py-0">Upsell</Badge>}
@@ -216,24 +233,41 @@ export default function MenuTab() {
           <p>Contribución: <span className="font-medium">{fmt(p.contribucionTotal)}</span></p>
         </div>
         <Badge variant="outline" className={`text-[9px] mt-1.5 ${info.bg}`}>{info.label}</Badge>
+        <p className="text-[10px] text-muted-foreground mt-1 leading-snug">{info.desc}</p>
       </div>
     );
   };
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-heading font-bold text-foreground">Ingeniería de Menú</h2>
           <p className="text-sm text-muted-foreground capitalize">{periodoLabel}</p>
         </div>
-        <div className="flex rounded-lg border border-border overflow-hidden">
-          <Button variant={periodo === 'semana' ? 'default' : 'ghost'} size="sm" className="rounded-none text-xs h-8" onClick={() => setPeriodo('semana')}>
-            Esta Semana
-          </Button>
-          <Button variant={periodo === 'mes' ? 'default' : 'ghost'} size="sm" className="rounded-none text-xs h-8" onClick={() => setPeriodo('mes')}>
-            Este Mes
-          </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <Button variant={periodo === 'semana' ? 'default' : 'ghost'} size="sm" className="rounded-none text-xs h-8" onClick={() => handleSetPeriodo('semana')}>
+              Semana
+            </Button>
+            <Button variant={periodo === 'mes' ? 'default' : 'ghost'} size="sm" className="rounded-none text-xs h-8" onClick={() => handleSetPeriodo('mes')}>
+              Mes
+            </Button>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setOffset(o => o + 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-xs text-muted-foreground capitalize min-w-[140px] text-center">{periodoLabel}</span>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={offset === 0} onClick={() => setOffset(o => o - 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            {offset !== 0 && (
+              <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => setOffset(0)}>
+                Hoy
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -247,76 +281,88 @@ export default function MenuTab() {
         </div>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
-          <Loader2 className="h-4 w-4 animate-spin" /> Cargando análisis…
-        </div>
-      ) : (
-        <>
-          <Card className="border-border/60 shadow-sm">
-            <CardContent className="pt-6 pb-4">
-              {withSales.length === 0 ? (
-                <p className="text-muted-foreground text-sm text-center py-12">No hay productos con ventas en este periodo.</p>
-              ) : (
-                <div className="w-full" style={{ height: 420 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ScatterChart margin={{ top: 20, right: 30, bottom: 30, left: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(30 15% 88%)" />
-                      <XAxis type="number" dataKey="cantidadVendida" name="Popularidad" tick={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} tickLine={false} axisLine={{ stroke: 'hsl(30 15% 88%)' }}>
-                        <Label value="Popularidad (uds vendidas)" position="bottom" offset={10} style={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} />
-                      </XAxis>
-                      <YAxis type="number" dataKey="margen" name="Margen" tick={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} tickLine={false} axisLine={{ stroke: 'hsl(30 15% 88%)' }}>
-                        <Label value="Margen ($)" angle={-90} position="left" offset={0} style={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} />
-                      </YAxis>
-                      <RechartsTooltip content={<CustomTooltip />} wrapperStyle={{ zIndex: 50 }} />
-                      <ReferenceLine x={avgPopularidad} stroke="hsl(25 30% 60%)" strokeDasharray="6 4" strokeWidth={1.5} />
-                      <ReferenceLine y={avgMargen} stroke="hsl(25 30% 60%)" strokeDasharray="6 4" strokeWidth={1.5} />
-                      <Scatter data={withSales} fill="hsl(25 65% 28%)">
-                        {withSales.map((p, idx) => (
-                          <Cell key={idx} fill={CUADRANTE_COLORS[p.cuadrante]} r={6} />
-                        ))}
-                      </Scatter>
-                    </ScatterChart>
-                  </ResponsiveContainer>
-
-                  <TooltipProvider delayDuration={200}>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">
-                      {(['estrella', 'caballo', 'rompecabezas', 'perro'] as const).map(q => {
-                        const info = CUADRANTE_LABELS[q];
-                        const count = withSales.filter(p => p.cuadrante === q).length;
-                        return (
-                          <Tooltip key={q}>
-                            <TooltipTrigger asChild>
-                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-default">
-                                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: CUADRANTE_COLORS[q] }} />
-                                <span>{info.label}</span>
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">{count}</Badge>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-[220px] text-xs">
-                              {info.desc}
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-                  </TooltipProvider>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/60 shadow-sm">
-            <CardContent className="pt-6 pb-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-foreground">Top Impacto Económico</h3>
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
-                  <Eye className="h-3.5 w-3.5" />
-                  Ver productos sin ventas
-                  <Switch checked={showNoSales} onCheckedChange={setShowNoSales} />
-                </label>
+      <Card className="border-border/60 shadow-sm">
+        <CardContent className="pt-6 pb-4">
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-[420px] w-full" />
+              <div className="flex gap-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-4 w-28" />
+                ))}
               </div>
+            </div>
+          ) : withSales.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center py-12">No hay productos con ventas en este periodo.</p>
+          ) : (
+            <div className="w-full" style={{ height: 420 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 20, right: 30, bottom: 30, left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(30 15% 88%)" />
+                  <XAxis type="number" dataKey="cantidadVendida" name="Popularidad" tick={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} tickLine={false} axisLine={{ stroke: 'hsl(30 15% 88%)' }}>
+                    <Label value="Popularidad (uds vendidas)" position="bottom" offset={10} style={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} />
+                  </XAxis>
+                  <YAxis type="number" dataKey="margen" name="Margen" tick={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} tickLine={false} axisLine={{ stroke: 'hsl(30 15% 88%)' }}>
+                    <Label value="Margen ($)" angle={-90} position="left" offset={0} style={{ fontSize: 11, fill: 'hsl(25 10% 46%)' }} />
+                  </YAxis>
+                  <RechartsTooltip content={<CustomTooltip />} wrapperStyle={{ zIndex: 50 }} />
+                  <ReferenceLine x={avgPopularidad} stroke="hsl(25 30% 60%)" strokeDasharray="6 4" strokeWidth={1.5} />
+                  <ReferenceLine y={avgMargen} stroke="hsl(25 30% 60%)" strokeDasharray="6 4" strokeWidth={1.5} />
+                  <Scatter data={withSales} fill="hsl(25 65% 28%)">
+                    {withSales.map((p, idx) => (
+                      <Cell key={idx} fill={CUADRANTE_COLORS[p.cuadrante]} r={6} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
 
+              <TooltipProvider delayDuration={200}>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">
+                  {(['estrella', 'caballo', 'rompecabezas', 'perro'] as const).map(q => {
+                    const info = CUADRANTE_LABELS[q];
+                    const count = withSales.filter(p => p.cuadrante === q).length;
+                    return (
+                      <Tooltip key={q}>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-default">
+                            <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: CUADRANTE_COLORS[q] }} />
+                            <span>{info.label}</span>
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{count}</Badge>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-[220px] text-xs">
+                          {info.desc}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </TooltipProvider>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60 shadow-sm">
+        <CardContent className="pt-6 pb-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-foreground">Top Impacto Económico</h3>
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
+              <Eye className="h-3.5 w-3.5" />
+              Ver productos sin ventas
+              <Switch checked={showNoSales} onCheckedChange={setShowNoSales} disabled={loading} />
+            </label>
+          </div>
+
+          {loading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-9 w-full" />
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : (
+            <>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -362,13 +408,13 @@ export default function MenuTab() {
                   </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
-          <CoworkingAnalysis desde={rango.desde} hasta={rango.hasta} />
-          <CoworkingOpsMetrics desde={rango.desde} hasta={rango.hasta} />
-        </>
-      )}
+      <CoworkingAnalysis desde={rango.desde} hasta={rango.hasta} />
+      <CoworkingOpsMetrics desde={rango.desde} hasta={rango.hasta} />
     </div>
   );
 }
