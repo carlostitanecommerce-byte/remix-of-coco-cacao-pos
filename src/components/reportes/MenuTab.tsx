@@ -67,29 +67,57 @@ export default function MenuTab() {
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
+    // Productos: simples Y paquetes, para cubrir todo el catálogo de ventas
     const [productosRes, ventasRes] = await Promise.all([
-      supabase.from('productos').select('id, nombre, categoria, precio_venta, costo_total, precio_upsell_coworking, activo').eq('activo', true).eq('tipo', 'simple'),
-      supabase.from('ventas').select('id').eq('estado', 'completada').gte('fecha', desdeISO).lte('fecha', hastaISO),
+      supabase
+        .from('productos')
+        .select('id, nombre, categoria, precio_venta, costo_total, precio_upsell_coworking, activo, tipo')
+        .eq('activo', true)
+        .in('tipo', ['simple', 'paquete']),
+      supabase
+        .from('ventas')
+        .select('id')
+        .eq('estado', 'completada')
+        .gte('fecha', desdeISO)
+        .lte('fecha', hastaISO),
     ]);
 
     const productos = productosRes.data ?? [];
     const ventaIds = (ventasRes.data ?? []).map(v => v.id);
 
+    // Mapa de cantidades vendidas por producto (incluye productos sueltos, paquetes y amenities)
+    // Para paquetes consideramos "paquete_id" como identificador del producto vendido.
     const salesMap: Record<string, number> = {};
     for (let i = 0; i < ventaIds.length; i += 100) {
       const batch = ventaIds.slice(i, i + 100);
       const { data } = await supabase
         .from('detalle_ventas')
-        .select('producto_id, cantidad')
+        .select('producto_id, paquete_id, cantidad, tipo_concepto')
         .in('venta_id', batch)
-        .eq('tipo_concepto', 'producto');
+        .in('tipo_concepto', ['producto', 'paquete', 'amenity']);
       (data ?? []).forEach(d => {
-        if (d.producto_id) salesMap[d.producto_id] = (salesMap[d.producto_id] || 0) + d.cantidad;
+        const id = d.tipo_concepto === 'paquete' ? d.paquete_id : d.producto_id;
+        if (id) salesMap[id] = (salesMap[id] || 0) + d.cantidad;
       });
     }
 
+    // Adicional: consumo de upsells/amenities entregados en sesiones de coworking
+    // que iniciaron dentro del rango (independiente de si se cobraron en POS).
+    const { data: csu } = await supabase
+      .from('coworking_session_upsells')
+      .select('producto_id, cantidad, coworking_sessions!inner(fecha_inicio, estado)')
+      .gte('coworking_sessions.fecha_inicio', desdeISO)
+      .lte('coworking_sessions.fecha_inicio', hastaISO)
+      .in('coworking_sessions.estado', ['activo', 'finalizado', 'pendiente_pago']);
+    (csu ?? []).forEach(u => {
+      if (u.producto_id) salesMap[u.producto_id] = (salesMap[u.producto_id] || 0) + (u.cantidad || 0);
+    });
+
+    // Margen unitario alineado al estándar de reportes:
+    // precio_venta incluye IVA (16%), costo_total es sin IVA → margen neto.
     const items: MenuProduct[] = productos.map(p => {
-      const margen = +(p.precio_venta - p.costo_total).toFixed(2);
+      const precioSinIVA = p.precio_venta / 1.16;
+      const margen = +(precioSinIVA - p.costo_total).toFixed(2);
       const cantidadVendida = salesMap[p.id] || 0;
       return {
         id: p.id,
