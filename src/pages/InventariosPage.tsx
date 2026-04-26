@@ -4,6 +4,7 @@ import InsumosTab from '@/components/inventarios/InsumosTab';
 import ProductosTab from '@/components/inventarios/ProductosTab';
 import PaquetesTab from '@/components/inventarios/PaquetesTab';
 import ComprasTab from '@/components/inventarios/ComprasTab';
+import MermasTab from '@/components/inventarios/MermasTab';
 
 import { useAuth } from '@/hooks/useAuth';
 
@@ -29,6 +30,9 @@ const InventariosPage = () => {
           {(isAdmin || roles.includes('supervisor')) && (
             <TabsTrigger value="compras">Compras</TabsTrigger>
           )}
+          {(isAdmin || roles.includes('supervisor')) && (
+            <TabsTrigger value="mermas">Mermas</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="categorias" className="mt-4">
@@ -50,6 +54,12 @@ const InventariosPage = () => {
         {(isAdmin || roles.includes('supervisor')) && (
           <TabsContent value="compras" className="mt-4">
             <ComprasTab isAdmin={isAdmin} />
+          </TabsContent>
+        )}
+
+        {(isAdmin || roles.includes('supervisor')) && (
+          <TabsContent value="mermas" className="mt-4">
+            <MermasTab isAdmin={isAdmin} />
           </TabsContent>
         )}
 
