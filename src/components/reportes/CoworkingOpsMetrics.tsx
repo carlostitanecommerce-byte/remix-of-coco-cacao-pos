@@ -222,9 +222,9 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
                 />
                 <MetricBox
                   icon={<Package className="h-4 w-4 text-emerald-600" />}
-                  label="Items liberados"
-                  value={String(cancel.totalItemsLiberados)}
-                  hint="No entregados (devueltos)"
+                  label="Sin entrega"
+                  value={String(cancel.sinItemsEntregados)}
+                  hint="Canceladas antes de servir"
                 />
               </div>
 
