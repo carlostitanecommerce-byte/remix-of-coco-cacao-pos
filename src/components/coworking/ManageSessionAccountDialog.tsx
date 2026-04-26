@@ -645,7 +645,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                       <span className="font-medium text-foreground">{ma.nombre || 'Amenity'}</span>
                       <span className="text-xs text-muted-foreground ml-2">Disponibles: {ma.disponible}</span>
                     </div>
-                    <Button size="sm" variant="outline" className="h-7 border-primary/30 text-primary hover:bg-primary/10" onClick={() => handleRestoreAmenity(ma)}>
+                    <Button size="sm" variant="outline" className="h-7 border-primary/30 text-primary hover:bg-primary/10" onClick={() => handleRestoreAmenity(ma)} disabled={busy}>
                       <Plus className="h-3 w-3 mr-1" /> Reclamar
                     </Button>
                   </div>
