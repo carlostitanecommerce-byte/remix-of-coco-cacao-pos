@@ -374,6 +374,9 @@ export default function CocinaPage() {
               estado: o.estado as KdsEstado,
               created_at: o.created_at,
               items: [],
+              coworking_session_id: o.coworking_session_id ?? null,
+              coworking_cliente: null,
+              coworking_area: null,
             };
             return [...prev, next].sort(
               (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
@@ -383,6 +386,10 @@ export default function CocinaPage() {
             playNewOrderSound();
           }
           knownIds.current.add(o.id);
+          // Si es coworking, hidratamos cliente/área de forma asíncrona
+          if (o.coworking_session_id) {
+            fetchSingleOrder(o.id);
+          }
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
           const next = payload.new;
