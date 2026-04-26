@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,10 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Loader2, Eye, ChevronDown } from 'lucide-react';
+import { Loader2, Eye, ChevronDown, AlertTriangle } from 'lucide-react';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Label } from 'recharts';
+import { toast } from 'sonner';
 import CoworkingAnalysis from './CoworkingAnalysis';
 import CoworkingOpsMetrics from './CoworkingOpsMetrics';
 
@@ -41,6 +42,8 @@ const CUADRANTE_COLORS: Record<string, string> = {
 };
 
 const TOP_LIMIT = 15;
+const VENTAS_LIMIT = 5000;
+const DETALLES_LIMIT = 5000;
 
 export default function MenuTab() {
   const [periodo, setPeriodo] = useState<'semana' | 'mes'>('semana');
@@ -48,6 +51,8 @@ export default function MenuTab() {
   const [products, setProducts] = useState<MenuProduct[]>([]);
   const [showNoSales, setShowNoSales] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const rango = useMemo(() => {
     const now = new Date();
@@ -58,100 +63,128 @@ export default function MenuTab() {
   }, [periodo]);
 
   useEffect(() => {
-    fetchData();
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    fetchData(ctrl.signal);
     setShowAll(false);
+    return () => ctrl.abort();
   }, [rango]);
 
-  const fetchData = async () => {
+  const fetchData = async (signal: AbortSignal) => {
     setLoading(true);
+    setTruncated(false);
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
-    // Productos: simples Y paquetes, para cubrir todo el catálogo de ventas
-    const [productosRes, ventasRes] = await Promise.all([
-      supabase
-        .from('productos')
-        .select('id, nombre, categoria, precio_venta, costo_total, precio_upsell_coworking, activo, tipo')
-        .eq('activo', true)
-        .in('tipo', ['simple', 'paquete']),
-      supabase
-        .from('ventas')
-        .select('id')
-        .eq('estado', 'completada')
-        .gte('fecha', desdeISO)
-        .lte('fecha', hastaISO),
-    ]);
+    try {
+      const [productosRes, ventasRes] = await Promise.all([
+        supabase
+          .from('productos')
+          .select('id, nombre, categoria, precio_venta, costo_total, precio_upsell_coworking, activo, tipo')
+          .eq('activo', true)
+          .in('tipo', ['simple', 'paquete'])
+          .abortSignal(signal),
+        supabase
+          .from('ventas')
+          .select('id')
+          .eq('estado', 'completada')
+          .gte('fecha', desdeISO)
+          .lte('fecha', hastaISO)
+          .limit(VENTAS_LIMIT)
+          .abortSignal(signal),
+      ]);
 
-    const productos = productosRes.data ?? [];
-    const ventaIds = (ventasRes.data ?? []).map(v => v.id);
+      if (signal.aborted) return;
+      if (productosRes.error) throw productosRes.error;
+      if (ventasRes.error) throw ventasRes.error;
 
-    // Mapa de cantidades vendidas por producto (incluye productos sueltos, paquetes y amenities)
-    // Para paquetes consideramos "paquete_id" como identificador del producto vendido.
-    const salesMap: Record<string, number> = {};
-    for (let i = 0; i < ventaIds.length; i += 100) {
-      const batch = ventaIds.slice(i, i + 100);
-      const { data } = await supabase
-        .from('detalle_ventas')
-        .select('producto_id, paquete_id, cantidad, tipo_concepto')
-        .in('venta_id', batch)
-        .in('tipo_concepto', ['producto', 'paquete', 'amenity'] as any);
-      (data ?? []).forEach((d: any) => {
-        const id = d.tipo_concepto === 'paquete' ? d.paquete_id : d.producto_id;
-        if (id) salesMap[id] = (salesMap[id] || 0) + d.cantidad;
+      const productos = productosRes.data ?? [];
+      const ventaIds = (ventasRes.data ?? []).map(v => v.id);
+      let localTruncated = ventaIds.length >= VENTAS_LIMIT;
+
+      const salesMap: Record<string, number> = {};
+      let totalDetalles = 0;
+      for (let i = 0; i < ventaIds.length; i += 100) {
+        if (signal.aborted) return;
+        const batch = ventaIds.slice(i, i + 100);
+        const { data, error } = await supabase
+          .from('detalle_ventas')
+          .select('producto_id, paquete_id, cantidad, tipo_concepto')
+          .in('venta_id', batch)
+          .in('tipo_concepto', ['producto', 'paquete', 'amenity'] as any)
+          .limit(DETALLES_LIMIT)
+          .abortSignal(signal);
+        if (error) throw error;
+        const rows = data ?? [];
+        totalDetalles += rows.length;
+        if (rows.length >= DETALLES_LIMIT) localTruncated = true;
+        rows.forEach((d: any) => {
+          const id = d.tipo_concepto === 'paquete' ? d.paquete_id : d.producto_id;
+          if (id) salesMap[id] = (salesMap[id] || 0) + d.cantidad;
+        });
+      }
+
+      if (signal.aborted) return;
+
+      const { data: csu, error: csuErr } = await supabase
+        .from('coworking_session_upsells')
+        .select('producto_id, cantidad, coworking_sessions!inner(fecha_inicio, estado)')
+        .gte('coworking_sessions.fecha_inicio', desdeISO)
+        .lte('coworking_sessions.fecha_inicio', hastaISO)
+        .in('coworking_sessions.estado', ['activo', 'finalizado', 'pendiente_pago'])
+        .limit(DETALLES_LIMIT)
+        .abortSignal(signal);
+      if (csuErr) throw csuErr;
+      (csu ?? []).forEach(u => {
+        if (u.producto_id) salesMap[u.producto_id] = (salesMap[u.producto_id] || 0) + (u.cantidad || 0);
       });
+
+      const items: MenuProduct[] = productos.map(p => {
+        const precioSinIVA = p.precio_venta / 1.16;
+        const margen = +(precioSinIVA - p.costo_total).toFixed(2);
+        const cantidadVendida = salesMap[p.id] || 0;
+        return {
+          id: p.id,
+          nombre: p.nombre,
+          categoria: p.categoria,
+          precioVenta: p.precio_venta,
+          costoTotal: p.costo_total,
+          margen,
+          cantidadVendida,
+          contribucionTotal: +(margen * cantidadVendida).toFixed(2),
+          isUpsell: p.precio_upsell_coworking != null && p.precio_upsell_coworking > 0,
+          cuadrante: 'perro' as const,
+        };
+      });
+
+      const withSales = items.filter(i => i.cantidadVendida > 0);
+      const avgMargen = withSales.length > 0 ? withSales.reduce((s, i) => s + i.margen, 0) / withSales.length : 0;
+      const avgPop = withSales.length > 0 ? withSales.reduce((s, i) => s + i.cantidadVendida, 0) / withSales.length : 0;
+
+      items.forEach(item => {
+        const highMargin = item.margen >= avgMargen;
+        const highPop = item.cantidadVendida >= avgPop;
+        if (highMargin && highPop) item.cuadrante = 'estrella';
+        else if (!highMargin && highPop) item.cuadrante = 'caballo';
+        else if (highMargin && !highPop) item.cuadrante = 'rompecabezas';
+        else item.cuadrante = 'perro';
+      });
+
+      if (signal.aborted) return;
+      setProducts(items);
+      setTruncated(localTruncated);
+    } catch (err: any) {
+      if (signal.aborted || err?.name === 'AbortError') return;
+      console.error('[MenuTab] fetchData error', err);
+      toast.error('No se pudo cargar el análisis de menú', {
+        description: err?.message ?? 'Error de conexión con el servidor.',
+      });
+    } finally {
+      if (!signal.aborted) setLoading(false);
     }
-
-    // Adicional: consumo de upsells/amenities entregados en sesiones de coworking
-    // que iniciaron dentro del rango (independiente de si se cobraron en POS).
-    const { data: csu } = await supabase
-      .from('coworking_session_upsells')
-      .select('producto_id, cantidad, coworking_sessions!inner(fecha_inicio, estado)')
-      .gte('coworking_sessions.fecha_inicio', desdeISO)
-      .lte('coworking_sessions.fecha_inicio', hastaISO)
-      .in('coworking_sessions.estado', ['activo', 'finalizado', 'pendiente_pago']);
-    (csu ?? []).forEach(u => {
-      if (u.producto_id) salesMap[u.producto_id] = (salesMap[u.producto_id] || 0) + (u.cantidad || 0);
-    });
-
-    // Margen unitario alineado al estándar de reportes:
-    // precio_venta incluye IVA (16%), costo_total es sin IVA → margen neto.
-    const items: MenuProduct[] = productos.map(p => {
-      const precioSinIVA = p.precio_venta / 1.16;
-      const margen = +(precioSinIVA - p.costo_total).toFixed(2);
-      const cantidadVendida = salesMap[p.id] || 0;
-      return {
-        id: p.id,
-        nombre: p.nombre,
-        categoria: p.categoria,
-        precioVenta: p.precio_venta,
-        costoTotal: p.costo_total,
-        margen,
-        cantidadVendida,
-        contribucionTotal: +(margen * cantidadVendida).toFixed(2),
-        isUpsell: p.precio_upsell_coworking != null && p.precio_upsell_coworking > 0,
-        cuadrante: 'perro' as const,
-      };
-    });
-
-    // Averages based ONLY on products with sales
-    const withSales = items.filter(i => i.cantidadVendida > 0);
-    const avgMargen = withSales.length > 0 ? withSales.reduce((s, i) => s + i.margen, 0) / withSales.length : 0;
-    const avgPop = withSales.length > 0 ? withSales.reduce((s, i) => s + i.cantidadVendida, 0) / withSales.length : 0;
-
-    items.forEach(item => {
-      const highMargin = item.margen >= avgMargen;
-      const highPop = item.cantidadVendida >= avgPop;
-      if (highMargin && highPop) item.cuadrante = 'estrella';
-      else if (!highMargin && highPop) item.cuadrante = 'caballo';
-      else if (highMargin && !highPop) item.cuadrante = 'rompecabezas';
-      else item.cuadrante = 'perro';
-    });
-
-    setProducts(items);
-    setLoading(false);
   };
 
-  // Products with sales (for chart & averages)
   const withSales = useMemo(() => products.filter(p => p.cantidadVendida > 0), [products]);
 
   const { avgMargen, avgPopularidad } = useMemo(() => {
@@ -162,7 +195,6 @@ export default function MenuTab() {
     };
   }, [withSales]);
 
-  // Table: sorted by contribucionTotal desc, optionally include no-sales
   const tableProducts = useMemo(() => {
     const source = showNoSales ? products : withSales;
     return [...source].sort((a, b) => b.contribucionTotal - a.contribucionTotal);
@@ -197,7 +229,6 @@ export default function MenuTab() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-heading font-bold text-foreground">Ingeniería de Menú</h2>
@@ -213,13 +244,22 @@ export default function MenuTab() {
         </div>
       </div>
 
+      {truncated && !loading && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Volumen de datos elevado: se analizaron los primeros {VENTAS_LIMIT.toLocaleString('es-MX')} registros del periodo.
+            Reduce el rango para mayor exactitud.
+          </span>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando análisis…
         </div>
       ) : (
         <>
-          {/* Scatter Plot */}
           <Card className="border-border/60 shadow-sm">
             <CardContent className="pt-6 pb-4">
               {withSales.length === 0 ? (
@@ -273,10 +313,8 @@ export default function MenuTab() {
             </CardContent>
           </Card>
 
-          {/* Detail Table */}
           <Card className="border-border/60 shadow-sm">
             <CardContent className="pt-6 pb-4">
-              {/* Toggle */}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-foreground">Top Impacto Económico</h3>
                 <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
@@ -334,10 +372,7 @@ export default function MenuTab() {
             </CardContent>
           </Card>
 
-          {/* Coworking & Upsells Analysis */}
           <CoworkingAnalysis desde={rango.desde} hasta={rango.hasta} />
-
-          {/* Métricas operativas: cancelaciones y comandas KDS coworking */}
           <CoworkingOpsMetrics desde={rango.desde} hasta={rango.hasta} />
         </>
       )}

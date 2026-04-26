@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -7,6 +7,11 @@ import {
 } from '@/components/ui/table';
 import { Loader2, XCircle, ChefHat, Clock, Package, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
+
+const ROWS_LIMIT = 5000;
+// Pre-filtro: descartar comandas con duración > 2h (ticket olvidado / cierre tardío)
+const KDS_MAX_PREP_MS = 1000 * 60 * 120;
 
 interface Props {
   desde: Date;
@@ -37,31 +42,49 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
   const [loading, setLoading] = useState(false);
   const [cancel, setCancel] = useState<CancelMetrics | null>(null);
   const [kds, setKds] = useState<KdsMetrics | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const desdeISO = format(desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
   const hastaISO = format(hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
   useEffect(() => {
-    void fetchAll();
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    void fetchAll(ctrl.signal);
+    return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desdeISO, hastaISO]);
 
-  const fetchAll = async () => {
+  const fetchAll = async (signal: AbortSignal) => {
     setLoading(true);
+    setTruncated(false);
     try {
-      await Promise.all([fetchCancelMetrics(), fetchKdsMetrics()]);
+      await Promise.all([fetchCancelMetrics(signal), fetchKdsMetrics(signal)]);
+    } catch (err: any) {
+      if (signal.aborted || err?.name === 'AbortError') return;
+      console.error('[CoworkingOpsMetrics] fetchAll error', err);
+      toast.error('No se pudieron cargar las métricas operativas', {
+        description: err?.message ?? 'Error de conexión con el servidor.',
+      });
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   };
 
-  const fetchCancelMetrics = async () => {
-    const { data: logs } = await supabase
+  const fetchCancelMetrics = async (signal: AbortSignal) => {
+    const { data: logs, error } = await supabase
       .from('audit_logs')
       .select('descripcion, metadata, created_at')
       .eq('accion', 'cancelar_sesion_coworking')
       .gte('created_at', desdeISO)
-      .lte('created_at', hastaISO);
+      .lte('created_at', hastaISO)
+      .limit(ROWS_LIMIT)
+      .abortSignal(signal);
+    if (signal.aborted) return;
+    if (error) throw error;
+    if ((logs?.length ?? 0) >= ROWS_LIMIT) setTruncated(true);
 
     const rows = (logs ?? []) as any[];
     const motivosMap = new Map<string, number>();
@@ -100,15 +123,20 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     });
   };
 
-  const fetchKdsMetrics = async () => {
-    const { data: orders } = await supabase
+  const fetchKdsMetrics = async (signal: AbortSignal) => {
+    const { data: orders, error: ordErr } = await supabase
       .from('kds_orders')
       .select('id, estado, created_at, updated_at, coworking_session_id, venta_id')
       .not('coworking_session_id', 'is', null)
       .gte('created_at', desdeISO)
-      .lte('created_at', hastaISO);
+      .lte('created_at', hastaISO)
+      .limit(ROWS_LIMIT)
+      .abortSignal(signal);
+    if (signal.aborted) return;
+    if (ordErr) throw ordErr;
 
     const ordersList = (orders ?? []) as any[];
+    if (ordersList.length >= ROWS_LIMIT) setTruncated(true);
     if (ordersList.length === 0) {
       setKds({
         totalOrdenes: 0, totalItems: 0,
@@ -119,10 +147,14 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     }
 
     const orderIds = ordersList.map(o => o.id);
-    const { data: items } = await supabase
+    const { data: items, error: itErr } = await supabase
       .from('kds_order_items')
       .select('kds_order_id, cantidad, nombre_producto')
-      .in('kds_order_id', orderIds);
+      .in('kds_order_id', orderIds)
+      .limit(ROWS_LIMIT)
+      .abortSignal(signal);
+    if (signal.aborted) return;
+    if (itErr) throw itErr;
 
     const itemsList = (items ?? []) as any[];
     const totalItems = itemsList.reduce((acc, i) => acc + (Number(i.cantidad) || 0), 0);
@@ -133,19 +165,18 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
       itemsByOrder.get(i.kds_order_id)!.push(i);
     });
 
-    // Clasificación amenity vs extra:
-    // 1) Si la orden está enlazada a una venta, miramos los tipo_concepto de detalle_ventas
-    //    de esa sesión: si TODOS son 'amenity' → amenity; si hay 'producto' → extra.
-    // 2) Fallback: marcador ☕ en nombre_producto (compatibilidad con datos previos).
     const ventaIds = ordersList.map(o => o.venta_id).filter(Boolean) as string[];
     const ventaTipos = new Map<string, Set<string>>();
     if (ventaIds.length > 0) {
       for (let i = 0; i < ventaIds.length; i += 100) {
+        if (signal.aborted) return;
         const batch = ventaIds.slice(i, i + 100);
-        const { data: dv } = await supabase
+        const { data: dv, error: dvErr } = await supabase
           .from('detalle_ventas')
           .select('venta_id, tipo_concepto')
-          .in('venta_id', batch);
+          .in('venta_id', batch)
+          .abortSignal(signal);
+        if (dvErr) throw dvErr;
         ((dv ?? []) as any[]).forEach(d => {
           if (!ventaTipos.has(d.venta_id)) ventaTipos.set(d.venta_id, new Set());
           ventaTipos.get(d.venta_id)!.add(d.tipo_concepto);
@@ -158,15 +189,12 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     for (const o of ordersList) {
       const its = itemsByOrder.get(o.id) ?? [];
       if (its.length === 0) continue;
-
       const tipos = o.venta_id ? ventaTipos.get(o.venta_id) : null;
       let isAmenity: boolean;
       if (tipos && tipos.size > 0) {
-        // Solo amenity si TODOS los conceptos relevantes son 'amenity'
         const relevantes = new Set([...tipos].filter(t => t === 'amenity' || t === 'producto'));
         isAmenity = relevantes.size === 1 && relevantes.has('amenity');
       } else {
-        // Fallback heurístico
         isAmenity = its.every(i => (i.nombre_producto ?? '').includes('☕'));
       }
       if (isAmenity) ordenesAmenity++; else ordenesExtra++;
@@ -181,7 +209,8 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
         listas++;
         if (o.created_at && o.updated_at) {
           const ms = new Date(o.updated_at).getTime() - new Date(o.created_at).getTime();
-          if (ms > 0 && ms < 1000 * 60 * 60 * 6) prepDurations.push(ms);
+          // Pre-filtro: solo durations realistas (>0 y <2h) para no sesgar promedios
+          if (ms > 0 && ms < KDS_MAX_PREP_MS) prepDurations.push(ms);
         }
       }
     }
@@ -190,6 +219,7 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
       ? prepDurations.reduce((a, b) => a + b, 0) / prepDurations.length / 60000
       : null;
 
+    if (signal.aborted) return;
     setKds({
       totalOrdenes: ordersList.length,
       totalItems,
@@ -214,6 +244,14 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
 
   return (
     <div className="space-y-6">
+      {truncated && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Volumen elevado: métricas operativas limitadas a {ROWS_LIMIT.toLocaleString('es-MX')} registros. Reduce el rango para mayor exactitud.
+          </span>
+        </div>
+      )}
       {/* Cancelaciones */}
       <Card>
         <CardHeader>
