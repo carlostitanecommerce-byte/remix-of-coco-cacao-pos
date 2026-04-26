@@ -42,6 +42,7 @@ export function VentasTurnoPanel({ isAdmin }: Props) {
   const [open, setOpen] = useState(false);
   const [cancelVenta, setCancelVenta] = useState<VentaTurno | null>(null);
   const [editPagoVenta, setEditPagoVenta] = useState<VentaTurno | null>(null);
+  const [reprintVenta, setReprintVenta] = useState<VentaTurno | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const fetchVentas = async () => {
