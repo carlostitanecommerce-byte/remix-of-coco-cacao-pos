@@ -473,13 +473,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       })),
     );
     await onSuccess?.();
-  };
-
-  const handleClose = () => {
-    setIsEditingPax(false);
-    onClose();
-    onSuccess?.();
-  };
+  });
 
   if (!session) return null;
 
