@@ -214,7 +214,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     return { precio: precioVenta, isSpecial: false };
   };
 
-  const handleAdd = async (producto: Producto) => {
+  const handleAdd = (producto: Producto) => withLock(() => doAdd(producto));
+  const doAdd = async (producto: Producto) => {
     if (!session) return;
     const validacion = await verificarStock(producto.id, 1);
     if (!validacion.valido) {
