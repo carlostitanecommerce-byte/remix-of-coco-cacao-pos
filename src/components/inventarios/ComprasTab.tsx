@@ -41,6 +41,8 @@ interface Props {
   isAdmin: boolean;
 }
 
+const PAGE_SIZE = 50;
+
 const ComprasTab = ({ isAdmin }: Props) => {
   const { user } = useAuth();
   const [compras, setCompras] = useState<CompraRow[]>([]);
@@ -49,6 +51,10 @@ const ComprasTab = ({ isAdmin }: Props) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busqueda, setBusqueda] = useState('');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
   // Form state
   const [selectedInsumoId, setSelectedInsumoId] = useState('');
@@ -69,12 +75,29 @@ const ComprasTab = ({ isAdmin }: Props) => {
 
   const fetchData = async () => {
     setLoading(true);
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    let comprasQuery = supabase
+      .from('compras_insumos')
+      .select('*', { count: 'exact' })
+      .order('fecha', { ascending: false })
+      .range(from, to);
+
+    if (fechaDesde) {
+      comprasQuery = comprasQuery.gte('fecha', `${fechaDesde}T00:00:00`);
+    }
+    if (fechaHasta) {
+      comprasQuery = comprasQuery.lte('fecha', `${fechaHasta}T23:59:59`);
+    }
+
     const [insumosRes, comprasRes] = await Promise.all([
       supabase.from('insumos').select('id, nombre, unidad_medida, presentacion, costo_presentacion, cantidad_por_presentacion, stock_actual').order('nombre'),
-      supabase.from('compras_insumos').select('*').order('fecha', { ascending: false }).limit(200),
+      comprasQuery,
     ]);
 
     if (insumosRes.data) setInsumos(insumosRes.data);
+    setTotalCount(comprasRes.count ?? 0);
 
     if (comprasRes.data && insumosRes.data) {
       const insumoMap = new Map(insumosRes.data.map((i) => [i.id, i.nombre]));
@@ -104,7 +127,10 @@ const ComprasTab = ({ isAdmin }: Props) => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, fechaDesde, fechaHasta]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const resetForm = () => {
     setSelectedInsumoId('');
@@ -195,14 +221,39 @@ const ComprasTab = ({ isAdmin }: Props) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-3 justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="flex flex-col sm:flex-row gap-2 flex-1">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por insumo..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="pl-9"
+            />
+          </div>
           <Input
-            placeholder="Buscar por insumo..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className="pl-9"
+            type="date"
+            value={fechaDesde}
+            onChange={(e) => { setPage(0); setFechaDesde(e.target.value); }}
+            className="w-full sm:w-40"
+            title="Desde"
           />
+          <Input
+            type="date"
+            value={fechaHasta}
+            onChange={(e) => { setPage(0); setFechaHasta(e.target.value); }}
+            className="w-full sm:w-40"
+            title="Hasta"
+          />
+          {(fechaDesde || fechaHasta) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setPage(0); setFechaDesde(''); setFechaHasta(''); }}
+            >
+              Limpiar
+            </Button>
+          )}
         </div>
         <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" /> Registrar Compra
@@ -213,6 +264,9 @@ const ComprasTab = ({ isAdmin }: Props) => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" /> Historial de Compras
+            <span className="text-sm font-normal text-muted-foreground ml-2">
+              ({totalCount} registro{totalCount !== 1 ? 's' : ''})
+            </span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -260,6 +314,33 @@ const ComprasTab = ({ isAdmin }: Props) => {
           )}
         </CardContent>
       </Card>
+
+      {/* Paginación */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Página {page + 1} de {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0 || loading}
+            >
+              Anterior
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1 || loading}
+            >
+              Siguiente
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Dialog Registrar Compra */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
