@@ -101,7 +101,8 @@ export default function VentasTab() {
   };
 
   // ── Coworking Occupancy Heatmap ──
-  const fetchCoworkData = async () => {
+  const fetchCoworkData = async (signal?: AbortSignal) => {
+    if (signal?.aborted) return;
     setLoadingCowork(true);
     const desdeISO = format(rango.desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(rango.hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
