@@ -49,168 +49,211 @@ export default function CoworkingAnalysis({ desde, hasta }: Props) {
   const [selectedTarifa, setSelectedTarifa] = useState<string | null>(null);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [loadingTop, setLoadingTop] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const abortStatsRef = useRef<AbortController | null>(null);
+  const abortTopRef = useRef<AbortController | null>(null);
 
   const desdeISO = format(desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
   const hastaISO = format(hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
   useEffect(() => {
-    fetchStats();
+    abortStatsRef.current?.abort();
+    const ctrl = new AbortController();
+    abortStatsRef.current = ctrl;
+    fetchStats(ctrl.signal);
     setSelectedTarifa(null);
     setTopProducts([]);
+    return () => ctrl.abort();
   }, [desdeISO, hastaISO]);
 
-  const fetchStats = async () => {
+  const fetchStats = async (signal: AbortSignal) => {
     setLoading(true);
+    setTruncated(false);
+    try {
+      const { data: tarifas, error: tErr } = await supabase
+        .from('tarifas_coworking')
+        .select('id, nombre')
+        .eq('activo', true)
+        .abortSignal(signal);
+      if (signal.aborted) return;
+      if (tErr) throw tErr;
 
-    // 1. Get all tarifas
-    const { data: tarifas } = await supabase
-      .from('tarifas_coworking')
-      .select('id, nombre')
-      .eq('activo', true);
-
-    if (!tarifas?.length) {
-      setTarifaStats([]);
-      setLoading(false);
-      return;
-    }
-
-    // 2. Get sessions in period (incluye 'activo' para no perder ocupación corriente)
-    const { data: sessions } = await supabase
-      .from('coworking_sessions')
-      .select('id, tarifa_id, monto_acumulado')
-      .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
-      .gte('fecha_inicio', desdeISO)
-      .lte('fecha_inicio', hastaISO)
-      .not('tarifa_id', 'is', null);
-
-    if (!sessions?.length) {
-      setTarifaStats(tarifas.map(t => ({
-        tarifaId: t.id, tarifaNombre: t.nombre,
-        sesiones: 0, ingresoCoworking: 0, ingresoUpsells: 0, ingresoTotal: 0,
-      })));
-      setLoading(false);
-      return;
-    }
-
-    // 3. Get detalle_ventas for those sessions, restringido a ventas COMPLETADAS
-    const sessionIds = sessions.map(s => s.id);
-    const allDetalles: { coworking_session_id: string; tipo_concepto: string; subtotal: number }[] = [];
-
-    for (let i = 0; i < sessionIds.length; i += 100) {
-      const batch = sessionIds.slice(i, i + 100);
-      const { data } = await supabase
-        .from('detalle_ventas')
-        .select('coworking_session_id, tipo_concepto, subtotal, ventas!inner(estado)')
-        .in('coworking_session_id', batch)
-        .eq('ventas.estado', 'completada');
-      if (data) allDetalles.push(...(data as any[]).filter(d => d.coworking_session_id));
-    }
-
-    // 4. Aggregate by tarifa
-    const tarifaMap = new Map<string, { sesiones: number; ingresoCoworking: number; ingresoUpsells: number }>();
-    tarifas.forEach(t => tarifaMap.set(t.id, { sesiones: 0, ingresoCoworking: 0, ingresoUpsells: 0 }));
-
-    // Map session -> tarifa for quick lookup
-    const sessionTarifaMap = new Map<string, string>();
-    sessions.forEach(s => {
-      if (s.tarifa_id) {
-        sessionTarifaMap.set(s.id, s.tarifa_id);
-        const entry = tarifaMap.get(s.tarifa_id);
-        if (entry) entry.sesiones++;
+      if (!tarifas?.length) {
+        setTarifaStats([]);
+        return;
       }
-    });
 
-    allDetalles.forEach(d => {
-      const tarifaId = sessionTarifaMap.get(d.coworking_session_id!);
-      if (!tarifaId) return;
-      const entry = tarifaMap.get(tarifaId);
-      if (!entry) return;
-      if (d.tipo_concepto === 'coworking') {
-        entry.ingresoCoworking += d.subtotal;
-      } else {
-        entry.ingresoUpsells += d.subtotal;
+      const { data: sessions, error: sErr } = await supabase
+        .from('coworking_sessions')
+        .select('id, tarifa_id, monto_acumulado')
+        .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
+        .gte('fecha_inicio', desdeISO)
+        .lte('fecha_inicio', hastaISO)
+        .not('tarifa_id', 'is', null)
+        .limit(SESSIONS_LIMIT)
+        .abortSignal(signal);
+      if (signal.aborted) return;
+      if (sErr) throw sErr;
+
+      let localTruncated = (sessions?.length ?? 0) >= SESSIONS_LIMIT;
+
+      if (!sessions?.length) {
+        setTarifaStats(tarifas.map(t => ({
+          tarifaId: t.id, tarifaNombre: t.nombre,
+          sesiones: 0, ingresoCoworking: 0, ingresoUpsells: 0, ingresoTotal: 0,
+        })));
+        return;
       }
-    });
 
-    const stats: TarifaStats[] = tarifas.map(t => {
-      const e = tarifaMap.get(t.id)!;
-      return {
-        tarifaId: t.id,
-        tarifaNombre: t.nombre,
-        sesiones: e.sesiones,
-        ingresoCoworking: +e.ingresoCoworking.toFixed(2),
-        ingresoUpsells: +e.ingresoUpsells.toFixed(2),
-        ingresoTotal: +(e.ingresoCoworking + e.ingresoUpsells).toFixed(2),
-      };
-    }).sort((a, b) => b.sesiones - a.sesiones);
+      const sessionIds = sessions.map(s => s.id);
+      const allDetalles: { coworking_session_id: string; tipo_concepto: string; subtotal: number }[] = [];
 
-    setTarifaStats(stats);
-    setLoading(false);
+      for (let i = 0; i < sessionIds.length; i += 100) {
+        if (signal.aborted) return;
+        const batch = sessionIds.slice(i, i + 100);
+        const { data, error } = await supabase
+          .from('detalle_ventas')
+          .select('coworking_session_id, tipo_concepto, subtotal, ventas!inner(estado)')
+          .in('coworking_session_id', batch)
+          .eq('ventas.estado', 'completada')
+          .limit(DETALLES_LIMIT)
+          .abortSignal(signal);
+        if (error) throw error;
+        const rows = (data ?? []) as any[];
+        if (rows.length >= DETALLES_LIMIT) localTruncated = true;
+        allDetalles.push(...rows.filter(d => d.coworking_session_id));
+      }
+
+      const tarifaMap = new Map<string, { sesiones: number; ingresoCoworking: number; ingresoUpsells: number }>();
+      tarifas.forEach(t => tarifaMap.set(t.id, { sesiones: 0, ingresoCoworking: 0, ingresoUpsells: 0 }));
+
+      const sessionTarifaMap = new Map<string, string>();
+      sessions.forEach(s => {
+        if (s.tarifa_id) {
+          sessionTarifaMap.set(s.id, s.tarifa_id);
+          const entry = tarifaMap.get(s.tarifa_id);
+          if (entry) entry.sesiones++;
+        }
+      });
+
+      allDetalles.forEach(d => {
+        const tarifaId = sessionTarifaMap.get(d.coworking_session_id!);
+        if (!tarifaId) return;
+        const entry = tarifaMap.get(tarifaId);
+        if (!entry) return;
+        if (d.tipo_concepto === 'coworking') entry.ingresoCoworking += d.subtotal;
+        else entry.ingresoUpsells += d.subtotal;
+      });
+
+      const stats: TarifaStats[] = tarifas.map(t => {
+        const e = tarifaMap.get(t.id)!;
+        return {
+          tarifaId: t.id,
+          tarifaNombre: t.nombre,
+          sesiones: e.sesiones,
+          ingresoCoworking: +e.ingresoCoworking.toFixed(2),
+          ingresoUpsells: +e.ingresoUpsells.toFixed(2),
+          ingresoTotal: +(e.ingresoCoworking + e.ingresoUpsells).toFixed(2),
+        };
+      }).sort((a, b) => b.sesiones - a.sesiones);
+
+      if (signal.aborted) return;
+      setTarifaStats(stats);
+      setTruncated(localTruncated);
+    } catch (err: any) {
+      if (signal.aborted || err?.name === 'AbortError') return;
+      console.error('[CoworkingAnalysis] fetchStats error', err);
+      toast.error('No se pudo cargar el análisis de coworking', {
+        description: err?.message ?? 'Error de conexión con el servidor.',
+      });
+    } finally {
+      if (!signal.aborted) setLoading(false);
+    }
   };
 
-  // Fetch top 3 products for selected tarifa
   useEffect(() => {
     if (!selectedTarifa) { setTopProducts([]); return; }
-    fetchTopProducts(selectedTarifa);
+    abortTopRef.current?.abort();
+    const ctrl = new AbortController();
+    abortTopRef.current = ctrl;
+    fetchTopProducts(selectedTarifa, ctrl.signal);
+    return () => ctrl.abort();
   }, [selectedTarifa]);
 
-  const fetchTopProducts = async (tarifaId: string) => {
+  const fetchTopProducts = async (tarifaId: string, signal: AbortSignal) => {
     setLoadingTop(true);
+    try {
+      const { data: sessions, error: sErr } = await supabase
+        .from('coworking_sessions')
+        .select('id')
+        .eq('tarifa_id', tarifaId)
+        .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
+        .gte('fecha_inicio', desdeISO)
+        .lte('fecha_inicio', hastaISO)
+        .limit(SESSIONS_LIMIT)
+        .abortSignal(signal);
+      if (signal.aborted) return;
+      if (sErr) throw sErr;
 
-    // Get session IDs for this tarifa in the period
-    const { data: sessions } = await supabase
-      .from('coworking_sessions')
-      .select('id')
-      .eq('tarifa_id', tarifaId)
-      .in('estado', ['activo', 'finalizado', 'pendiente_pago'])
-      .gte('fecha_inicio', desdeISO)
-      .lte('fecha_inicio', hastaISO);
+      if (!sessions?.length) { setTopProducts([]); return; }
 
-    if (!sessions?.length) { setTopProducts([]); setLoadingTop(false); return; }
+      const sessionIds = sessions.map(s => s.id);
+      const productSales = new Map<string, { cantidad: number; ingreso: number }>();
 
-    const sessionIds = sessions.map(s => s.id);
-    const productSales = new Map<string, { cantidad: number; ingreso: number }>();
+      for (let i = 0; i < sessionIds.length; i += 100) {
+        if (signal.aborted) return;
+        const batch = sessionIds.slice(i, i + 100);
+        const { data, error } = await supabase
+          .from('detalle_ventas')
+          .select('producto_id, cantidad, subtotal, tipo_concepto, ventas!inner(estado)')
+          .in('coworking_session_id', batch)
+          .not('producto_id', 'is', null)
+          .in('tipo_concepto', ['producto', 'amenity'])
+          .eq('ventas.estado', 'completada')
+          .limit(DETALLES_LIMIT)
+          .abortSignal(signal);
+        if (error) throw error;
+        ((data ?? []) as any[]).forEach(d => {
+          if (!d.producto_id) return;
+          const existing = productSales.get(d.producto_id) || { cantidad: 0, ingreso: 0 };
+          existing.cantidad += d.cantidad;
+          existing.ingreso += d.subtotal;
+          productSales.set(d.producto_id, existing);
+        });
+      }
 
-    for (let i = 0; i < sessionIds.length; i += 100) {
-      const batch = sessionIds.slice(i, i + 100);
-      const { data } = await supabase
-        .from('detalle_ventas')
-        .select('producto_id, cantidad, subtotal, tipo_concepto, ventas!inner(estado)')
-        .in('coworking_session_id', batch)
-        .not('producto_id', 'is', null)
-        .in('tipo_concepto', ['producto', 'amenity'])
-        .eq('ventas.estado', 'completada');
-      ((data ?? []) as any[]).forEach(d => {
-        if (!d.producto_id) return;
-        const existing = productSales.get(d.producto_id) || { cantidad: 0, ingreso: 0 };
-        existing.cantidad += d.cantidad;
-        existing.ingreso += d.subtotal;
-        productSales.set(d.producto_id, existing);
+      if (productSales.size === 0) { setTopProducts([]); return; }
+
+      const prodIds = [...productSales.keys()];
+      const { data: prods, error: pErr } = await supabase
+        .from('productos')
+        .select('id, nombre')
+        .in('id', prodIds)
+        .abortSignal(signal);
+      if (signal.aborted) return;
+      if (pErr) throw pErr;
+
+      const nameMap = new Map((prods ?? []).map(p => [p.id, p.nombre]));
+
+      const top: TopProduct[] = [...productSales.entries()]
+        .map(([id, stats]) => ({
+          nombre: nameMap.get(id) || 'Desconocido',
+          cantidad: stats.cantidad,
+          ingreso: +stats.ingreso.toFixed(2),
+        }))
+        .sort((a, b) => b.cantidad - a.cantidad)
+        .slice(0, 3);
+
+      setTopProducts(top);
+    } catch (err: any) {
+      if (signal.aborted || err?.name === 'AbortError') return;
+      console.error('[CoworkingAnalysis] fetchTopProducts error', err);
+      toast.error('No se pudieron cargar los productos top', {
+        description: err?.message ?? 'Error de conexión con el servidor.',
       });
+    } finally {
+      if (!signal.aborted) setLoadingTop(false);
     }
-
-    if (productSales.size === 0) { setTopProducts([]); setLoadingTop(false); return; }
-
-    // Get product names
-    const prodIds = [...productSales.keys()];
-    const { data: prods } = await supabase
-      .from('productos')
-      .select('id, nombre')
-      .in('id', prodIds);
-
-    const nameMap = new Map((prods ?? []).map(p => [p.id, p.nombre]));
-
-    const top: TopProduct[] = [...productSales.entries()]
-      .map(([id, stats]) => ({
-        nombre: nameMap.get(id) || 'Desconocido',
-        cantidad: stats.cantidad,
-        ingreso: +stats.ingreso.toFixed(2),
-      }))
-      .sort((a, b) => b.cantidad - a.cantidad)
-      .slice(0, 3);
-
-    setTopProducts(top);
-    setLoadingTop(false);
   };
 
   const fmt = (n: number) => n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
