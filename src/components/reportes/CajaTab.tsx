@@ -25,20 +25,35 @@ export default function CajaTab() {
   const [turnos, setTurnos] = useState<CajaTurnoResumen[]>([]);
   const [selectedCajaId, setSelectedCajaId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
+    const ctrl = new AbortController();
     (async () => {
       setLoading(true);
-      const data = await fetchCajaResumen(desde, hasta);
-      setTurnos(data);
-      if (data.length > 0) {
-        const active = data.find(t => t.caja.estado === 'abierta');
-        setSelectedCajaId(active?.caja.id ?? data[0].caja.id);
-      } else {
-        setSelectedCajaId('');
+      setTruncated(false);
+      try {
+        const { turnos: data, truncated: tr } = await fetchCajaResumen(desde, hasta, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setTurnos(data);
+        setTruncated(tr);
+        if (data.length > 0) {
+          const active = data.find(t => t.caja.estado === 'abierta');
+          setSelectedCajaId(active?.caja.id ?? data[0].caja.id);
+        } else {
+          setSelectedCajaId('');
+        }
+      } catch (err: any) {
+        if (ctrl.signal.aborted || err?.name === 'AbortError') return;
+        console.error('[CajaTab] fetchCajaResumen error', err);
+        toast.error('No se pudo cargar el reporte de caja', {
+          description: err?.message ?? 'Error de conexión con el servidor.',
+        });
+      } finally {
+        if (!ctrl.signal.aborted) setLoading(false);
       }
-      setLoading(false);
     })();
+    return () => ctrl.abort();
   }, [desde, hasta]);
 
   // Global consolidated summary
