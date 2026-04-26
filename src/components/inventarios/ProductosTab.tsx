@@ -641,6 +641,27 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteBlock ? 'No se puede eliminar' : `¿Eliminar "${deleteCandidate?.nombre}"?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteBlock ?? 'Esta acción no se puede deshacer. El producto y su receta serán eliminados permanentemente.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cerrar</AlertDialogCancel>
+            {!deleteBlock && (
+              <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Eliminar
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
