@@ -98,6 +98,12 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           setVentasPorUsuario([]);
         }
       }
+      // Sesiones coworking activas o pendientes de pago (advertencia)
+      const { data: sesiones } = await supabase
+        .from('coworking_sessions')
+        .select('id, cliente_nombre, estado')
+        .in('estado', ['activo', 'pendiente_pago'] as any);
+      setSesionesActivas(((sesiones ?? []) as any).map((s: any) => ({ id: s.id, cliente_nombre: s.cliente_nombre })));
     };
     fetchVentas();
   }, [open, caja.fecha_apertura]);
