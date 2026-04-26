@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, DollarSign } from 'lucide-react';
+import { Clock, DollarSign, Printer } from 'lucide-react';
 import type { CheckoutSummary } from './types';
 import { nowCDMX } from '@/lib/utils';
 
