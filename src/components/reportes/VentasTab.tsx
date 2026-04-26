@@ -389,6 +389,10 @@ export default function VentasTab() {
             <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
               <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
             </div>
+          ) : Object.keys(heatmap).length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-16">
+              No hay ventas registradas en este período.
+            </div>
           ) : (
             <TooltipProvider delayDuration={100}>
               <div className="overflow-x-auto">
@@ -423,8 +427,14 @@ export default function VentasTab() {
                             </TooltipTrigger>
                             <TooltipContent side="top" className="text-xs">
                               <p className="font-semibold">{dia}, {fmtHoraFull(hora)}</p>
-                              <p>Ventas Totales: {fmt(cell.total)}</p>
-                              <p># Transacciones: {cell.count}</p>
+                              <p>
+                                {periodo === 'mes' ? 'Ventas (promedio diario): ' : 'Ventas Totales: '}
+                                {fmt(cell.total)}
+                              </p>
+                              <p>
+                                {periodo === 'mes' ? '# Transacciones (promedio): ' : '# Transacciones: '}
+                                {periodo === 'mes' ? cell.count.toFixed(1) : cell.count}
+                              </p>
                             </TooltipContent>
                           </Tooltip>
                         );
