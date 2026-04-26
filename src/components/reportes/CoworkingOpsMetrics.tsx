@@ -123,15 +123,20 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     });
   };
 
-  const fetchKdsMetrics = async () => {
-    const { data: orders } = await supabase
+  const fetchKdsMetrics = async (signal: AbortSignal) => {
+    const { data: orders, error: ordErr } = await supabase
       .from('kds_orders')
       .select('id, estado, created_at, updated_at, coworking_session_id, venta_id')
       .not('coworking_session_id', 'is', null)
       .gte('created_at', desdeISO)
-      .lte('created_at', hastaISO);
+      .lte('created_at', hastaISO)
+      .limit(ROWS_LIMIT)
+      .abortSignal(signal);
+    if (signal.aborted) return;
+    if (ordErr) throw ordErr;
 
     const ordersList = (orders ?? []) as any[];
+    if (ordersList.length >= ROWS_LIMIT) setTruncated(true);
     if (ordersList.length === 0) {
       setKds({
         totalOrdenes: 0, totalItems: 0,
@@ -142,10 +147,14 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     }
 
     const orderIds = ordersList.map(o => o.id);
-    const { data: items } = await supabase
+    const { data: items, error: itErr } = await supabase
       .from('kds_order_items')
       .select('kds_order_id, cantidad, nombre_producto')
-      .in('kds_order_id', orderIds);
+      .in('kds_order_id', orderIds)
+      .limit(ROWS_LIMIT)
+      .abortSignal(signal);
+    if (signal.aborted) return;
+    if (itErr) throw itErr;
 
     const itemsList = (items ?? []) as any[];
     const totalItems = itemsList.reduce((acc, i) => acc + (Number(i.cantidad) || 0), 0);
@@ -156,19 +165,18 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
       itemsByOrder.get(i.kds_order_id)!.push(i);
     });
 
-    // Clasificación amenity vs extra:
-    // 1) Si la orden está enlazada a una venta, miramos los tipo_concepto de detalle_ventas
-    //    de esa sesión: si TODOS son 'amenity' → amenity; si hay 'producto' → extra.
-    // 2) Fallback: marcador ☕ en nombre_producto (compatibilidad con datos previos).
     const ventaIds = ordersList.map(o => o.venta_id).filter(Boolean) as string[];
     const ventaTipos = new Map<string, Set<string>>();
     if (ventaIds.length > 0) {
       for (let i = 0; i < ventaIds.length; i += 100) {
+        if (signal.aborted) return;
         const batch = ventaIds.slice(i, i + 100);
-        const { data: dv } = await supabase
+        const { data: dv, error: dvErr } = await supabase
           .from('detalle_ventas')
           .select('venta_id, tipo_concepto')
-          .in('venta_id', batch);
+          .in('venta_id', batch)
+          .abortSignal(signal);
+        if (dvErr) throw dvErr;
         ((dv ?? []) as any[]).forEach(d => {
           if (!ventaTipos.has(d.venta_id)) ventaTipos.set(d.venta_id, new Set());
           ventaTipos.get(d.venta_id)!.add(d.tipo_concepto);
@@ -181,15 +189,12 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     for (const o of ordersList) {
       const its = itemsByOrder.get(o.id) ?? [];
       if (its.length === 0) continue;
-
       const tipos = o.venta_id ? ventaTipos.get(o.venta_id) : null;
       let isAmenity: boolean;
       if (tipos && tipos.size > 0) {
-        // Solo amenity si TODOS los conceptos relevantes son 'amenity'
         const relevantes = new Set([...tipos].filter(t => t === 'amenity' || t === 'producto'));
         isAmenity = relevantes.size === 1 && relevantes.has('amenity');
       } else {
-        // Fallback heurístico
         isAmenity = its.every(i => (i.nombre_producto ?? '').includes('☕'));
       }
       if (isAmenity) ordenesAmenity++; else ordenesExtra++;
@@ -204,7 +209,8 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
         listas++;
         if (o.created_at && o.updated_at) {
           const ms = new Date(o.updated_at).getTime() - new Date(o.created_at).getTime();
-          if (ms > 0 && ms < 1000 * 60 * 60 * 6) prepDurations.push(ms);
+          // Pre-filtro: solo durations realistas (>0 y <2h) para no sesgar promedios
+          if (ms > 0 && ms < KDS_MAX_PREP_MS) prepDurations.push(ms);
         }
       }
     }
@@ -213,6 +219,7 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
       ? prepDurations.reduce((a, b) => a + b, 0) / prepDurations.length / 60000
       : null;
 
+    if (signal.aborted) return;
     setKds({
       totalOrdenes: ordersList.length,
       totalItems,
