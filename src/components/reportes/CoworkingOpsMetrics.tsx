@@ -103,7 +103,7 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
   const fetchKdsMetrics = async () => {
     const { data: orders } = await supabase
       .from('kds_orders')
-      .select('id, estado, created_at, updated_at, coworking_session_id')
+      .select('id, estado, created_at, updated_at, coworking_session_id, venta_id')
       .not('coworking_session_id', 'is', null)
       .gte('created_at', desdeISO)
       .lte('created_at', hastaISO);
@@ -127,20 +127,49 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
     const itemsList = (items ?? []) as any[];
     const totalItems = itemsList.reduce((acc, i) => acc + (Number(i.cantidad) || 0), 0);
 
-    // Una orden cuenta como "amenity" si todos sus items llevan el marcador ☕
     const itemsByOrder = new Map<string, any[]>();
     itemsList.forEach(i => {
       if (!itemsByOrder.has(i.kds_order_id)) itemsByOrder.set(i.kds_order_id, []);
       itemsByOrder.get(i.kds_order_id)!.push(i);
     });
 
+    // Clasificación amenity vs extra:
+    // 1) Si la orden está enlazada a una venta, miramos los tipo_concepto de detalle_ventas
+    //    de esa sesión: si TODOS son 'amenity' → amenity; si hay 'producto' → extra.
+    // 2) Fallback: marcador ☕ en nombre_producto (compatibilidad con datos previos).
+    const ventaIds = ordersList.map(o => o.venta_id).filter(Boolean) as string[];
+    const ventaTipos = new Map<string, Set<string>>();
+    if (ventaIds.length > 0) {
+      for (let i = 0; i < ventaIds.length; i += 100) {
+        const batch = ventaIds.slice(i, i + 100);
+        const { data: dv } = await supabase
+          .from('detalle_ventas')
+          .select('venta_id, tipo_concepto')
+          .in('venta_id', batch);
+        ((dv ?? []) as any[]).forEach(d => {
+          if (!ventaTipos.has(d.venta_id)) ventaTipos.set(d.venta_id, new Set());
+          ventaTipos.get(d.venta_id)!.add(d.tipo_concepto);
+        });
+      }
+    }
+
     let ordenesAmenity = 0;
     let ordenesExtra = 0;
-    for (const id of orderIds) {
-      const its = itemsByOrder.get(id) ?? [];
+    for (const o of ordersList) {
+      const its = itemsByOrder.get(o.id) ?? [];
       if (its.length === 0) continue;
-      const allAmenity = its.every(i => (i.nombre_producto ?? '').includes('☕'));
-      if (allAmenity) ordenesAmenity++; else ordenesExtra++;
+
+      const tipos = o.venta_id ? ventaTipos.get(o.venta_id) : null;
+      let isAmenity: boolean;
+      if (tipos && tipos.size > 0) {
+        // Solo amenity si TODOS los conceptos relevantes son 'amenity'
+        const relevantes = new Set([...tipos].filter(t => t === 'amenity' || t === 'producto'));
+        isAmenity = relevantes.size === 1 && relevantes.has('amenity');
+      } else {
+        // Fallback heurístico
+        isAmenity = its.every(i => (i.nombre_producto ?? '').includes('☕'));
+      }
+      if (isAmenity) ordenesAmenity++; else ordenesExtra++;
     }
 
     let pendientes = 0, enPrep = 0, listas = 0;
