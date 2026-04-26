@@ -127,7 +127,13 @@ const InsumosTab = ({ isAdmin }: Props) => {
 
     if (editingId) {
       const { error } = await supabase.from('insumos').update(payload).eq('id', editingId);
-      if (error) { toast.error('Error al actualizar insumo'); }
+      if (error) {
+        if (error.code === '23505' || /unique/i.test(error.message)) {
+          toast.error(`Ya existe un insumo con el nombre "${payload.nombre}"`);
+        } else {
+          toast.error('Error al actualizar insumo');
+        }
+      }
       else {
         toast.success('Insumo actualizado');
         await supabase.from('audit_logs').insert({
@@ -139,7 +145,13 @@ const InsumosTab = ({ isAdmin }: Props) => {
       }
     } else {
       const { error } = await supabase.from('insumos').insert(payload);
-      if (error) { toast.error('Error al crear insumo'); }
+      if (error) {
+        if (error.code === '23505' || /unique/i.test(error.message)) {
+          toast.error(`Ya existe un insumo con el nombre "${payload.nombre}"`);
+        } else {
+          toast.error('Error al crear insumo');
+        }
+      }
       else {
         toast.success('Insumo creado');
         await supabase.from('audit_logs').insert({
