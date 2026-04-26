@@ -1135,6 +1135,10 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
+      recalcular_costos_productos: {
+        Args: { p_insumo_id?: string }
+        Returns: number
+      }
       registrar_merma: {
         Args: { p_cantidad: number; p_insumo_id: string; p_motivo: string }
         Returns: Json
