@@ -106,7 +106,7 @@ export async function aplicarEntregasComoMermas(params: {
 
   // Auditoría adicional del descuento por entrega
   if (entregados.length > 0) {
-    await supabase.from('audit_logs').insert({
+    await supabase.from('audit_logs').insert([{
       user_id: userId,
       accion: 'descuento_inventario_cancelacion_sesion',
       descripcion: `Descuento por entregas reales en sesión cancelada — ${clienteNombre}`,
