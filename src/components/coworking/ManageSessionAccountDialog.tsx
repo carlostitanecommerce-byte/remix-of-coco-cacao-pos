@@ -595,6 +595,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => handleUpdateQuantity(item, -1)}
+                            disabled={busy}
                             title="Disminuir"
                           >
                             <Minus className="h-3 w-3" />
@@ -605,6 +606,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => handleUpdateQuantity(item, 1)}
+                            disabled={busy}
                             title="Aumentar"
                           >
                             <Plus className="h-3 w-3" />
@@ -615,6 +617,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                           size="sm"
                           className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                           onClick={() => handleRemove(item)}
+                          disabled={busy}
                           title="Eliminar"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
