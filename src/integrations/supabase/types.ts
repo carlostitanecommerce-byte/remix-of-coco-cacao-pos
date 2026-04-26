@@ -846,6 +846,7 @@ export type Database = {
           created_at: string
           estado: Database["public"]["Enums"]["solicitud_cancelacion_sesion_estado"]
           id: string
+          items_entregados: Json
           motivo: string
           motivo_rechazo: string | null
           revisado_por: string | null
@@ -857,6 +858,7 @@ export type Database = {
           created_at?: string
           estado?: Database["public"]["Enums"]["solicitud_cancelacion_sesion_estado"]
           id?: string
+          items_entregados?: Json
           motivo: string
           motivo_rechazo?: string | null
           revisado_por?: string | null
@@ -868,6 +870,7 @@ export type Database = {
           created_at?: string
           estado?: Database["public"]["Enums"]["solicitud_cancelacion_sesion_estado"]
           id?: string
+          items_entregados?: Json
           motivo?: string
           motivo_rechazo?: string | null
           revisado_por?: string | null
