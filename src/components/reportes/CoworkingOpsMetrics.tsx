@@ -244,6 +244,14 @@ export default function CoworkingOpsMetrics({ desde, hasta }: Props) {
 
   return (
     <div className="space-y-6">
+      {truncated && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Volumen elevado: métricas operativas limitadas a {ROWS_LIMIT.toLocaleString('es-MX')} registros. Reduce el rango para mayor exactitud.
+          </span>
+        </div>
+      )}
       {/* Cancelaciones */}
       <Card>
         <CardHeader>
