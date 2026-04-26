@@ -113,6 +113,24 @@ export default function VentasTab() {
       total += Number(v.total_neto);
     });
 
+    // Monthly view: average each (day-of-week, hour) cell by # of occurrences
+    // of that weekday in the range — matches coworking's monthly behavior.
+    if (periodo === 'mes') {
+      const days = eachDayOfInterval({ start: rango.desde, end: rango.hasta });
+      const dayCount: Record<number, number> = {};
+      days.forEach(day => {
+        const jsDay = getDay(day);
+        const diaIdx = jsDay === 0 ? 6 : jsDay - 1;
+        dayCount[diaIdx] = (dayCount[diaIdx] || 0) + 1;
+      });
+      Object.entries(map).forEach(([key, cell]) => {
+        const diaIdx = parseInt(key.split('-')[0]);
+        const count = dayCount[diaIdx] || 1;
+        cell.total = cell.total / count;
+        cell.count = cell.count / count;
+      });
+    }
+
     setHeatmap(map);
     setPeriodoTotal(total);
     setPeriodoTransacciones(ventas.length);
