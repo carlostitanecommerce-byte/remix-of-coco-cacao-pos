@@ -354,6 +354,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       toast.error(err.message || 'Error al procesar la venta');
     } finally {
       setSaving(false);
+      inFlightRef.current = false;
     }
   };
 
