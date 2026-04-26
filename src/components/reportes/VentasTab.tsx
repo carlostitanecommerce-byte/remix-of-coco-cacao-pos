@@ -342,6 +342,9 @@ export default function VentasTab() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-heading font-bold text-foreground">Mapa de Calor — Chocolatería</h2>
+          <p className="text-sm text-muted-foreground">
+            {periodo === 'mes' ? 'Promedio diario del mes por hora' : 'Ventas totales por hora'}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-lg border border-border overflow-hidden">
