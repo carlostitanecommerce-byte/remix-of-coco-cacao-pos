@@ -400,16 +400,15 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             )}
           </DialogHeader>
           <div id="ticket-print-area" className="space-y-3 text-sm font-mono overflow-hidden">
-            <div className="text-center font-bold text-base hidden print:block">
-              Coco & Cacao + Kúuchil Meyaj
-            </div>
-            {ticket.folio && (
-              <p className="text-center text-xs hidden print:block">Folio: #{String(ticket.folio).padStart(4, '0')}</p>
-            )}
-            <div className="text-center text-xs text-muted-foreground space-y-1">
-              <p>{new Date(ticket.fecha!).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              <p>{new Date(ticket.fecha!).toLocaleTimeString('es-MX')}</p>
-              <p>Atendió: {ticket.usuario_nombre}</p>
+            <div className="text-center space-y-1">
+              <div className="font-bold text-base">Coco & Cacao + Kúuchil Meyaj</div>
+              <p className="text-xs text-muted-foreground">Mérida, Yucatán</p>
+              {ticket.folio && (
+                <p className="text-xs font-bold">Folio: #{String(ticket.folio).padStart(4, '0')}</p>
+              )}
+              <p className="text-xs text-muted-foreground">{new Date(ticket.fecha!).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p className="text-xs text-muted-foreground">{new Date(ticket.fecha!).toLocaleTimeString('es-MX')}</p>
+              <p className="text-xs text-muted-foreground">Atendió: {ticket.usuario_nombre}</p>
             </div>
 
             <Separator />
