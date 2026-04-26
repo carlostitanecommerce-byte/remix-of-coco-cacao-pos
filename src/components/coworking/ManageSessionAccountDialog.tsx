@@ -229,7 +229,23 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         cantidad: 1,
       },
     ]);
-    toast({ title: `${producto.nombre} agregado`, description: `$${precio.toFixed(2)}` });
+
+    // Enviar a cocina
+    const kdsRes = await enviarASesionKDS({
+      context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
+      items: [{
+        producto_id: producto.id,
+        nombre: producto.nombre,
+        cantidad: 1,
+        isAmenity: precio === 0,
+      }],
+    });
+    toast({
+      title: `${producto.nombre} agregado`,
+      description: kdsRes.folio
+        ? `$${precio.toFixed(2)} · Comanda #${String(kdsRes.folio).padStart(4, '0')} a cocina`
+        : `$${precio.toFixed(2)}`,
+    });
   };
 
   const handleRemove = async (item: SessionItem) => {
