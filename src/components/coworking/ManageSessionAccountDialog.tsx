@@ -703,7 +703,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-foreground font-medium">${precio.toFixed(2)}</span>
-                        <Button size="sm" variant="outline" className="h-7" onClick={() => handleAdd(p)}>
+                        <Button size="sm" variant="outline" className="h-7" onClick={() => handleAdd(p)} disabled={busy}>
                           <Plus className="h-3 w-3 mr-1" />
                           Agregar
                         </Button>
