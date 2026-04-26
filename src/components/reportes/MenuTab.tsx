@@ -308,6 +308,9 @@ export default function MenuTab() {
 
           {/* Coworking & Upsells Analysis */}
           <CoworkingAnalysis desde={rango.desde} hasta={rango.hasta} />
+
+          {/* Métricas operativas: cancelaciones y comandas KDS coworking */}
+          <CoworkingOpsMetrics desde={rango.desde} hasta={rango.hasta} />
         </>
       )}
     </div>
