@@ -380,6 +380,44 @@ export default function GeneralTab() {
         { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
       ];
       const wb = XLSX.utils.book_new();
+
+      // L3: Hoja "Resumen" con totales del periodo (consistente con KPIs en pantalla)
+      const ventasCount = ventas.length;
+      const desgloseEfectivo = ventas.reduce((s, v) => s + Number(v.monto_efectivo), 0);
+      const desgloseTarjeta = ventas.reduce((s, v) => s + Number(v.monto_tarjeta), 0);
+      const desgloseTransfer = ventas.reduce((s, v) => s + Number(v.monto_transferencia), 0);
+      const subtotalSinIVA = +(kpis.ingresoGravable / (1 + config.ivaPorcentaje / 100)).toFixed(2);
+
+      const resumenRows: (string | number)[][] = [
+        ['Reporte de Ventas para Contabilidad', ''],
+        ['Periodo', `${format(desde, 'dd/MM/yyyy')} – ${format(hasta, 'dd/MM/yyyy')}`],
+        ['Generado', format(new Date(), 'dd/MM/yyyy HH:mm', { locale: es })],
+        ['', ''],
+        ['Tickets', ventasCount],
+        ['Líneas exportadas', rows.length],
+        ['', ''],
+        ['Subtotal (sin IVA)', subtotalSinIVA],
+        [`IVA (${config.ivaPorcentaje}%)`, +kpis.ivaTotal.toFixed(2)],
+        ['Ingreso Gravable (con IVA)', +kpis.ingresoGravable.toFixed(2)],
+        ['Propinas (no gravable)', +kpis.totalPropinas.toFixed(2)],
+        ['Ingreso Bruto Total', +(kpis.ingresoGravable + kpis.totalPropinas).toFixed(2)],
+        ['', ''],
+        ['Comisiones bancarias (reales)', +kpis.comisionesTotal.toFixed(2)],
+        ['COGS (costo de insumos)', +kpis.costoInsumos.toFixed(2)],
+        ['Utilidad Estimada', +kpis.utilidad.toFixed(2)],
+        ['', ''],
+        ['Cobrado en Efectivo', +desgloseEfectivo.toFixed(2)],
+        ['Cobrado en Tarjeta', +desgloseTarjeta.toFixed(2)],
+        ['Cobrado en Transferencia', +desgloseTransfer.toFixed(2)],
+      ];
+      if (truncated.length > 0) {
+        resumenRows.push(['', '']);
+        resumenRows.push(['⚠ Resultados parciales', truncated.join(', ')]);
+      }
+      const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
+      wsResumen['!cols'] = [{ wch: 32 }, { wch: 22 }];
+      XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
       XLSX.utils.book_append_sheet(wb, ws, 'Ventas');
       XLSX.writeFile(wb, `Ventas_CocoCacao_${fileNameSuffix()}.xlsx`);
       toast.success('Archivo de ventas exportado correctamente');
