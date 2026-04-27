@@ -102,6 +102,13 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
                     <TableCell className="text-muted-foreground text-sm">
                       {new Date(s.fecha_inicio).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                     </TableCell>
+                    <TableCell>
+                      <SessionTimer
+                        fechaInicio={s.fecha_inicio}
+                        fechaFinEstimada={s.fecha_fin_estimada}
+                        fechaSalidaReal={s.fecha_salida_real}
+                      />
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {new Date(s.fecha_fin_estimada).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                     </TableCell>
