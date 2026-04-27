@@ -72,6 +72,7 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
                 <TableHead>Área</TableHead>
                 <TableHead>Pax</TableHead>
                 <TableHead>Entrada</TableHead>
+                <TableHead>Tiempo</TableHead>
                 <TableHead>Salida Est.</TableHead>
                 <TableHead></TableHead>
               </TableRow>
