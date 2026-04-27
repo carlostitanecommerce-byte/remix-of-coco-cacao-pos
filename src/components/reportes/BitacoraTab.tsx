@@ -335,6 +335,124 @@ const BitacoraTab = () => {
     [acciones]
   );
 
+  const handleExport = async () => {
+    if (isAfter(startOfDay(fechaInicio), endOfDay(fechaFin))) {
+      toast.error('Rango de fechas inválido.');
+      return;
+    }
+    setExporting(true);
+    try {
+      // Trae todo el rango filtrado en lotes de 1000 (límite Supabase)
+      const BATCH = 1000;
+      let from = 0;
+      const all: AuditLog[] = [];
+      while (true) {
+        let q = supabase
+          .from('audit_logs')
+          .select('*')
+          .gte('created_at', startOfDay(fechaInicio).toISOString())
+          .lte('created_at', endOfDay(fechaFin).toISOString())
+          .order('created_at', { ascending: false })
+          .range(from, from + BATCH - 1);
+        if (usuarioId !== 'all') q = q.eq('user_id', usuarioId);
+        if (accionFilter !== 'all') q = q.eq('accion', accionFilter);
+        if (search.trim()) q = q.ilike('descripcion', `%${search.trim()}%`);
+        const { data, error } = await q;
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(
+          ...data.map((l) => ({
+            ...l,
+            metadata: l.metadata as Record<string, unknown> | null,
+          }))
+        );
+        if (data.length < BATCH) break;
+        from += BATCH;
+        if (all.length >= 50000) break; // Safety cap
+      }
+
+      if (all.length === 0) {
+        toast.warning('No hay registros para exportar con los filtros actuales.');
+        setExporting(false);
+        return;
+      }
+
+      // Mapa de nombres
+      const userIds = [...new Set(all.map((l) => l.user_id))];
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('id, nombre')
+        .in('id', userIds);
+      const profileMap = new Map((profs ?? []).map((p) => [p.id, p.nombre]));
+
+      // Agregaciones para Resumen
+      const accionCounts = new Map<string, number>();
+      const userCounts = new Map<string, number>();
+      let cancelaciones = 0;
+      for (const l of all) {
+        accionCounts.set(l.accion, (accionCounts.get(l.accion) ?? 0) + 1);
+        userCounts.set(l.user_id, (userCounts.get(l.user_id) ?? 0) + 1);
+        if (CANCEL_ACTIONS.includes(l.accion)) cancelaciones++;
+      }
+      const accionesOrdenadas = [...accionCounts.entries()].sort((a, b) => b[1] - a[1]);
+      const usuariosOrdenados = [...userCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+      const wb = XLSX.utils.book_new();
+
+      // Sheet Resumen
+      const resumenRows: (string | number)[][] = [
+        ['Bitácora de Actividad — Resumen'],
+        [],
+        ['Rango', `${format(fechaInicio, 'dd/MM/yyyy')} – ${format(fechaFin, 'dd/MM/yyyy')}`],
+        ['Generado', format(new Date(), "dd/MM/yyyy HH:mm:ss", { locale: es })],
+        [],
+        ['Total de eventos', all.length],
+        ['Cancelaciones / Eliminaciones', cancelaciones],
+        ['Usuarios activos', userCounts.size],
+        [],
+        ['Acción', 'Eventos'],
+        ...accionesOrdenadas.map(([a, c]) => [formatActionLabel(a), c]),
+        [],
+        ['Usuario', 'Eventos'],
+        ...usuariosOrdenados.map(([uid, c]) => [profileMap.get(uid) || 'Desconocido', c]),
+      ];
+      const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
+      wsResumen['!cols'] = [{ wch: 38 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
+      // Sheet Bitácora detallada
+      const detalleRows = all.map((l) => ({
+        'Fecha / Hora': format(new Date(l.created_at), 'dd/MM/yyyy HH:mm:ss', { locale: es }),
+        Usuario: profileMap.get(l.user_id) || 'Desconocido',
+        Acción: formatActionLabel(l.accion),
+        'Acción (clave)': l.accion,
+        Descripción: l.descripcion ?? '',
+        Detalles: l.metadata ? JSON.stringify(l.metadata) : '',
+      }));
+      const wsDetalle = XLSX.utils.json_to_sheet(detalleRows);
+      wsDetalle['!cols'] = [
+        { wch: 20 },
+        { wch: 22 },
+        { wch: 28 },
+        { wch: 22 },
+        { wch: 60 },
+        { wch: 50 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsDetalle, 'Bitácora');
+
+      const suffix = `${format(fechaInicio, 'yyyyMMdd')}_${format(fechaFin, 'yyyyMMdd')}`;
+      XLSX.writeFile(wb, `Bitacora_CocoCacao_${suffix}.xlsx`);
+      toast.success(`Bitácora exportada (${all.length.toLocaleString('es-MX')} registros).`);
+    } catch (err) {
+      console.error('Error exportando bitácora:', err);
+      toast.error('No se pudo exportar la bitácora.', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <Card className="border-border/60">
       <CardHeader>
