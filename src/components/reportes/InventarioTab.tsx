@@ -22,6 +22,7 @@ interface InsumoRow {
   nombre: string;
   unidad_medida: string;
   stock_actual: number;
+  stock_minimo: number;
   costo_unitario: number;
   presentacion: string;
   cantidad_por_presentacion: number;
@@ -30,14 +31,17 @@ interface InsumoRow {
 }
 
 interface InsumoValuado {
+  id: string;
   nombre: string;
   categoria: string;
   stockUnidades: number;
+  stockMinimo: number;
   stockPresentacion: number;
   presentacion: string;
   unidad_medida: string;
   costoUnitario: number;
   valuacion: number;
+  bajoStock: boolean;
 }
 
 interface MermaRow {
