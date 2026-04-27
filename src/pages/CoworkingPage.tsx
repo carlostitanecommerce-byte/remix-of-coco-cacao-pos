@@ -24,6 +24,7 @@ const CoworkingPage = () => {
   const isAdmin = roles.includes('administrador');
 
   const METODO_LABELS: Record<string, string> = {
+    sin_cobro: 'Sin cobro de fracción extra',
     hora_cerrada: 'Hora cerrada',
     '30_min': 'Bloques de 30 min',
     '15_min': 'Bloques de 15 min',
@@ -68,6 +69,11 @@ const CoworkingPage = () => {
 
     if (minCobrar > 0) {
       switch (metodo) {
+        case 'sin_cobro':
+          // Tarifa todo incluido: nunca se cobra fracción extra
+          bloquesExtra = 0;
+          cargoExtraUnidad = 0;
+          break;
         case '15_min':
           bloquesExtra = Math.ceil(minCobrar / 15);
           cargoExtraUnidad = bloquesExtra * (precioBase / 4);

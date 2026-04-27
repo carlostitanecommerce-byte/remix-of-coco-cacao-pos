@@ -25,6 +25,7 @@ interface Tarifa {
 }
 
 const METODO_FRACCION_LABELS: Record<string, string> = {
+  sin_cobro: 'Sin cobrar fracción extra',
   hora_cerrada: 'Hora Cerrada',
   '30_min': 'Bloques de 30 min',
   '15_min': 'Bloques de 15 min',
