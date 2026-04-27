@@ -1,26 +1,35 @@
-# Quitar el bloque de sesiones de las tarjetas de Ocupación
+## Problema
 
-En `OccupancyGrid.tsx`, eliminar por completo el bloque que renderiza las sesiones dentro de cada tarjeta de espacio (las líneas que muestran "Sesión 1 · N pax", "Salida" y "Cancelar", tanto para áreas privadas como públicas).
+En **Inventarios → Insumos**:
 
-## Lo que queda en cada tarjeta
+1. **Scroll horizontal en toda la página**: la tabla tiene 9 columnas (Insumo, Categoría, Presentación, Unidad, Stock Actual, Stock Mínimo, Costo Unitario, Estado, Acciones) y se desborda del ancho disponible, lo que obliga a usar la barra horizontal inferior del navegador para ver columnas como Estado y Acciones.
+2. **Diálogo de Nuevo/Editar Insumo se corta**: en viewports cortos (≈575px de alto) el contenido del dialog (nombre, categoría, unidad, bloque de presentación con costo calculado, stock actual y mínimo + footer) excede la altura de la pantalla y los botones quedan inaccesibles porque el `DialogContent` no tiene scroll interno.
 
-- Nombre del área e ícono.
-- Badge superior derecho con la capacidad/ocupación (ej. `3/7`) o estado "Privado · Libre/Ocupado".
-- Etiqueta de estado (Vacío / Disponible / Lleno) y precio por hora.
-- Barra de progreso de ocupación.
+## Cambios propuestos
 
-## Lo que se elimina
+Archivo único: `src/components/inventarios/InsumosTab.tsx`
 
-- El bloque completo `{areaSessions.length > 0 && (...)}` con sus dos ramas (privado / público), incluyendo:
-  - Indicador "Sesión 1 · N pax".
-  - Botones "Salida" y "Cancelar".
+### 1. Confinar el scroll horizontal a la tabla
 
-Las acciones de Salida y Cancelar siguen disponibles en la tabla "Sesiones Activas" debajo, que es la fuente única de verdad para gestionar cada sesión.
+Envolver la `<Table>` en un contenedor con `overflow-x-auto` para que **solo la tabla** haga scroll horizontal cuando sea necesario, en lugar de empujar todo el layout de la página.
 
-## Detalles técnicos
+- Cambiar el `<CardContent className="p-0">` para que su hijo directo sea un `<div className="overflow-x-auto">` que contenga la `<Table>`.
+- Agregar `min-w-[900px]` (o similar) a la tabla para garantizar legibilidad de las columnas cuando se active el scroll.
 
-- **Archivo:** `src/components/coworking/OccupancyGrid.tsx`.
-- Eliminar las líneas 81–116 aprox. (el bloque `{/* Sessions display */}`).
-- Eliminar también del import `LogOutIcon` y `XCircle` si quedan sin usar; mantener `Users` (todavía se usa en el header de áreas públicas) y `Lock`.
-- Las props `onCheckOut` y `onCancel` siguen siendo recibidas por el componente (las pasa `CoworkingPage`) pero ya no se invocan desde aquí; las dejamos en la firma para no romper el llamador y porque podrían reactivarse en el futuro — sin ningún costo en runtime.
-- Sin cambios en `ActiveSessionsTable.tsx`, `SessionTimer.tsx` ni en la lógica de cobro.
+Resultado: la página ya no muestra barra horizontal global; solo la tabla la muestra cuando el viewport es estrecho.
+
+### 2. Hacer el diálogo desplazable y limitar su altura
+
+Modificar el `<DialogContent>` del formulario para:
+
+- Limitar la altura a la del viewport: `max-h-[90vh]`.
+- Convertirlo en flex column: `flex flex-col`.
+- Hacer scrollable únicamente la sección del formulario (el `<div className="space-y-4 py-2">` actual): añadir `flex-1 overflow-y-auto pr-1`.
+- El `DialogHeader` y `DialogFooter` quedan fijos arriba/abajo; solo el contenido central scrollea.
+
+Resultado: en cualquier altura de pantalla el header (título) y el footer (botones Cancelar/Guardar) siempre son visibles, y los campos del formulario se pueden navegar con scroll interno.
+
+## Fuera de alcance
+
+- No se cambia ninguna lógica de negocio, ni columnas, ni datos.
+- No se tocan otros tabs de Inventarios (esos pueden tener problemas similares pero el usuario reportó solo Insumos).
