@@ -661,14 +661,16 @@ function PresetButton({ label, onClick }: { label: string; onClick: () => void }
 function KPICard({ icon: Icon, label, value, accent }: { icon: React.ElementType; label: string; value: string; accent?: boolean }) {
   return (
     <Card className="border-border/60 shadow-sm">
-      <CardContent className="pt-5 pb-4 flex items-center gap-4">
-        <div className={cn('rounded-lg p-2.5 shrink-0', accent ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
-          <Icon className="h-5 w-5" />
+      <CardContent className="pt-4 pb-4 space-y-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn('rounded-lg p-1.5 shrink-0', accent ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+            <Icon className="h-4 w-4" />
+          </div>
+          <p className="text-xs text-muted-foreground leading-tight">{label}</p>
         </div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className={cn('text-lg font-bold truncate', accent && 'text-primary')}>{value}</p>
-        </div>
+        <p className={cn('text-base sm:text-lg font-bold tabular-nums break-words leading-tight', accent && 'text-primary')}>
+          {value}
+        </p>
       </CardContent>
     </Card>
   );
