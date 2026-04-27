@@ -203,10 +203,22 @@ export default function GeneralTab() {
     return costo;
   };
 
-    // Utilidad = ingreso gravable - IVA - comisiones - COGS (propinas are non-taxable pass-through)
+  const kpis = useMemo(() => {
+    const ingresoGravable = ventas.reduce((s, v) => s + Number(v.total_neto), 0);
+    const totalPropinas = ventas.reduce((s, v) => s + Number(v.monto_propina), 0);
+    const ivaTotal = ventas.reduce((s, v) => s + Number(v.iva), 0);
+    // L1: comisiones reales registradas en la venta (no recalculadas)
+    const comisionesTotal = ventas.reduce((s, v) => s + Number(v.comisiones_bancarias), 0);
+
+    // L1: COGS expandiendo paquetes y usando índice O(1)
+    let costoInsumos = 0;
+    detalles.forEach(d => {
+      costoInsumos += costoInsumosDeDetalle(d);
+    });
+
     const utilidad = ingresoGravable - ivaTotal - comisionesTotal - costoInsumos;
     return { ingresoGravable, totalPropinas, ivaTotal, comisionesTotal, costoInsumos, utilidad };
-  }, [ventas, detalles, recetas, insumos]);
+  }, [ventas, detalles, recetasPorProducto, componentesPorPaquete, insumos]);
 
   const fileNameSuffix = () => {
     const m1 = MESES[desde.getMonth()];
