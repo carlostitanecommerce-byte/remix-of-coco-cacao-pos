@@ -365,13 +365,19 @@ export default function InventarioTab() {
       const fechaStr = format(fecha, 'dd_MMM_yyyy', { locale: es });
 
       // Sheet 1: Inventario
-      const wsData = rows.map(r => ({
+      const usarFiltro = filteredRows.length !== rows.length;
+      const fuente = usarFiltro ? filteredRows : rows;
+      const totalFuente = usarFiltro ? filteredValuacion : totalValuacion;
+
+      const wsData = fuente.map(r => ({
         'Insumo': r.nombre,
         'Categoría': r.categoria,
         'Existencia (Presentación)': r.stockPresentacion,
         'Presentación': r.presentacion,
         'Stock (Unidades)': Math.round(r.stockUnidades * 100) / 100,
         'Unidad': r.unidad_medida,
+        'Stock mínimo': r.stockMinimo,
+        'Bajo stock': r.bajoStock ? 'Sí' : '',
         'Costo Unitario': r.costoUnitario,
         'Valuación Total': r.valuacion,
       }));
@@ -383,8 +389,10 @@ export default function InventarioTab() {
         'Presentación': '',
         'Stock (Unidades)': 0,
         'Unidad': '',
+        'Stock mínimo': 0,
+        'Bajo stock': '',
         'Costo Unitario': 0,
-        'Valuación Total': totalValuacion,
+        'Valuación Total': totalFuente,
       });
 
       const wb = XLSX.utils.book_new();
