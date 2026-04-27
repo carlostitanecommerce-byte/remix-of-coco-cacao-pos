@@ -728,6 +728,7 @@ const BitacoraTab = () => {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 };
 
