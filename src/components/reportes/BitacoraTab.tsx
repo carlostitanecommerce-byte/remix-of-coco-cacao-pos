@@ -24,12 +24,18 @@ import {
   ChevronUp,
   Filter,
   X,
+  Download,
+  Activity,
+  XCircle,
+  Users,
+  TrendingUp,
 } from 'lucide-react';
 import { format, startOfDay, endOfDay, subDays, isAfter } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
+import * as XLSX from 'xlsx';
 
 interface AuditLog {
   id: string;
@@ -100,6 +106,22 @@ const formatActionLabel = (accion: string) =>
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join(' ');
 
+interface BitacoraStats {
+  total: number;
+  cancelaciones: number;
+  usuariosActivos: number;
+  topAccion: { accion: string; count: number } | null;
+}
+
+const CANCEL_ACTIONS = [
+  'cancelar_venta',
+  'cancelar_sesion_coworking',
+  'cancelar_reservacion',
+  'eliminacion_usuario',
+  'eliminar_paquete',
+  'descuento_inventario_cancelacion_sesion',
+];
+
 const BitacoraTab = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +129,9 @@ const BitacoraTab = () => {
   const [acciones, setAcciones] = useState<string[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [stats, setStats] = useState<BitacoraStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   // Filters
   const [page, setPage] = useState(0);
@@ -219,6 +244,68 @@ const BitacoraTab = () => {
     return () => controller.abort();
   }, [fetchLogs]);
 
+  // Stats agregadas (sobre el rango y filtros completos, no paginadas)
+  const fetchStats = useCallback(
+    async (signal: AbortSignal) => {
+      if (isAfter(startOfDay(fechaInicio), endOfDay(fechaFin))) {
+        setStats({ total: 0, cancelaciones: 0, usuariosActivos: 0, topAccion: null });
+        setStatsLoading(false);
+        return;
+      }
+      setStatsLoading(true);
+      try {
+        let query = supabase
+          .from('audit_logs')
+          .select('accion, user_id')
+          .gte('created_at', startOfDay(fechaInicio).toISOString())
+          .lte('created_at', endOfDay(fechaFin).toISOString());
+
+        if (usuarioId !== 'all') query = query.eq('user_id', usuarioId);
+        if (accionFilter !== 'all') query = query.eq('accion', accionFilter);
+        if (search.trim()) query = query.ilike('descripcion', `%${search.trim()}%`);
+
+        // Trae hasta 10k para agregaciones (suficiente para rangos típicos)
+        const { data, error } = await query.limit(10000);
+        if (signal.aborted) return;
+        if (error) throw error;
+
+        const rows = data ?? [];
+        const accionCounts = new Map<string, number>();
+        const usuarios = new Set<string>();
+        let cancelaciones = 0;
+        for (const r of rows) {
+          accionCounts.set(r.accion, (accionCounts.get(r.accion) ?? 0) + 1);
+          usuarios.add(r.user_id);
+          if (CANCEL_ACTIONS.includes(r.accion)) cancelaciones++;
+        }
+        let topAccion: BitacoraStats['topAccion'] = null;
+        for (const [accion, count] of accionCounts) {
+          if (!topAccion || count > topAccion.count) topAccion = { accion, count };
+        }
+        setStats({
+          total: rows.length,
+          cancelaciones,
+          usuariosActivos: usuarios.size,
+          topAccion,
+        });
+      } catch (err) {
+        if (!signal.aborted) {
+          console.error('Error stats bitácora:', err);
+          setStats(null);
+        }
+      } finally {
+        if (!signal.aborted) setStatsLoading(false);
+      }
+    },
+    [fechaInicio, fechaFin, usuarioId, accionFilter, search]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchStats(controller.signal);
+    return () => controller.abort();
+  }, [fetchStats]);
+
   // Reset page cuando cambian filtros
   useEffect(() => {
     setPage(0);
@@ -248,15 +335,152 @@ const BitacoraTab = () => {
     [acciones]
   );
 
+  const handleExport = async () => {
+    if (isAfter(startOfDay(fechaInicio), endOfDay(fechaFin))) {
+      toast.error('Rango de fechas inválido.');
+      return;
+    }
+    setExporting(true);
+    try {
+      // Trae todo el rango filtrado en lotes de 1000 (límite Supabase)
+      const BATCH = 1000;
+      let from = 0;
+      const all: AuditLog[] = [];
+      while (true) {
+        let q = supabase
+          .from('audit_logs')
+          .select('*')
+          .gte('created_at', startOfDay(fechaInicio).toISOString())
+          .lte('created_at', endOfDay(fechaFin).toISOString())
+          .order('created_at', { ascending: false })
+          .range(from, from + BATCH - 1);
+        if (usuarioId !== 'all') q = q.eq('user_id', usuarioId);
+        if (accionFilter !== 'all') q = q.eq('accion', accionFilter);
+        if (search.trim()) q = q.ilike('descripcion', `%${search.trim()}%`);
+        const { data, error } = await q;
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(
+          ...data.map((l) => ({
+            ...l,
+            metadata: l.metadata as Record<string, unknown> | null,
+          }))
+        );
+        if (data.length < BATCH) break;
+        from += BATCH;
+        if (all.length >= 50000) break; // Safety cap
+      }
+
+      if (all.length === 0) {
+        toast.warning('No hay registros para exportar con los filtros actuales.');
+        setExporting(false);
+        return;
+      }
+
+      // Mapa de nombres
+      const userIds = [...new Set(all.map((l) => l.user_id))];
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('id, nombre')
+        .in('id', userIds);
+      const profileMap = new Map((profs ?? []).map((p) => [p.id, p.nombre]));
+
+      // Agregaciones para Resumen
+      const accionCounts = new Map<string, number>();
+      const userCounts = new Map<string, number>();
+      let cancelaciones = 0;
+      for (const l of all) {
+        accionCounts.set(l.accion, (accionCounts.get(l.accion) ?? 0) + 1);
+        userCounts.set(l.user_id, (userCounts.get(l.user_id) ?? 0) + 1);
+        if (CANCEL_ACTIONS.includes(l.accion)) cancelaciones++;
+      }
+      const accionesOrdenadas = [...accionCounts.entries()].sort((a, b) => b[1] - a[1]);
+      const usuariosOrdenados = [...userCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+      const wb = XLSX.utils.book_new();
+
+      // Sheet Resumen
+      const resumenRows: (string | number)[][] = [
+        ['Bitácora de Actividad — Resumen'],
+        [],
+        ['Rango', `${format(fechaInicio, 'dd/MM/yyyy')} – ${format(fechaFin, 'dd/MM/yyyy')}`],
+        ['Generado', format(new Date(), "dd/MM/yyyy HH:mm:ss", { locale: es })],
+        [],
+        ['Total de eventos', all.length],
+        ['Cancelaciones / Eliminaciones', cancelaciones],
+        ['Usuarios activos', userCounts.size],
+        [],
+        ['Acción', 'Eventos'],
+        ...accionesOrdenadas.map(([a, c]) => [formatActionLabel(a), c]),
+        [],
+        ['Usuario', 'Eventos'],
+        ...usuariosOrdenados.map(([uid, c]) => [profileMap.get(uid) || 'Desconocido', c]),
+      ];
+      const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
+      wsResumen['!cols'] = [{ wch: 38 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
+      // Sheet Bitácora detallada
+      const detalleRows = all.map((l) => ({
+        'Fecha / Hora': format(new Date(l.created_at), 'dd/MM/yyyy HH:mm:ss', { locale: es }),
+        Usuario: profileMap.get(l.user_id) || 'Desconocido',
+        Acción: formatActionLabel(l.accion),
+        'Acción (clave)': l.accion,
+        Descripción: l.descripcion ?? '',
+        Detalles: l.metadata ? JSON.stringify(l.metadata) : '',
+      }));
+      const wsDetalle = XLSX.utils.json_to_sheet(detalleRows);
+      wsDetalle['!cols'] = [
+        { wch: 20 },
+        { wch: 22 },
+        { wch: 28 },
+        { wch: 22 },
+        { wch: 60 },
+        { wch: 50 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsDetalle, 'Bitácora');
+
+      const suffix = `${format(fechaInicio, 'yyyyMMdd')}_${format(fechaFin, 'yyyyMMdd')}`;
+      XLSX.writeFile(wb, `Bitacora_CocoCacao_${suffix}.xlsx`);
+      toast.success(`Bitácora exportada (${all.length.toLocaleString('es-MX')} registros).`);
+    } catch (err) {
+      console.error('Error exportando bitácora:', err);
+      toast.error('No se pudo exportar la bitácora.', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
-    <Card className="border-border/60">
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
-          <ScrollText className="h-5 w-5" />
-          Bitácora de Actividad
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="space-y-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <KpiCard icon={Activity} label="Total de eventos" value={stats?.total ?? 0} loading={statsLoading} />
+        <KpiCard icon={XCircle} label="Cancelaciones" value={stats?.cancelaciones ?? 0} loading={statsLoading} tone="destructive" />
+        <KpiCard icon={Users} label="Usuarios activos" value={stats?.usuariosActivos ?? 0} loading={statsLoading} />
+        <KpiCard
+          icon={TrendingUp}
+          label="Acción más frecuente"
+          value={stats?.topAccion ? formatActionLabel(stats.topAccion.accion) : '—'}
+          subValue={stats?.topAccion ? `${stats.topAccion.count} eventos` : undefined}
+          loading={statsLoading}
+          isText
+        />
+      </div>
+
+      <Card className="border-border/60">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ScrollText className="h-5 w-5" />
+            Bitácora de Actividad
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting || loading}>
+            <Download className="h-4 w-4 mr-2" />
+            {exporting ? 'Exportando...' : 'Exportar Excel'}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
         {/* Filtros */}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5">
@@ -501,6 +725,47 @@ const BitacoraTab = () => {
               </Button>
             </div>
           </div>
+        )}
+      </CardContent>
+    </Card>
+    </div>
+  );
+};
+
+interface KpiCardProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number | string;
+  subValue?: string;
+  loading?: boolean;
+  tone?: 'default' | 'destructive';
+  isText?: boolean;
+}
+
+const KpiCard = ({ icon: Icon, label, value, subValue, loading, tone = 'default', isText }: KpiCardProps) => {
+  const valueClass = cn(
+    'font-bold tabular-nums break-words',
+    isText ? 'text-base sm:text-lg' : 'text-xl sm:text-2xl',
+    tone === 'destructive' && 'text-destructive'
+  );
+  return (
+    <Card className="border-border/60">
+      <CardContent className="pt-4 pb-4 space-y-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground truncate">{label}</p>
+        </div>
+        {loading ? (
+          <Skeleton className="h-7 w-24" />
+        ) : (
+          <>
+            <p className={valueClass}>
+              {typeof value === 'number' ? value.toLocaleString('es-MX') : value}
+            </p>
+            {subValue && (
+              <p className="text-xs text-muted-foreground tabular-nums">{subValue}</p>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
