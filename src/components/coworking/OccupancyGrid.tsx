@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { LogOut as LogOutIcon, Lock, Users, XCircle } from 'lucide-react';
+import { Lock, Users } from 'lucide-react';
 import type { Area, CoworkingSession } from './types';
 
 interface Props {
