@@ -256,7 +256,8 @@ const InsumosTab = ({ isAdmin }: Props) => {
       </div>
       <Card>
         <CardContent className="p-0">
-          <Table>
+          <div className="overflow-x-auto">
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Insumo</TableHead>
