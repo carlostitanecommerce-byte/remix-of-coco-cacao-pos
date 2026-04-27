@@ -24,12 +24,18 @@ import {
   ChevronUp,
   Filter,
   X,
+  Download,
+  Activity,
+  XCircle,
+  Users,
+  TrendingUp,
 } from 'lucide-react';
 import { format, startOfDay, endOfDay, subDays, isAfter } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
+import * as XLSX from 'xlsx';
 
 interface AuditLog {
   id: string;
