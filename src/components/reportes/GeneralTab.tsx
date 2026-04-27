@@ -56,6 +56,24 @@ interface InsumoMap {
   [id: string]: { nombre: string; categoria: string; unidad_medida: string; costo_unitario: number };
 }
 
+interface ProductoFull {
+  id: string;
+  nombre: string;
+  categoria: string;
+  tipo: string;
+}
+
+interface PaqueteComponente {
+  paquete_id: string;
+  producto_id: string;
+  cantidad: number;
+}
+
+interface ConfigVentas {
+  ivaPorcentaje: number;        // ej. 16
+  comisionPorcentaje: number;   // ej. 3.5
+}
+
 const MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
 
 const metodoPagoLabel: Record<string, string> = {
