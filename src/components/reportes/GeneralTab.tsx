@@ -100,71 +100,126 @@ export default function GeneralTab() {
   const [paqueteComponentes, setPaqueteComponentes] = useState<PaqueteComponente[]>([]);
   const [config, setConfig] = useState<ConfigVentas>({ ivaPorcentaje: 16, comisionPorcentaje: 0 });
 
+  // L2: control de race conditions y resultados truncados
+  const abortRef = useRef<AbortController | null>(null);
+  const [truncated, setTruncated] = useState<string[]>([]);
+
+  // L2: límites explícitos (Supabase trunca silenciosamente a 1000 por defecto)
+  const LIMIT_VENTAS = 10000;
+  const LIMIT_DETALLES = 20000;
+  const LIMIT_CATALOGO = 5000;
+
   useEffect(() => {
     fetchData();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [desde, hasta]);
 
   const fetchData = async () => {
+    // L2: cancela petición previa si el usuario cambia el rango rápido
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     setLoading(true);
+    setTruncated([]);
     const desdeISO = format(desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
-    const [ventasRes, productosRes, recetasRes, insumosRes, paqueteRes, configRes] = await Promise.all([
-      supabase
-        .from('ventas')
-        .select('id, folio, fecha, total_bruto, total_neto, iva, comisiones_bancarias, metodo_pago, estado, coworking_session_id, monto_propina, monto_tarjeta, monto_efectivo, monto_transferencia')
-        .gte('fecha', desdeISO)
-        .lte('fecha', hastaISO)
-        .eq('estado', 'completada'),
-      // L1: incluir paquetes también, para no perder su nombre/categoría en exportación
-      supabase.from('productos').select('id, nombre, categoria, tipo'),
-      supabase.from('recetas').select('producto_id, insumo_id, cantidad_necesaria'),
-      supabase.from('insumos').select('id, nombre, categoria, unidad_medida, costo_unitario'),
-      supabase.from('paquete_componentes').select('paquete_id, producto_id, cantidad'),
-      supabase.from('configuracion_ventas').select('clave, valor'),
-    ]);
+    try {
+      const [ventasRes, productosRes, recetasRes, insumosRes, paqueteRes, configRes] = await Promise.all([
+        supabase
+          .from('ventas')
+          .select('id, folio, fecha, total_bruto, total_neto, iva, comisiones_bancarias, metodo_pago, estado, coworking_session_id, monto_propina, monto_tarjeta, monto_efectivo, monto_transferencia')
+          .gte('fecha', desdeISO)
+          .lte('fecha', hastaISO)
+          .eq('estado', 'completada')
+          .order('fecha', { ascending: true })
+          .limit(LIMIT_VENTAS)
+          .abortSignal(signal),
+        supabase.from('productos').select('id, nombre, categoria, tipo').limit(LIMIT_CATALOGO).abortSignal(signal),
+        supabase.from('recetas').select('producto_id, insumo_id, cantidad_necesaria').limit(LIMIT_CATALOGO).abortSignal(signal),
+        supabase.from('insumos').select('id, nombre, categoria, unidad_medida, costo_unitario').limit(LIMIT_CATALOGO).abortSignal(signal),
+        supabase.from('paquete_componentes').select('paquete_id, producto_id, cantidad').limit(LIMIT_CATALOGO).abortSignal(signal),
+        supabase.from('configuracion_ventas').select('clave, valor').abortSignal(signal),
+      ]);
 
-    const ventasData = ventasRes.data ?? [];
-    setVentas(ventasData);
+      if (signal.aborted) return;
 
-    const pMap: ProductoMap = {};
-    (productosRes.data ?? []).forEach((p: ProductoFull) => {
-      pMap[p.id] = { nombre: p.nombre, categoria: p.categoria };
-    });
-    setProductos(pMap);
-    setRecetas(recetasRes.data ?? []);
-    setPaqueteComponentes(paqueteRes.data ?? []);
-
-    const iMap: InsumoMap = {};
-    (insumosRes.data ?? []).forEach(i => { iMap[i.id] = { nombre: i.nombre, categoria: i.categoria, unidad_medida: i.unidad_medida, costo_unitario: i.costo_unitario }; });
-    setInsumos(iMap);
-
-    // L1: cargar IVA y comisión dinámicas desde configuracion_ventas
-    const cfgRows = configRes.data ?? [];
-    const ivaRow = cfgRows.find(r => r.clave === 'iva_porcentaje');
-    const comRow = cfgRows.find(r => r.clave === 'comision_bancaria_porcentaje');
-    setConfig({
-      ivaPorcentaje: ivaRow ? Number(ivaRow.valor) : 16,
-      comisionPorcentaje: comRow ? Number(comRow.valor) : 0,
-    });
-
-    if (ventasData.length > 0) {
-      const ventaIds = ventasData.map(v => v.id);
-      const allDetalles: DetalleRow[] = [];
-      for (let i = 0; i < ventaIds.length; i += 100) {
-        const batch = ventaIds.slice(i, i + 100);
-        const { data } = await supabase
-          .from('detalle_ventas')
-          .select('id, venta_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, tipo_concepto, coworking_session_id, paquete_id')
-          .in('venta_id', batch);
-        if (data) allDetalles.push(...data);
+      // L2: error explícito si alguna consulta falló
+      const failed = [
+        { name: 'ventas', err: ventasRes.error },
+        { name: 'productos', err: productosRes.error },
+        { name: 'recetas', err: recetasRes.error },
+        { name: 'insumos', err: insumosRes.error },
+        { name: 'paquetes', err: paqueteRes.error },
+        { name: 'configuración', err: configRes.error },
+      ].filter(x => x.err);
+      if (failed.length > 0) {
+        throw new Error(`Error al cargar ${failed.map(f => f.name).join(', ')}`);
       }
-      setDetalles(allDetalles as DetalleRow[]);
-    } else {
-      setDetalles([]);
-    }
 
-    setLoading(false);
+      const ventasData = ventasRes.data ?? [];
+      setVentas(ventasData);
+
+      // L2: rastrear truncado
+      const trunc: string[] = [];
+      if (ventasData.length >= LIMIT_VENTAS) trunc.push(`ventas (${LIMIT_VENTAS})`);
+
+      const pMap: ProductoMap = {};
+      (productosRes.data ?? []).forEach((p: ProductoFull) => {
+        pMap[p.id] = { nombre: p.nombre, categoria: p.categoria };
+      });
+      setProductos(pMap);
+      setRecetas(recetasRes.data ?? []);
+      setPaqueteComponentes(paqueteRes.data ?? []);
+
+      const iMap: InsumoMap = {};
+      (insumosRes.data ?? []).forEach(i => { iMap[i.id] = { nombre: i.nombre, categoria: i.categoria, unidad_medida: i.unidad_medida, costo_unitario: i.costo_unitario }; });
+      setInsumos(iMap);
+
+      const cfgRows = configRes.data ?? [];
+      const ivaRow = cfgRows.find(r => r.clave === 'iva_porcentaje');
+      const comRow = cfgRows.find(r => r.clave === 'comision_bancaria_porcentaje');
+      setConfig({
+        ivaPorcentaje: ivaRow ? Number(ivaRow.valor) : 16,
+        comisionPorcentaje: comRow ? Number(comRow.valor) : 0,
+      });
+
+      if (ventasData.length > 0) {
+        const ventaIds = ventasData.map(v => v.id);
+        const allDetalles: DetalleRow[] = [];
+        let detalleAborted = false;
+        for (let i = 0; i < ventaIds.length; i += 100) {
+          if (signal.aborted) { detalleAborted = true; break; }
+          if (allDetalles.length >= LIMIT_DETALLES) break;
+          const batch = ventaIds.slice(i, i + 100);
+          const { data, error } = await supabase
+            .from('detalle_ventas')
+            .select('id, venta_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, tipo_concepto, coworking_session_id, paquete_id')
+            .in('venta_id', batch)
+            .limit(LIMIT_DETALLES)
+            .abortSignal(signal);
+          if (error) throw new Error(`Error al cargar detalles de venta: ${error.message}`);
+          if (data) allDetalles.push(...data);
+        }
+        if (detalleAborted) return;
+        if (allDetalles.length >= LIMIT_DETALLES) trunc.push(`detalles (${LIMIT_DETALLES})`);
+        setDetalles(allDetalles as DetalleRow[]);
+      } else {
+        setDetalles([]);
+      }
+
+      setTruncated(trunc);
+    } catch (err: any) {
+      if (signal.aborted || err?.name === 'AbortError') return;
+      console.error('Exportación contable - fetchData error:', err);
+      toast.error(err?.message || 'Error al cargar datos del reporte contable');
+    } finally {
+      if (!signal.aborted) setLoading(false);
+    }
   };
 
   // L1: índice O(1) de recetas por producto (también usado para expansión de paquetes)
