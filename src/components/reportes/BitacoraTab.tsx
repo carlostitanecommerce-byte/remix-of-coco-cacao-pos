@@ -732,4 +732,44 @@ const BitacoraTab = () => {
   );
 };
 
+interface KpiCardProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number | string;
+  subValue?: string;
+  loading?: boolean;
+  tone?: 'default' | 'destructive';
+  isText?: boolean;
+}
+
+const KpiCard = ({ icon: Icon, label, value, subValue, loading, tone = 'default', isText }: KpiCardProps) => {
+  const valueClass = cn(
+    'font-bold tabular-nums break-words',
+    isText ? 'text-base sm:text-lg' : 'text-xl sm:text-2xl',
+    tone === 'destructive' && 'text-destructive'
+  );
+  return (
+    <Card className="border-border/60">
+      <CardContent className="pt-4 pb-4 space-y-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground truncate">{label}</p>
+        </div>
+        {loading ? (
+          <Skeleton className="h-7 w-24" />
+        ) : (
+          <>
+            <p className={valueClass}>
+              {typeof value === 'number' ? value.toLocaleString('es-MX') : value}
+            </p>
+            {subValue && (
+              <p className="text-xs text-muted-foreground tabular-nums">{subValue}</p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 export default BitacoraTab;
