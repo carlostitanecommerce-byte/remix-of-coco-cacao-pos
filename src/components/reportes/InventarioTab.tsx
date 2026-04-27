@@ -334,6 +334,31 @@ export default function InventarioTab() {
 
   const totalValuacion = useMemo(() => rows.reduce((s, r) => s + r.valuacion, 0), [rows]);
 
+  const categorias = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach(r => { if (r.categoria) set.add(r.categoria); });
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const lowStockCount = useMemo(() => rows.filter(r => r.bajoStock).length, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (categoriaFilter !== 'todas' && r.categoria !== categoriaFilter) return false;
+      if (soloBajoStock && !r.bajoStock) return false;
+      if (q && !r.nombre.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [rows, search, categoriaFilter, soloBajoStock]);
+
+  const filteredInsumos = useMemo(() => {
+    const ids = new Set(filteredRows.map(r => r.id));
+    return insumos.filter(i => ids.has(i.id));
+  }, [insumos, filteredRows]);
+
+  const filteredValuacion = useMemo(() => filteredRows.reduce((s, r) => s + r.valuacion, 0), [filteredRows]);
+
   const handleExport = async () => {
     setExporting(true);
     try {
