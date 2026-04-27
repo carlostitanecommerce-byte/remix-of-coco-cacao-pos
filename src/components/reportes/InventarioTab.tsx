@@ -87,46 +87,89 @@ export default function InventarioTab() {
 
     const desde = format(endOfDay(fecha), 'yyyy-MM-dd') + 'T23:59:59-06:00';
     const ajusteMap = new Map<string, number>();
+    // Convención: ajuste positivo = SUMAR al stock actual para reconstruir el pasado
+    // (es decir, consumos/salidas posteriores a la fecha). Ajuste negativo = ingresos posteriores.
 
+    // 1) VENTAS completadas posteriores → consumos según receta (SUMAR)
     const { data: ventasIds } = await supabase
       .from('ventas')
       .select('id')
       .eq('estado', 'completada')
       .gt('fecha', desde);
 
+    const productoCantidad = new Map<string, number>(); // producto_id → cantidad total consumida
+
     if (ventasIds && ventasIds.length > 0) {
       const ids = ventasIds.map(v => v.id);
-      const allDetalles: { producto_id: string | null; cantidad: number }[] = [];
+      const allDetalles: { producto_id: string | null; paquete_id: string | null; cantidad: number }[] = [];
       for (let i = 0; i < ids.length; i += 100) {
         const batch = ids.slice(i, i + 100);
         const { data } = await supabase
           .from('detalle_ventas')
-          .select('producto_id, cantidad')
-          .in('venta_id', batch)
-          .eq('tipo_concepto', 'producto');
+          .select('producto_id, paquete_id, cantidad')
+          .in('venta_id', batch);
         if (data) allDetalles.push(...data);
       }
 
-      const productoIds = [...new Set(allDetalles.filter(d => d.producto_id).map(d => d.producto_id!))];
-      if (productoIds.length > 0) {
-        const { data: recetas } = await supabase
-          .from('recetas')
-          .select('producto_id, insumo_id, cantidad_necesaria')
-          .in('producto_id', productoIds);
+      // Productos directos
+      for (const d of allDetalles) {
+        if (d.producto_id) {
+          productoCantidad.set(d.producto_id, (productoCantidad.get(d.producto_id) ?? 0) + d.cantidad);
+        }
+      }
 
-        if (recetas) {
-          for (const det of allDetalles) {
-            if (!det.producto_id) continue;
-            const recetasProducto = recetas.filter(r => r.producto_id === det.producto_id);
-            for (const r of recetasProducto) {
-              const consumed = r.cantidad_necesaria * det.cantidad;
-              ajusteMap.set(r.insumo_id, (ajusteMap.get(r.insumo_id) ?? 0) + consumed);
+      // Expandir paquetes → componentes
+      const paqueteIds = [...new Set(allDetalles.filter(d => d.paquete_id).map(d => d.paquete_id!))];
+      if (paqueteIds.length > 0) {
+        const { data: componentes } = await supabase
+          .from('paquete_componentes')
+          .select('paquete_id, producto_id, cantidad')
+          .in('paquete_id', paqueteIds);
+        if (componentes) {
+          for (const d of allDetalles) {
+            if (!d.paquete_id) continue;
+            const comps = componentes.filter(c => c.paquete_id === d.paquete_id);
+            for (const c of comps) {
+              productoCantidad.set(c.producto_id, (productoCantidad.get(c.producto_id) ?? 0) + c.cantidad * d.cantidad);
             }
           }
         }
       }
     }
 
+    // 2) UPSELLS de coworking posteriores → consumos por producto (SUMAR)
+    const { data: upsellsData } = await supabase
+      .from('coworking_session_upsells')
+      .select('producto_id, cantidad, created_at')
+      .gt('created_at', desde);
+
+    if (upsellsData) {
+      for (const u of upsellsData) {
+        if (!u.producto_id) continue;
+        productoCantidad.set(u.producto_id, (productoCantidad.get(u.producto_id) ?? 0) + (u.cantidad ?? 0));
+      }
+    }
+
+    // 3) Resolver recetas para todos los productos consumidos (ventas + upsells)
+    const productoIdsAll = [...productoCantidad.keys()];
+    if (productoIdsAll.length > 0) {
+      const { data: recetas } = await supabase
+        .from('recetas')
+        .select('producto_id, insumo_id, cantidad_necesaria')
+        .in('producto_id', productoIdsAll);
+
+      if (recetas) {
+        for (const r of recetas) {
+          const cantProd = productoCantidad.get(r.producto_id) ?? 0;
+          const consumed = r.cantidad_necesaria * cantProd;
+          if (consumed > 0) {
+            ajusteMap.set(r.insumo_id, (ajusteMap.get(r.insumo_id) ?? 0) + consumed);
+          }
+        }
+      }
+    }
+
+    // 4) MERMAS posteriores → salidas (SUMAR)
     const { data: mermasData } = await supabase
       .from('mermas')
       .select('insumo_id, cantidad')
@@ -138,6 +181,22 @@ export default function InventarioTab() {
       }
     }
 
+    // 5) COMPRAS posteriores → ingresos (RESTAR). cantidad_unidades ya viene en unidad base.
+    const { data: comprasData } = await supabase
+      .from('compras_insumos')
+      .select('insumo_id, cantidad_unidades')
+      .gt('fecha', desde);
+
+    if (comprasData) {
+      for (const c of comprasData) {
+        ajusteMap.set(c.insumo_id, (ajusteMap.get(c.insumo_id) ?? 0) - (c.cantidad_unidades ?? 0));
+      }
+    }
+
+    // 6) AJUSTES de auditoría posteriores → revertir según signo
+    //    diferencia_stock > 0: ingresó stock → RESTAR (para regresar al pasado, quitarlo)
+    //    diferencia_stock < 0: salió stock → SUMAR (la merma asociada ya se contó en (4),
+    //                          así que NO sumamos otra vez para evitar doble conteo)
     const { data: auditEntries } = await supabase
       .from('audit_logs')
       .select('metadata')
@@ -151,8 +210,10 @@ export default function InventarioTab() {
           const insumoId = meta.insumo_id as string;
           const diff = meta.diferencia_stock as number;
           if (diff > 0) {
+            // ingreso por auditoría → revertir restando
             ajusteMap.set(insumoId, (ajusteMap.get(insumoId) ?? 0) - diff);
           }
+          // diff < 0 ya cubierto por la merma generada automáticamente
         }
       }
     }
