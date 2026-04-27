@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Download, Package, Loader2, ClipboardCheck } from 'lucide-react';
+import { CalendarIcon, Download, Package, Loader2, ClipboardCheck, AlertTriangle } from 'lucide-react';
 import { format, endOfDay, isToday } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -54,6 +54,7 @@ export default function InventarioTab() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [ajustes, setAjustes] = useState<Map<string, number>>(new Map());
+  const [truncated, setTruncated] = useState(false);
 
   // Audit state
   const [stockFisico, setStockFisico] = useState<Record<string, string>>({});
@@ -64,162 +65,213 @@ export default function InventarioTab() {
   const [mermasLoading, setMermasLoading] = useState(true);
 
   useEffect(() => {
-    fetchData();
+    const ctrl = new AbortController();
+    fetchData(ctrl.signal);
+    return () => ctrl.abort();
   }, [fecha]);
 
   useEffect(() => {
     fetchMermas();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (signal?: AbortSignal) => {
     setLoading(true);
-    const { data: insumosData } = await supabase.from('insumos')
-      .select('id, nombre, unidad_medida, stock_actual, costo_unitario, presentacion, cantidad_por_presentacion, costo_presentacion, categoria')
-      .order('nombre');
+    setTruncated(false);
 
-    setInsumos(insumosData ?? []);
+    const LIM_VENTAS = 5000;
+    const LIM_DETALLES = 10000;
+    const LIM_UPSELLS = 5000;
+    const LIM_MERMAS = 5000;
+    const LIM_COMPRAS = 5000;
+    const LIM_AUDIT = 5000;
+    let truncatedLocal = false;
 
-    if (isToday(fecha)) {
-      setAjustes(new Map());
-      setLoading(false);
-      return;
-    }
+    try {
+      const insumosQ = supabase.from('insumos')
+        .select('id, nombre, unidad_medida, stock_actual, costo_unitario, presentacion, cantidad_por_presentacion, costo_presentacion, categoria')
+        .order('nombre')
+        .limit(2000);
+      const { data: insumosData, error: insumosErr } = await (signal ? insumosQ.abortSignal(signal) : insumosQ);
+      if (insumosErr) throw insumosErr;
+      if (signal?.aborted) return;
 
-    const desde = format(endOfDay(fecha), 'yyyy-MM-dd') + 'T23:59:59-06:00';
-    const ajusteMap = new Map<string, number>();
-    // Convención: ajuste positivo = SUMAR al stock actual para reconstruir el pasado
-    // (es decir, consumos/salidas posteriores a la fecha). Ajuste negativo = ingresos posteriores.
+      setInsumos(insumosData ?? []);
 
-    // 1) VENTAS completadas posteriores → consumos según receta (SUMAR)
-    const { data: ventasIds } = await supabase
-      .from('ventas')
-      .select('id')
-      .eq('estado', 'completada')
-      .gt('fecha', desde);
-
-    const productoCantidad = new Map<string, number>(); // producto_id → cantidad total consumida
-
-    if (ventasIds && ventasIds.length > 0) {
-      const ids = ventasIds.map(v => v.id);
-      const allDetalles: { producto_id: string | null; paquete_id: string | null; cantidad: number }[] = [];
-      for (let i = 0; i < ids.length; i += 100) {
-        const batch = ids.slice(i, i + 100);
-        const { data } = await supabase
-          .from('detalle_ventas')
-          .select('producto_id, paquete_id, cantidad')
-          .in('venta_id', batch);
-        if (data) allDetalles.push(...data);
+      if (isToday(fecha)) {
+        setAjustes(new Map());
+        setLoading(false);
+        return;
       }
 
-      // Productos directos
-      for (const d of allDetalles) {
-        if (d.producto_id) {
-          productoCantidad.set(d.producto_id, (productoCantidad.get(d.producto_id) ?? 0) + d.cantidad);
+      const desde = format(endOfDay(fecha), 'yyyy-MM-dd') + 'T23:59:59-06:00';
+      const ajusteMap = new Map<string, number>();
+
+      // 1) VENTAS completadas posteriores → consumos según receta (SUMAR)
+      const ventasQ = supabase
+        .from('ventas')
+        .select('id')
+        .eq('estado', 'completada')
+        .gt('fecha', desde)
+        .limit(LIM_VENTAS);
+      const { data: ventasIds, error: ventasErr } = await (signal ? ventasQ.abortSignal(signal) : ventasQ);
+      if (ventasErr) throw ventasErr;
+      if (signal?.aborted) return;
+      if (ventasIds && ventasIds.length >= LIM_VENTAS) truncatedLocal = true;
+
+      const productoCantidad = new Map<string, number>();
+
+      if (ventasIds && ventasIds.length > 0) {
+        const ids = ventasIds.map(v => v.id);
+        const allDetalles: { producto_id: string | null; paquete_id: string | null; cantidad: number }[] = [];
+        for (let i = 0; i < ids.length; i += 100) {
+          if (signal?.aborted) return;
+          const batch = ids.slice(i, i + 100);
+          const detQ = supabase
+            .from('detalle_ventas')
+            .select('producto_id, paquete_id, cantidad')
+            .in('venta_id', batch)
+            .limit(LIM_DETALLES);
+          const { data, error } = await (signal ? detQ.abortSignal(signal) : detQ);
+          if (error) throw error;
+          if (data) {
+            allDetalles.push(...data);
+            if (data.length >= LIM_DETALLES) truncatedLocal = true;
+          }
         }
-      }
 
-      // Expandir paquetes → componentes
-      const paqueteIds = [...new Set(allDetalles.filter(d => d.paquete_id).map(d => d.paquete_id!))];
-      if (paqueteIds.length > 0) {
-        const { data: componentes } = await supabase
-          .from('paquete_componentes')
-          .select('paquete_id, producto_id, cantidad')
-          .in('paquete_id', paqueteIds);
-        if (componentes) {
-          for (const d of allDetalles) {
-            if (!d.paquete_id) continue;
-            const comps = componentes.filter(c => c.paquete_id === d.paquete_id);
-            for (const c of comps) {
-              productoCantidad.set(c.producto_id, (productoCantidad.get(c.producto_id) ?? 0) + c.cantidad * d.cantidad);
+        for (const d of allDetalles) {
+          if (d.producto_id) {
+            productoCantidad.set(d.producto_id, (productoCantidad.get(d.producto_id) ?? 0) + d.cantidad);
+          }
+        }
+
+        const paqueteIds = [...new Set(allDetalles.filter(d => d.paquete_id).map(d => d.paquete_id!))];
+        if (paqueteIds.length > 0) {
+          const compQ = supabase
+            .from('paquete_componentes')
+            .select('paquete_id, producto_id, cantidad')
+            .in('paquete_id', paqueteIds);
+          const { data: componentes, error: compErr } = await (signal ? compQ.abortSignal(signal) : compQ);
+          if (compErr) throw compErr;
+          if (componentes) {
+            for (const d of allDetalles) {
+              if (!d.paquete_id) continue;
+              const comps = componentes.filter(c => c.paquete_id === d.paquete_id);
+              for (const c of comps) {
+                productoCantidad.set(c.producto_id, (productoCantidad.get(c.producto_id) ?? 0) + c.cantidad * d.cantidad);
+              }
             }
           }
         }
       }
-    }
 
-    // 2) UPSELLS de coworking posteriores → consumos por producto (SUMAR)
-    const { data: upsellsData } = await supabase
-      .from('coworking_session_upsells')
-      .select('producto_id, cantidad, created_at')
-      .gt('created_at', desde);
+      // 2) UPSELLS de coworking posteriores
+      const upsQ = supabase
+        .from('coworking_session_upsells')
+        .select('producto_id, cantidad, created_at')
+        .gt('created_at', desde)
+        .limit(LIM_UPSELLS);
+      const { data: upsellsData, error: upsErr } = await (signal ? upsQ.abortSignal(signal) : upsQ);
+      if (upsErr) throw upsErr;
+      if (signal?.aborted) return;
+      if (upsellsData && upsellsData.length >= LIM_UPSELLS) truncatedLocal = true;
 
-    if (upsellsData) {
-      for (const u of upsellsData) {
-        if (!u.producto_id) continue;
-        productoCantidad.set(u.producto_id, (productoCantidad.get(u.producto_id) ?? 0) + (u.cantidad ?? 0));
+      if (upsellsData) {
+        for (const u of upsellsData) {
+          if (!u.producto_id) continue;
+          productoCantidad.set(u.producto_id, (productoCantidad.get(u.producto_id) ?? 0) + (u.cantidad ?? 0));
+        }
       }
-    }
 
-    // 3) Resolver recetas para todos los productos consumidos (ventas + upsells)
-    const productoIdsAll = [...productoCantidad.keys()];
-    if (productoIdsAll.length > 0) {
-      const { data: recetas } = await supabase
-        .from('recetas')
-        .select('producto_id, insumo_id, cantidad_necesaria')
-        .in('producto_id', productoIdsAll);
-
-      if (recetas) {
-        for (const r of recetas) {
-          const cantProd = productoCantidad.get(r.producto_id) ?? 0;
-          const consumed = r.cantidad_necesaria * cantProd;
-          if (consumed > 0) {
-            ajusteMap.set(r.insumo_id, (ajusteMap.get(r.insumo_id) ?? 0) + consumed);
+      // 3) Recetas para todos los productos consumidos
+      const productoIdsAll = [...productoCantidad.keys()];
+      if (productoIdsAll.length > 0) {
+        const recQ = supabase
+          .from('recetas')
+          .select('producto_id, insumo_id, cantidad_necesaria')
+          .in('producto_id', productoIdsAll);
+        const { data: recetas, error: recErr } = await (signal ? recQ.abortSignal(signal) : recQ);
+        if (recErr) throw recErr;
+        if (recetas) {
+          for (const r of recetas) {
+            const cantProd = productoCantidad.get(r.producto_id) ?? 0;
+            const consumed = r.cantidad_necesaria * cantProd;
+            if (consumed > 0) {
+              ajusteMap.set(r.insumo_id, (ajusteMap.get(r.insumo_id) ?? 0) + consumed);
+            }
           }
         }
       }
-    }
 
-    // 4) MERMAS posteriores → salidas (SUMAR)
-    const { data: mermasData } = await supabase
-      .from('mermas')
-      .select('insumo_id, cantidad')
-      .gt('fecha', desde);
+      // 4) MERMAS posteriores → SUMAR
+      const merQ = supabase
+        .from('mermas')
+        .select('insumo_id, cantidad')
+        .gt('fecha', desde)
+        .limit(LIM_MERMAS);
+      const { data: mermasData, error: merErr } = await (signal ? merQ.abortSignal(signal) : merQ);
+      if (merErr) throw merErr;
+      if (signal?.aborted) return;
+      if (mermasData && mermasData.length >= LIM_MERMAS) truncatedLocal = true;
 
-    if (mermasData) {
-      for (const m of mermasData) {
-        ajusteMap.set(m.insumo_id, (ajusteMap.get(m.insumo_id) ?? 0) + m.cantidad);
-      }
-    }
-
-    // 5) COMPRAS posteriores → ingresos (RESTAR). cantidad_unidades ya viene en unidad base.
-    const { data: comprasData } = await supabase
-      .from('compras_insumos')
-      .select('insumo_id, cantidad_unidades')
-      .gt('fecha', desde);
-
-    if (comprasData) {
-      for (const c of comprasData) {
-        ajusteMap.set(c.insumo_id, (ajusteMap.get(c.insumo_id) ?? 0) - (c.cantidad_unidades ?? 0));
-      }
-    }
-
-    // 6) AJUSTES de auditoría posteriores → revertir según signo
-    //    diferencia_stock > 0: ingresó stock → RESTAR (para regresar al pasado, quitarlo)
-    //    diferencia_stock < 0: salió stock → SUMAR (la merma asociada ya se contó en (4),
-    //                          así que NO sumamos otra vez para evitar doble conteo)
-    const { data: auditEntries } = await supabase
-      .from('audit_logs')
-      .select('metadata')
-      .eq('accion', 'ajuste_inventario')
-      .gt('created_at', desde);
-
-    if (auditEntries) {
-      for (const entry of auditEntries) {
-        const meta = entry.metadata as Record<string, unknown> | null;
-        if (meta && meta.insumo_id && typeof meta.diferencia_stock === 'number') {
-          const insumoId = meta.insumo_id as string;
-          const diff = meta.diferencia_stock as number;
-          if (diff > 0) {
-            // ingreso por auditoría → revertir restando
-            ajusteMap.set(insumoId, (ajusteMap.get(insumoId) ?? 0) - diff);
-          }
-          // diff < 0 ya cubierto por la merma generada automáticamente
+      if (mermasData) {
+        for (const m of mermasData) {
+          ajusteMap.set(m.insumo_id, (ajusteMap.get(m.insumo_id) ?? 0) + m.cantidad);
         }
       }
-    }
 
-    setAjustes(ajusteMap);
-    setLoading(false);
+      // 5) COMPRAS posteriores → RESTAR
+      const comQ = supabase
+        .from('compras_insumos')
+        .select('insumo_id, cantidad_unidades')
+        .gt('fecha', desde)
+        .limit(LIM_COMPRAS);
+      const { data: comprasData, error: comErr } = await (signal ? comQ.abortSignal(signal) : comQ);
+      if (comErr) throw comErr;
+      if (signal?.aborted) return;
+      if (comprasData && comprasData.length >= LIM_COMPRAS) truncatedLocal = true;
+
+      if (comprasData) {
+        for (const c of comprasData) {
+          ajusteMap.set(c.insumo_id, (ajusteMap.get(c.insumo_id) ?? 0) - (c.cantidad_unidades ?? 0));
+        }
+      }
+
+      // 6) AJUSTES de auditoría posteriores (revertir ingresos por auditoría)
+      const audQ = supabase
+        .from('audit_logs')
+        .select('metadata')
+        .eq('accion', 'ajuste_inventario')
+        .gt('created_at', desde)
+        .limit(LIM_AUDIT);
+      const { data: auditEntries, error: audErr } = await (signal ? audQ.abortSignal(signal) : audQ);
+      if (audErr) throw audErr;
+      if (signal?.aborted) return;
+      if (auditEntries && auditEntries.length >= LIM_AUDIT) truncatedLocal = true;
+
+      if (auditEntries) {
+        for (const entry of auditEntries) {
+          const meta = entry.metadata as Record<string, unknown> | null;
+          if (meta && meta.insumo_id && typeof meta.diferencia_stock === 'number') {
+            const insumoId = meta.insumo_id as string;
+            const diff = meta.diferencia_stock as number;
+            if (diff > 0) {
+              ajusteMap.set(insumoId, (ajusteMap.get(insumoId) ?? 0) - diff);
+            }
+          }
+        }
+      }
+
+      if (signal?.aborted) return;
+      setAjustes(ajusteMap);
+      setTruncated(truncatedLocal);
+    } catch (err: unknown) {
+      const e = err as { name?: string; message?: string };
+      if (signal?.aborted || e?.name === 'AbortError') return;
+      toast.error('No se pudo cargar el reporte de inventario', { description: e?.message });
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   };
 
   const fetchMermas = async () => {
@@ -316,9 +368,8 @@ export default function InventarioTab() {
         return !isNaN(fisico) && fisico !== ins.stock_actual;
       })
       .map(ins => ({
-        insumo: ins,
-        fisico: parseFloat(stockFisico[ins.id]),
-        diferencia: parseFloat(stockFisico[ins.id]) - ins.stock_actual,
+        insumo_id: ins.id,
+        stock_fisico: parseFloat(stockFisico[ins.id]),
       }));
 
     if (entries.length === 0) {
@@ -327,52 +378,24 @@ export default function InventarioTab() {
     }
 
     setSaving(true);
-    let errores = 0;
-
-    for (const e of entries) {
-      // If negative difference, create merma
-      if (e.diferencia < 0) {
-        const { error: mermaErr } = await supabase.from('mermas').insert({
-          insumo_id: e.insumo.id,
-          cantidad: Math.abs(e.diferencia),
-          motivo: 'Ajuste por auditoría física',
-          usuario_id: user.id,
-        });
-        if (mermaErr) { errores++; continue; }
-      }
-
-      // Log the adjustment
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion: 'ajuste_inventario',
-        descripcion: `Auditoría física: ${e.insumo.nombre} de ${e.insumo.stock_actual} a ${e.fisico} (dif: ${e.diferencia > 0 ? '+' : ''}${Math.round(e.diferencia * 100) / 100})`,
-        metadata: {
-          insumo_id: e.insumo.id,
-          stock_anterior: e.insumo.stock_actual,
-          stock_nuevo: e.fisico,
-          diferencia_stock: e.diferencia,
-        },
+    try {
+      const { data, error } = await supabase.rpc('aplicar_auditoria_inventario', {
+        p_ajustes: entries,
       });
-
-      // Update stock
-      const { error: updateErr } = await supabase
-        .from('insumos')
-        .update({ stock_actual: e.fisico })
-        .eq('id', e.insumo.id);
-      if (updateErr) errores++;
+      if (error) throw error;
+      const aplicados = (data as { aplicados?: number } | null)?.aplicados ?? entries.length;
+      toast.success(`Auditoría guardada: ${aplicados} insumo(s) ajustados`);
+      setStockFisico({});
+      fetchData();
+      fetchMermas();
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      toast.error('No se pudo aplicar la auditoría', {
+        description: e?.message ?? 'Los cambios fueron revertidos. Intenta de nuevo.',
+      });
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    setStockFisico({});
-
-    if (errores > 0) {
-      toast.error(`Auditoría guardada con ${errores} error(es). Verifica permisos.`);
-    } else {
-      toast.success(`Auditoría guardada: ${entries.length} insumo(s) ajustados`);
-    }
-
-    fetchData();
-    fetchMermas();
   };
 
   const fmtMoney = (v: number) => `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -435,6 +458,18 @@ export default function InventarioTab() {
           </div>
         </CardContent>
       </Card>
+
+      {truncated && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Resultados parciales</p>
+            <p className="text-xs opacity-90">
+              Se alcanzó el límite de registros al reconstruir el inventario histórico. La valuación mostrada puede ser aproximada. Considera consultar una fecha más reciente.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Audit Tool */}
       <Card className="border-border/60">
