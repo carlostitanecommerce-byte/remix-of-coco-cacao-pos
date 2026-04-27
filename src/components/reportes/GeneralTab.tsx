@@ -487,15 +487,22 @@ export default function GeneralTab() {
 
   return (
     <div className="space-y-6">
-      {/* Date Range */}
+      {/* L3: Rango de fechas con chevrons y presets */}
       <Card className="border-border/60">
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-end gap-4">
-            <DatePicker label="Desde" date={desde} onChange={setDesde} />
-            <DatePicker label="Hasta" date={hasta} onChange={setHasta} />
+        <CardContent className="pt-6 space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <DateNav label="Desde" date={desde} onChange={setDesde} />
+            <DateNav label="Hasta" date={hasta} onChange={setHasta} />
             <Badge variant="outline" className="h-9 px-3 text-xs">
-              {ventas.length} ventas en periodo
+              {loading ? '…' : `${ventas.length} ventas en periodo`}
             </Badge>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <PresetButton label="Hoy" onClick={() => { const t = new Date(); setDesde(t); setHasta(t); }} />
+            <PresetButton label="Ayer" onClick={() => { const y = subDays(new Date(), 1); setDesde(y); setHasta(y); }} />
+            <PresetButton label="Esta semana" onClick={() => { const t = new Date(); setDesde(startOfWeek(t, { weekStartsOn: 1 })); setHasta(endOfWeek(t, { weekStartsOn: 1 })); }} />
+            <PresetButton label="Mes actual" onClick={() => { const t = new Date(); setDesde(startOfMonth(t)); setHasta(endOfMonth(t)); }} />
+            <PresetButton label="Mes anterior" onClick={() => { const t = subDays(startOfMonth(new Date()), 1); setDesde(startOfMonth(t)); setHasta(endOfMonth(t)); }} />
           </div>
         </CardContent>
       </Card>
@@ -514,16 +521,26 @@ export default function GeneralTab() {
         </div>
       )}
 
-      {/* KPIs */}
+      {/* L3: KPIs con skeletons */}
       {loading ? (
-        <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
-          <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i} className="border-border/60 shadow-sm">
+              <CardContent className="pt-5 pb-4 flex items-center gap-4">
+                <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-5 w-24" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <KPICard icon={Receipt} label="Ingreso Gravable" value={fmt(kpis.ingresoGravable)} />
           <KPICard icon={Receipt} label="Ingreso Bruto Total" value={fmt(kpis.ingresoGravable + kpis.totalPropinas)} />
-          <KPICard icon={Receipt} label="IVA Acumulado" value={fmt(kpis.ivaTotal)} />
+          <KPICard icon={Receipt} label={`IVA (${config.ivaPorcentaje}%) Acumulado`} value={fmt(kpis.ivaTotal)} />
           <KPICard icon={CreditCard} label="Propinas (No Gravable)" value={fmt(kpis.totalPropinas)} />
           <KPICard icon={TrendingUp} label="Utilidad Estimada" value={fmt(kpis.utilidad)} accent />
         </div>
