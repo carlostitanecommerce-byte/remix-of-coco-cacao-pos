@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import type { Area, CoworkingSession } from './types';
+import { SessionTimer } from './SessionTimer';
 
 interface Props {
   sessions: CoworkingSession[];
