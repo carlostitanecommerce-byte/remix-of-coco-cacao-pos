@@ -527,25 +527,61 @@ export default function InventarioTab() {
         </Button>
       </div>
 
-      {/* KPI */}
-      <Card className="border-primary/30 bg-primary/5">
-        <CardContent className="flex items-center gap-4 py-5">
-          <div className="p-3 rounded-lg bg-primary/10">
-            <Package className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Valuación Total del Inventario</p>
-            <p className="text-2xl font-bold text-foreground">
-              {loading ? '...' : fmtMoney(totalValuacion)}
-            </p>
-            {!isToday(fecha) && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Estimación al {format(fecha, 'PPP', { locale: es })}
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex items-center gap-4 py-5">
+            <div className="p-3 rounded-lg bg-primary/10">
+              <Package className="h-6 w-6 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-muted-foreground">Valuación Total del Inventario</p>
+              {loading ? (
+                <Skeleton className="h-7 w-32 mt-1" />
+              ) : (
+                <p className="text-2xl font-bold text-foreground">{fmtMoney(totalValuacion)}</p>
+              )}
+              {!loading && filteredRows.length !== rows.length && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Filtrado: <span className="font-medium text-foreground">{fmtMoney(filteredValuacion)}</span> ({filteredRows.length} de {rows.length})
+                </p>
+              )}
+              {!isToday(fecha) && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Estimación al {format(fecha, 'PPP', { locale: es })}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className={cn("border-border/60", lowStockCount > 0 && "border-destructive/40 bg-destructive/5")}>
+          <CardContent className="flex items-center gap-4 py-5">
+            <div className={cn("p-3 rounded-lg", lowStockCount > 0 ? "bg-destructive/10" : "bg-muted")}>
+              <AlertCircle className={cn("h-6 w-6", lowStockCount > 0 ? "text-destructive" : "text-muted-foreground")} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-muted-foreground">Insumos en stock bajo</p>
+              {loading ? (
+                <Skeleton className="h-7 w-16 mt-1" />
+              ) : (
+                <p className={cn("text-2xl font-bold", lowStockCount > 0 ? "text-destructive" : "text-foreground")}>
+                  {lowStockCount}
+                </p>
+              )}
+              {!loading && lowStockCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSoloBajoStock(v => !v)}
+                  className="text-xs text-primary hover:underline mt-0.5"
+                >
+                  {soloBajoStock ? 'Mostrar todos' : 'Ver solo bajo stock'}
+                </button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {truncated && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
@@ -558,6 +594,38 @@ export default function InventarioTab() {
           </div>
         </div>
       )}
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar insumo por nombre…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={categoriaFilter} onValueChange={setCategoriaFilter}>
+          <SelectTrigger className="w-full sm:w-[220px]">
+            <SelectValue placeholder="Categoría" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas las categorías</SelectItem>
+            {categorias.map(c => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant={soloBajoStock ? 'default' : 'outline'}
+          onClick={() => setSoloBajoStock(v => !v)}
+          className="gap-2"
+        >
+          <AlertCircle className="h-4 w-4" />
+          Bajo stock
+        </Button>
+      </div>
 
       {/* Audit Tool */}
       <Card className="border-border/60">
