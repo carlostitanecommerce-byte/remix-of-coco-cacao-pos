@@ -40,6 +40,7 @@ interface DetalleRow {
   subtotal: number;
   tipo_concepto: string;
   coworking_session_id: string | null;
+  paquete_id: string | null;
 }
 
 interface ProductoMap {
@@ -54,6 +55,24 @@ interface RecetaRow {
 
 interface InsumoMap {
   [id: string]: { nombre: string; categoria: string; unidad_medida: string; costo_unitario: number };
+}
+
+interface ProductoFull {
+  id: string;
+  nombre: string;
+  categoria: string;
+  tipo: string;
+}
+
+interface PaqueteComponente {
+  paquete_id: string;
+  producto_id: string;
+  cantidad: number;
+}
+
+interface ConfigVentas {
+  ivaPorcentaje: number;        // ej. 16
+  comisionPorcentaje: number;   // ej. 3.5
 }
 
 const MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
@@ -78,6 +97,9 @@ export default function GeneralTab() {
   const [exportingCOGS, setExportingCOGS] = useState(false);
   const [exportingCaja, setExportingCaja] = useState(false);
 
+  const [paqueteComponentes, setPaqueteComponentes] = useState<PaqueteComponente[]>([]);
+  const [config, setConfig] = useState<ConfigVentas>({ ivaPorcentaje: 16, comisionPorcentaje: 0 });
+
   useEffect(() => {
     fetchData();
   }, [desde, hasta]);
@@ -87,43 +109,57 @@ export default function GeneralTab() {
     const desdeISO = format(desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
-    const [ventasRes, productosRes, recetasRes, insumosRes] = await Promise.all([
+    const [ventasRes, productosRes, recetasRes, insumosRes, paqueteRes, configRes] = await Promise.all([
       supabase
         .from('ventas')
         .select('id, folio, fecha, total_bruto, total_neto, iva, comisiones_bancarias, metodo_pago, estado, coworking_session_id, monto_propina, monto_tarjeta, monto_efectivo, monto_transferencia')
         .gte('fecha', desdeISO)
         .lte('fecha', hastaISO)
         .eq('estado', 'completada'),
-      supabase.from('productos').select('id, nombre, categoria').eq('tipo', 'simple'),
+      // L1: incluir paquetes también, para no perder su nombre/categoría en exportación
+      supabase.from('productos').select('id, nombre, categoria, tipo'),
       supabase.from('recetas').select('producto_id, insumo_id, cantidad_necesaria'),
       supabase.from('insumos').select('id, nombre, categoria, unidad_medida, costo_unitario'),
+      supabase.from('paquete_componentes').select('paquete_id, producto_id, cantidad'),
+      supabase.from('configuracion_ventas').select('clave, valor'),
     ]);
 
     const ventasData = ventasRes.data ?? [];
     setVentas(ventasData);
 
     const pMap: ProductoMap = {};
-    (productosRes.data ?? []).forEach(p => { pMap[p.id] = { nombre: p.nombre, categoria: p.categoria }; });
+    (productosRes.data ?? []).forEach((p: ProductoFull) => {
+      pMap[p.id] = { nombre: p.nombre, categoria: p.categoria };
+    });
     setProductos(pMap);
     setRecetas(recetasRes.data ?? []);
+    setPaqueteComponentes(paqueteRes.data ?? []);
 
     const iMap: InsumoMap = {};
     (insumosRes.data ?? []).forEach(i => { iMap[i.id] = { nombre: i.nombre, categoria: i.categoria, unidad_medida: i.unidad_medida, costo_unitario: i.costo_unitario }; });
     setInsumos(iMap);
 
+    // L1: cargar IVA y comisión dinámicas desde configuracion_ventas
+    const cfgRows = configRes.data ?? [];
+    const ivaRow = cfgRows.find(r => r.clave === 'iva_porcentaje');
+    const comRow = cfgRows.find(r => r.clave === 'comision_bancaria_porcentaje');
+    setConfig({
+      ivaPorcentaje: ivaRow ? Number(ivaRow.valor) : 16,
+      comisionPorcentaje: comRow ? Number(comRow.valor) : 0,
+    });
+
     if (ventasData.length > 0) {
       const ventaIds = ventasData.map(v => v.id);
-      // Fetch in batches of 100 to avoid URL length limits
       const allDetalles: DetalleRow[] = [];
       for (let i = 0; i < ventaIds.length; i += 100) {
         const batch = ventaIds.slice(i, i + 100);
         const { data } = await supabase
           .from('detalle_ventas')
-          .select('id, venta_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, tipo_concepto, coworking_session_id')
+          .select('id, venta_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, tipo_concepto, coworking_session_id, paquete_id')
           .in('venta_id', batch);
         if (data) allDetalles.push(...data);
       }
-      setDetalles(allDetalles);
+      setDetalles(allDetalles as DetalleRow[]);
     } else {
       setDetalles([]);
     }
@@ -131,28 +167,59 @@ export default function GeneralTab() {
     setLoading(false);
   };
 
-  const kpis = useMemo(() => {
-    // Ingreso Gravable = sum of total_neto (includes IVA, excludes propinas)
-    const ingresoGravable = ventas.reduce((s, v) => s + v.total_neto, 0);
-    const totalPropinas = ventas.reduce((s, v) => s + v.monto_propina, 0);
-    const ivaTotal = ventas.reduce((s, v) => s + v.iva, 0);
-    const comisionesTotal = ventas.reduce((s, v) => s + v.comisiones_bancarias, 0);
+  // L1: índice O(1) de recetas por producto (también usado para expansión de paquetes)
+  const recetasPorProducto = useMemo(() => {
+    const map: Record<string, RecetaRow[]> = {};
+    recetas.forEach(r => {
+      (map[r.producto_id] ||= []).push(r);
+    });
+    return map;
+  }, [recetas]);
 
-    // Calculate COGS from recipes
+  // L1: índice de componentes por paquete
+  const componentesPorPaquete = useMemo(() => {
+    const map: Record<string, PaqueteComponente[]> = {};
+    paqueteComponentes.forEach(c => {
+      (map[c.paquete_id] ||= []).push(c);
+    });
+    return map;
+  }, [paqueteComponentes]);
+
+  // L1: dado un detalle (producto simple o paquete) devuelve costo total real de insumos
+  const costoInsumosDeDetalle = (d: DetalleRow): number => {
+    let costo = 0;
+    const acumulaProducto = (productoId: string, factor: number) => {
+      const recs = recetasPorProducto[productoId] || [];
+      recs.forEach(r => {
+        const ins = insumos[r.insumo_id];
+        if (ins) costo += r.cantidad_necesaria * factor * ins.costo_unitario;
+      });
+    };
+    if (d.paquete_id) {
+      const comps = componentesPorPaquete[d.paquete_id] || [];
+      comps.forEach(c => acumulaProducto(c.producto_id, c.cantidad * d.cantidad));
+    } else if (d.producto_id) {
+      acumulaProducto(d.producto_id, d.cantidad);
+    }
+    return costo;
+  };
+
+  const kpis = useMemo(() => {
+    const ingresoGravable = ventas.reduce((s, v) => s + Number(v.total_neto), 0);
+    const totalPropinas = ventas.reduce((s, v) => s + Number(v.monto_propina), 0);
+    const ivaTotal = ventas.reduce((s, v) => s + Number(v.iva), 0);
+    // L1: comisiones reales registradas en la venta (no recalculadas)
+    const comisionesTotal = ventas.reduce((s, v) => s + Number(v.comisiones_bancarias), 0);
+
+    // L1: COGS expandiendo paquetes y usando índice O(1)
     let costoInsumos = 0;
     detalles.forEach(d => {
-      if (!d.producto_id) return;
-      const recetasProducto = recetas.filter(r => r.producto_id === d.producto_id);
-      recetasProducto.forEach(r => {
-        const ins = insumos[r.insumo_id];
-        if (ins) costoInsumos += r.cantidad_necesaria * d.cantidad * ins.costo_unitario;
-      });
+      costoInsumos += costoInsumosDeDetalle(d);
     });
 
-    // Utilidad = ingreso gravable - IVA - comisiones - COGS (propinas are non-taxable pass-through)
     const utilidad = ingresoGravable - ivaTotal - comisionesTotal - costoInsumos;
     return { ingresoGravable, totalPropinas, ivaTotal, comisionesTotal, costoInsumos, utilidad };
-  }, [ventas, detalles, recetas, insumos]);
+  }, [ventas, detalles, recetasPorProducto, componentesPorPaquete, insumos]);
 
   const fileNameSuffix = () => {
     const m1 = MESES[desde.getMonth()];
@@ -165,66 +232,92 @@ export default function GeneralTab() {
   const exportVentas = async () => {
     setExportingSales(true);
     try {
-      const ventasPropinaMostrada = new Set<string>();
+      const ivaFactor = 1 + config.ivaPorcentaje / 100; // p.ej. 1.16
+      const ivaLabel = `IVA (${config.ivaPorcentaje}%)`;
 
-      const rows = detalles.map(d => {
-        const venta = ventas.find(v => v.id === d.venta_id);
-        if (!venta) return null;
+      // L1: agrupar líneas por venta para prorratear comisiones y propinas reales
+      const detallesPorVenta: Record<string, DetalleRow[]> = {};
+      detalles.forEach(d => {
+        (detallesPorVenta[d.venta_id] ||= []).push(d);
+      });
 
-        const totalLinea = d.subtotal;
-        const subtSinIVA = +(totalLinea / 1.16).toFixed(2);
-        const ivaLinea = +(totalLinea - subtSinIVA).toFixed(2);
+      const rows: any[] = [];
 
-        let concepto = d.descripcion || '';
-        let categoria = '';
-        if (d.producto_id && productos[d.producto_id]) {
-          concepto = productos[d.producto_id].nombre;
-          categoria = productos[d.producto_id].categoria;
-        } else if (d.tipo_concepto === 'coworking') {
-          concepto = d.descripcion || 'Servicio Coworking';
-          categoria = 'Coworking';
-        } else if (d.tipo_concepto === 'amenity') {
-          concepto = d.descripcion || 'Amenidad';
-          categoria = 'Amenidades';
-        }
+      ventas.forEach(venta => {
+        const lineas = detallesPorVenta[venta.id] || [];
+        const totalLineas = lineas.reduce((s, l) => s + Number(l.subtotal), 0);
+        const comisionVenta = Number(venta.comisiones_bancarias) || 0;
+        const propinaVenta = Number(venta.monto_propina) || 0;
 
-        // Comisión bancaria: 3.5% sobre porción tarjeta
-        let comisionLinea = 0;
-        if (venta.metodo_pago === 'tarjeta') {
-          comisionLinea = +(totalLinea * 0.035).toFixed(2);
-        } else if (venta.metodo_pago === 'mixto' && venta.total_neto > 0) {
-          const ratioTarjeta = venta.monto_tarjeta / venta.total_neto;
-          comisionLinea = +(totalLinea * ratioTarjeta * 0.035).toFixed(2);
-        }
+        let comisionAcum = 0;
+        let propinaAcum = 0;
 
-        // Propina: solo en la primera línea de cada venta
-        let propina = 0;
-        if (!ventasPropinaMostrada.has(venta.id)) {
-          propina = venta.monto_propina || 0;
-          ventasPropinaMostrada.add(venta.id);
-        }
+        lineas.forEach((d, idx) => {
+          const totalLinea = Number(d.subtotal);
+          const subtSinIVA = +(totalLinea / ivaFactor).toFixed(2);
+          const ivaLinea = +(totalLinea - subtSinIVA).toFixed(2);
 
-        return {
-          'Fecha y Hora': format(new Date(venta.fecha), 'dd/MM/yyyy HH:mm', { locale: es }),
-          'Folio del Ticket': `#${String(venta.folio).padStart(4, '0')}`,
-          'Concepto': concepto,
-          'Categoría': categoria,
-          'Cantidad': d.cantidad,
-          'Precio Unitario': d.precio_unitario,
-          'Subtotal': subtSinIVA,
-          'IVA (16%)': ivaLinea,
-          'Comisión Bancaria': comisionLinea,
-          'Total': totalLinea,
-          'Propina': propina,
-          'Método de Pago': metodoPagoLabel[venta.metodo_pago] || venta.metodo_pago,
-          'Monto Efectivo': venta.monto_efectivo,
-          'Monto Tarjeta': venta.monto_tarjeta,
-          'Monto Transferencia': venta.monto_transferencia,
-        };
-      }).filter(Boolean);
+          // L1: nombre/categoría — soporta producto simple, paquete, coworking, amenity
+          let concepto = d.descripcion || '';
+          let categoria = '';
+          if (d.paquete_id && productos[d.paquete_id]) {
+            concepto = productos[d.paquete_id].nombre;
+            categoria = productos[d.paquete_id].categoria;
+          } else if (d.producto_id && productos[d.producto_id]) {
+            concepto = productos[d.producto_id].nombre;
+            categoria = productos[d.producto_id].categoria;
+          } else if (d.tipo_concepto === 'coworking') {
+            concepto = d.descripcion || 'Servicio Coworking';
+            categoria = 'Coworking';
+          } else if (d.tipo_concepto === 'amenity') {
+            concepto = d.descripcion || 'Amenidad';
+            categoria = 'Amenidades';
+          }
+
+          // L1: comisión real prorrateada por participación de la línea en el total
+          let comisionLinea = 0;
+          if (comisionVenta > 0 && totalLineas > 0) {
+            if (idx === lineas.length - 1) {
+              // última línea: residual para que sume exacto
+              comisionLinea = +(comisionVenta - comisionAcum).toFixed(2);
+            } else {
+              comisionLinea = +((totalLinea / totalLineas) * comisionVenta).toFixed(2);
+              comisionAcum += comisionLinea;
+            }
+          }
+
+          // L1: propina prorrateada (en lugar de cargarla a la primera línea)
+          let propinaLinea = 0;
+          if (propinaVenta > 0 && totalLineas > 0) {
+            if (idx === lineas.length - 1) {
+              propinaLinea = +(propinaVenta - propinaAcum).toFixed(2);
+            } else {
+              propinaLinea = +((totalLinea / totalLineas) * propinaVenta).toFixed(2);
+              propinaAcum += propinaLinea;
+            }
+          }
+
+          rows.push({
+            'Fecha y Hora': format(new Date(venta.fecha), 'dd/MM/yyyy HH:mm', { locale: es }),
+            'Folio del Ticket': `#${String(venta.folio).padStart(4, '0')}`,
+            'Concepto': concepto,
+            'Categoría': categoria,
+            'Cantidad': d.cantidad,
+            'Precio Unitario': Number(d.precio_unitario),
+            'Subtotal': subtSinIVA,
+            [ivaLabel]: ivaLinea,
+            'Comisión Bancaria': comisionLinea,
+            'Total': totalLinea,
+            'Propina': propinaLinea,
+            'Método de Pago': metodoPagoLabel[venta.metodo_pago] || venta.metodo_pago,
+            'Monto Efectivo': Number(venta.monto_efectivo),
+            'Monto Tarjeta': Number(venta.monto_tarjeta),
+            'Monto Transferencia': Number(venta.monto_transferencia),
+          });
+        });
+      });
 
       const ws = XLSX.utils.json_to_sheet(rows);
-      // Column widths
       ws['!cols'] = [
         { wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 16 },
         { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 12 },
@@ -244,15 +337,23 @@ export default function GeneralTab() {
   const exportCOGS = async () => {
     setExportingCOGS(true);
     try {
-      // Aggregate consumed quantities per insumo from sold products
+      // L1: agrega consumo de insumos expandiendo paquetes y usando índice O(1)
       const consumoMap: Record<string, number> = {};
 
-      detalles.forEach(d => {
-        if (!d.producto_id) return;
-        const recetasProducto = recetas.filter(r => r.producto_id === d.producto_id);
-        recetasProducto.forEach(r => {
-          consumoMap[r.insumo_id] = (consumoMap[r.insumo_id] || 0) + r.cantidad_necesaria * d.cantidad;
+      const acumular = (productoId: string, factor: number) => {
+        const recs = recetasPorProducto[productoId] || [];
+        recs.forEach(r => {
+          consumoMap[r.insumo_id] = (consumoMap[r.insumo_id] || 0) + r.cantidad_necesaria * factor;
         });
+      };
+
+      detalles.forEach(d => {
+        if (d.paquete_id) {
+          const comps = componentesPorPaquete[d.paquete_id] || [];
+          comps.forEach(c => acumular(c.producto_id, c.cantidad * d.cantidad));
+        } else if (d.producto_id) {
+          acumular(d.producto_id, d.cantidad);
+        }
       });
 
       const rows = Object.entries(consumoMap).map(([insumoId, cantidadGastada]) => {
