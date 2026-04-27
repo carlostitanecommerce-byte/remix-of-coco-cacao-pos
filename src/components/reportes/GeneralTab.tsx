@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
-import { CalendarIcon, Download, FileSpreadsheet, Loader2, Receipt, CreditCard, TrendingUp, Wallet, AlertTriangle } from 'lucide-react';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { CalendarIcon, Download, FileSpreadsheet, Loader2, Receipt, CreditCard, TrendingUp, Wallet, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, addDays, subDays, isSameDay, startOfWeek, endOfWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { Skeleton } from '@/components/ui/skeleton';
 import { fetchCajaResumen } from '@/lib/cajaUtils';
 
 interface VentaRow {
@@ -379,6 +380,44 @@ export default function GeneralTab() {
         { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
       ];
       const wb = XLSX.utils.book_new();
+
+      // L3: Hoja "Resumen" con totales del periodo (consistente con KPIs en pantalla)
+      const ventasCount = ventas.length;
+      const desgloseEfectivo = ventas.reduce((s, v) => s + Number(v.monto_efectivo), 0);
+      const desgloseTarjeta = ventas.reduce((s, v) => s + Number(v.monto_tarjeta), 0);
+      const desgloseTransfer = ventas.reduce((s, v) => s + Number(v.monto_transferencia), 0);
+      const subtotalSinIVA = +(kpis.ingresoGravable / (1 + config.ivaPorcentaje / 100)).toFixed(2);
+
+      const resumenRows: (string | number)[][] = [
+        ['Reporte de Ventas para Contabilidad', ''],
+        ['Periodo', `${format(desde, 'dd/MM/yyyy')} – ${format(hasta, 'dd/MM/yyyy')}`],
+        ['Generado', format(new Date(), 'dd/MM/yyyy HH:mm', { locale: es })],
+        ['', ''],
+        ['Tickets', ventasCount],
+        ['Líneas exportadas', rows.length],
+        ['', ''],
+        ['Subtotal (sin IVA)', subtotalSinIVA],
+        [`IVA (${config.ivaPorcentaje}%)`, +kpis.ivaTotal.toFixed(2)],
+        ['Ingreso Gravable (con IVA)', +kpis.ingresoGravable.toFixed(2)],
+        ['Propinas (no gravable)', +kpis.totalPropinas.toFixed(2)],
+        ['Ingreso Bruto Total', +(kpis.ingresoGravable + kpis.totalPropinas).toFixed(2)],
+        ['', ''],
+        ['Comisiones bancarias (reales)', +kpis.comisionesTotal.toFixed(2)],
+        ['COGS (costo de insumos)', +kpis.costoInsumos.toFixed(2)],
+        ['Utilidad Estimada', +kpis.utilidad.toFixed(2)],
+        ['', ''],
+        ['Cobrado en Efectivo', +desgloseEfectivo.toFixed(2)],
+        ['Cobrado en Tarjeta', +desgloseTarjeta.toFixed(2)],
+        ['Cobrado en Transferencia', +desgloseTransfer.toFixed(2)],
+      ];
+      if (truncated.length > 0) {
+        resumenRows.push(['', '']);
+        resumenRows.push(['⚠ Resultados parciales', truncated.join(', ')]);
+      }
+      const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
+      wsResumen['!cols'] = [{ wch: 32 }, { wch: 22 }];
+      XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
       XLSX.utils.book_append_sheet(wb, ws, 'Ventas');
       XLSX.writeFile(wb, `Ventas_CocoCacao_${fileNameSuffix()}.xlsx`);
       toast.success('Archivo de ventas exportado correctamente');
@@ -486,15 +525,22 @@ export default function GeneralTab() {
 
   return (
     <div className="space-y-6">
-      {/* Date Range */}
+      {/* L3: Rango de fechas con chevrons y presets */}
       <Card className="border-border/60">
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-end gap-4">
-            <DatePicker label="Desde" date={desde} onChange={setDesde} />
-            <DatePicker label="Hasta" date={hasta} onChange={setHasta} />
+        <CardContent className="pt-6 space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <DateNav label="Desde" date={desde} onChange={setDesde} />
+            <DateNav label="Hasta" date={hasta} onChange={setHasta} />
             <Badge variant="outline" className="h-9 px-3 text-xs">
-              {ventas.length} ventas en periodo
+              {loading ? '…' : `${ventas.length} ventas en periodo`}
             </Badge>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <PresetButton label="Hoy" onClick={() => { const t = new Date(); setDesde(t); setHasta(t); }} />
+            <PresetButton label="Ayer" onClick={() => { const y = subDays(new Date(), 1); setDesde(y); setHasta(y); }} />
+            <PresetButton label="Esta semana" onClick={() => { const t = new Date(); setDesde(startOfWeek(t, { weekStartsOn: 1 })); setHasta(endOfWeek(t, { weekStartsOn: 1 })); }} />
+            <PresetButton label="Mes actual" onClick={() => { const t = new Date(); setDesde(startOfMonth(t)); setHasta(endOfMonth(t)); }} />
+            <PresetButton label="Mes anterior" onClick={() => { const t = subDays(startOfMonth(new Date()), 1); setDesde(startOfMonth(t)); setHasta(endOfMonth(t)); }} />
           </div>
         </CardContent>
       </Card>
@@ -513,16 +559,26 @@ export default function GeneralTab() {
         </div>
       )}
 
-      {/* KPIs */}
+      {/* L3: KPIs con skeletons */}
       {loading ? (
-        <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
-          <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i} className="border-border/60 shadow-sm">
+              <CardContent className="pt-5 pb-4 flex items-center gap-4">
+                <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-5 w-24" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <KPICard icon={Receipt} label="Ingreso Gravable" value={fmt(kpis.ingresoGravable)} />
           <KPICard icon={Receipt} label="Ingreso Bruto Total" value={fmt(kpis.ingresoGravable + kpis.totalPropinas)} />
-          <KPICard icon={Receipt} label="IVA Acumulado" value={fmt(kpis.ivaTotal)} />
+          <KPICard icon={Receipt} label={`IVA (${config.ivaPorcentaje}%) Acumulado`} value={fmt(kpis.ivaTotal)} />
           <KPICard icon={CreditCard} label="Propinas (No Gravable)" value={fmt(kpis.totalPropinas)} />
           <KPICard icon={TrendingUp} label="Utilidad Estimada" value={fmt(kpis.utilidad)} accent />
         </div>
@@ -547,28 +603,58 @@ export default function GeneralTab() {
   );
 }
 
-function DatePicker({ label, date, onChange }: { label: string; date: Date; onChange: (d: Date) => void }) {
+// L3: DateNav con chevrons (paso de un día) + popover de calendario
+function DateNav({ label, date, onChange }: { label: string; date: Date; onChange: (d: Date) => void }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="outline" className={cn('w-[180px] justify-start text-left font-normal', !date && 'text-muted-foreground')}>
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {format(date, 'dd MMM yyyy', { locale: es })}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
-          <Calendar
-            mode="single"
-            selected={date}
-            onSelect={d => d && onChange(d)}
-            initialFocus
-            className="p-3 pointer-events-auto"
-          />
-        </PopoverContent>
-      </Popover>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={() => onChange(subDays(date, 1))}
+          aria-label={`${label}: día anterior`}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className={cn('w-[170px] justify-start text-left font-normal', !date && 'text-muted-foreground')}>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {format(date, 'dd MMM yyyy', { locale: es })}
+              {isSameDay(date, new Date()) && <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-[10px]">Hoy</Badge>}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={date}
+              onSelect={d => d && onChange(d)}
+              initialFocus
+              className="p-3 pointer-events-auto"
+            />
+          </PopoverContent>
+        </Popover>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={() => onChange(addDays(date, 1))}
+          aria-label={`${label}: día siguiente`}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
+  );
+}
+
+function PresetButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onClick}>
+      {label}
+    </Button>
   );
 }
 
