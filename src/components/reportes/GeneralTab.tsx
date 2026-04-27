@@ -337,15 +337,23 @@ export default function GeneralTab() {
   const exportCOGS = async () => {
     setExportingCOGS(true);
     try {
-      // Aggregate consumed quantities per insumo from sold products
+      // L1: agrega consumo de insumos expandiendo paquetes y usando índice O(1)
       const consumoMap: Record<string, number> = {};
 
-      detalles.forEach(d => {
-        if (!d.producto_id) return;
-        const recetasProducto = recetas.filter(r => r.producto_id === d.producto_id);
-        recetasProducto.forEach(r => {
-          consumoMap[r.insumo_id] = (consumoMap[r.insumo_id] || 0) + r.cantidad_necesaria * d.cantidad;
+      const acumular = (productoId: string, factor: number) => {
+        const recs = recetasPorProducto[productoId] || [];
+        recs.forEach(r => {
+          consumoMap[r.insumo_id] = (consumoMap[r.insumo_id] || 0) + r.cantidad_necesaria * factor;
         });
+      };
+
+      detalles.forEach(d => {
+        if (d.paquete_id) {
+          const comps = componentesPorPaquete[d.paquete_id] || [];
+          comps.forEach(c => acumular(c.producto_id, c.cantidad * d.cantidad));
+        } else if (d.producto_id) {
+          acumular(d.producto_id, d.cantidad);
+        }
       });
 
       const rows = Object.entries(consumoMap).map(([insumoId, cantidadGastada]) => {
