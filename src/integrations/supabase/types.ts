@@ -1108,6 +1108,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      aplicar_auditoria_inventario: { Args: { p_ajustes: Json }; Returns: Json }
       cancelar_sesion_coworking: {
         Args: {
           p_entregados: Json
