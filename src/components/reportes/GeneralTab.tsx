@@ -232,66 +232,92 @@ export default function GeneralTab() {
   const exportVentas = async () => {
     setExportingSales(true);
     try {
-      const ventasPropinaMostrada = new Set<string>();
+      const ivaFactor = 1 + config.ivaPorcentaje / 100; // p.ej. 1.16
+      const ivaLabel = `IVA (${config.ivaPorcentaje}%)`;
 
-      const rows = detalles.map(d => {
-        const venta = ventas.find(v => v.id === d.venta_id);
-        if (!venta) return null;
+      // L1: agrupar líneas por venta para prorratear comisiones y propinas reales
+      const detallesPorVenta: Record<string, DetalleRow[]> = {};
+      detalles.forEach(d => {
+        (detallesPorVenta[d.venta_id] ||= []).push(d);
+      });
 
-        const totalLinea = d.subtotal;
-        const subtSinIVA = +(totalLinea / 1.16).toFixed(2);
-        const ivaLinea = +(totalLinea - subtSinIVA).toFixed(2);
+      const rows: any[] = [];
 
-        let concepto = d.descripcion || '';
-        let categoria = '';
-        if (d.producto_id && productos[d.producto_id]) {
-          concepto = productos[d.producto_id].nombre;
-          categoria = productos[d.producto_id].categoria;
-        } else if (d.tipo_concepto === 'coworking') {
-          concepto = d.descripcion || 'Servicio Coworking';
-          categoria = 'Coworking';
-        } else if (d.tipo_concepto === 'amenity') {
-          concepto = d.descripcion || 'Amenidad';
-          categoria = 'Amenidades';
-        }
+      ventas.forEach(venta => {
+        const lineas = detallesPorVenta[venta.id] || [];
+        const totalLineas = lineas.reduce((s, l) => s + Number(l.subtotal), 0);
+        const comisionVenta = Number(venta.comisiones_bancarias) || 0;
+        const propinaVenta = Number(venta.monto_propina) || 0;
 
-        // Comisión bancaria: 3.5% sobre porción tarjeta
-        let comisionLinea = 0;
-        if (venta.metodo_pago === 'tarjeta') {
-          comisionLinea = +(totalLinea * 0.035).toFixed(2);
-        } else if (venta.metodo_pago === 'mixto' && venta.total_neto > 0) {
-          const ratioTarjeta = venta.monto_tarjeta / venta.total_neto;
-          comisionLinea = +(totalLinea * ratioTarjeta * 0.035).toFixed(2);
-        }
+        let comisionAcum = 0;
+        let propinaAcum = 0;
 
-        // Propina: solo en la primera línea de cada venta
-        let propina = 0;
-        if (!ventasPropinaMostrada.has(venta.id)) {
-          propina = venta.monto_propina || 0;
-          ventasPropinaMostrada.add(venta.id);
-        }
+        lineas.forEach((d, idx) => {
+          const totalLinea = Number(d.subtotal);
+          const subtSinIVA = +(totalLinea / ivaFactor).toFixed(2);
+          const ivaLinea = +(totalLinea - subtSinIVA).toFixed(2);
 
-        return {
-          'Fecha y Hora': format(new Date(venta.fecha), 'dd/MM/yyyy HH:mm', { locale: es }),
-          'Folio del Ticket': `#${String(venta.folio).padStart(4, '0')}`,
-          'Concepto': concepto,
-          'Categoría': categoria,
-          'Cantidad': d.cantidad,
-          'Precio Unitario': d.precio_unitario,
-          'Subtotal': subtSinIVA,
-          'IVA (16%)': ivaLinea,
-          'Comisión Bancaria': comisionLinea,
-          'Total': totalLinea,
-          'Propina': propina,
-          'Método de Pago': metodoPagoLabel[venta.metodo_pago] || venta.metodo_pago,
-          'Monto Efectivo': venta.monto_efectivo,
-          'Monto Tarjeta': venta.monto_tarjeta,
-          'Monto Transferencia': venta.monto_transferencia,
-        };
-      }).filter(Boolean);
+          // L1: nombre/categoría — soporta producto simple, paquete, coworking, amenity
+          let concepto = d.descripcion || '';
+          let categoria = '';
+          if (d.paquete_id && productos[d.paquete_id]) {
+            concepto = productos[d.paquete_id].nombre;
+            categoria = productos[d.paquete_id].categoria;
+          } else if (d.producto_id && productos[d.producto_id]) {
+            concepto = productos[d.producto_id].nombre;
+            categoria = productos[d.producto_id].categoria;
+          } else if (d.tipo_concepto === 'coworking') {
+            concepto = d.descripcion || 'Servicio Coworking';
+            categoria = 'Coworking';
+          } else if (d.tipo_concepto === 'amenity') {
+            concepto = d.descripcion || 'Amenidad';
+            categoria = 'Amenidades';
+          }
+
+          // L1: comisión real prorrateada por participación de la línea en el total
+          let comisionLinea = 0;
+          if (comisionVenta > 0 && totalLineas > 0) {
+            if (idx === lineas.length - 1) {
+              // última línea: residual para que sume exacto
+              comisionLinea = +(comisionVenta - comisionAcum).toFixed(2);
+            } else {
+              comisionLinea = +((totalLinea / totalLineas) * comisionVenta).toFixed(2);
+              comisionAcum += comisionLinea;
+            }
+          }
+
+          // L1: propina prorrateada (en lugar de cargarla a la primera línea)
+          let propinaLinea = 0;
+          if (propinaVenta > 0 && totalLineas > 0) {
+            if (idx === lineas.length - 1) {
+              propinaLinea = +(propinaVenta - propinaAcum).toFixed(2);
+            } else {
+              propinaLinea = +((totalLinea / totalLineas) * propinaVenta).toFixed(2);
+              propinaAcum += propinaLinea;
+            }
+          }
+
+          rows.push({
+            'Fecha y Hora': format(new Date(venta.fecha), 'dd/MM/yyyy HH:mm', { locale: es }),
+            'Folio del Ticket': `#${String(venta.folio).padStart(4, '0')}`,
+            'Concepto': concepto,
+            'Categoría': categoria,
+            'Cantidad': d.cantidad,
+            'Precio Unitario': Number(d.precio_unitario),
+            'Subtotal': subtSinIVA,
+            [ivaLabel]: ivaLinea,
+            'Comisión Bancaria': comisionLinea,
+            'Total': totalLinea,
+            'Propina': propinaLinea,
+            'Método de Pago': metodoPagoLabel[venta.metodo_pago] || venta.metodo_pago,
+            'Monto Efectivo': Number(venta.monto_efectivo),
+            'Monto Tarjeta': Number(venta.monto_tarjeta),
+            'Monto Transferencia': Number(venta.monto_transferencia),
+          });
+        });
+      });
 
       const ws = XLSX.utils.json_to_sheet(rows);
-      // Column widths
       ws['!cols'] = [
         { wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 16 },
         { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 12 },
