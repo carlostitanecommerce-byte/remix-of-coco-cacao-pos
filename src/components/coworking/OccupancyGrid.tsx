@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LogOut as LogOutIcon, Lock, Users, XCircle } from 'lucide-react';
 import type { Area, CoworkingSession } from './types';
-import { SessionTimer } from './SessionTimer';
 
 interface Props {
   areas: Area[];
@@ -83,22 +82,13 @@ export function OccupancyGrid({ areas, getOccupancy, getAreaSessions, onCheckOut
               {areaSessions.length > 0 && (
                 <div className="space-y-1 pt-1">
                   {area.es_privado ? (
-                    // Private: show single client with full block styling
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="min-w-0">
-                          <span className="font-medium truncate">{areaSessions[0].cliente_nombre}</span>
-                          <span className="text-muted-foreground ml-1">({areaSessions[0].pax_count}p)</span>
-                        </div>
-                      </div>
-                      <SessionTimer
-                        variant="compact"
-                        fechaInicio={areaSessions[0].fecha_inicio}
-                        fechaFinEstimada={areaSessions[0].fecha_fin_estimada}
-                        fechaSalidaReal={areaSessions[0].fecha_salida_real}
-                      />
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs flex-1" onClick={() => onCheckOut(areaSessions[0])}>
+                    // Private: single session — pax + actions only
+                    <div className="flex items-center justify-between gap-1 text-xs">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <Users className="h-3 w-3" />{areaSessions[0].pax_count} pax
+                      </span>
+                      <div className="flex gap-1 shrink-0">
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onCheckOut(areaSessions[0])}>
                           <LogOutIcon className="h-3 w-3 mr-1" />Salida
                         </Button>
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onCancel(areaSessions[0])}>
@@ -107,26 +97,20 @@ export function OccupancyGrid({ areas, getOccupancy, getAreaSessions, onCheckOut
                       </div>
                     </div>
                   ) : (
-                    // Public: list all individual clients
-                    areaSessions.map(s => (
-                      <div key={s.id} className="flex flex-col gap-1 text-xs border-b border-border/30 last:border-0 pb-1 last:pb-0">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="truncate flex-1">{s.cliente_nombre} ({s.pax_count}p)</span>
-                          <div className="flex gap-1 shrink-0">
-                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onCheckOut(s)}>
-                              <LogOutIcon className="h-3 w-3 mr-1" />Salida
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onCancel(s)}>
-                              <XCircle className="h-3 w-3" />
-                            </Button>
-                          </div>
+                    // Public: one row per session — pax + actions only (no name, no timer)
+                    areaSessions.map((s, idx) => (
+                      <div key={s.id} className="flex items-center justify-between gap-1 text-xs border-b border-border/30 last:border-0 pb-1 last:pb-0">
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <Users className="h-3 w-3" />Sesión {idx + 1} · {s.pax_count} pax
+                        </span>
+                        <div className="flex gap-1 shrink-0">
+                          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onCheckOut(s)}>
+                            <LogOutIcon className="h-3 w-3 mr-1" />Salida
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onCancel(s)}>
+                            <XCircle className="h-3 w-3" />
+                          </Button>
                         </div>
-                        <SessionTimer
-                          variant="compact"
-                          fechaInicio={s.fecha_inicio}
-                          fechaFinEstimada={s.fecha_fin_estimada}
-                          fechaSalidaReal={s.fecha_salida_real}
-                        />
                       </div>
                     ))
                   )}
