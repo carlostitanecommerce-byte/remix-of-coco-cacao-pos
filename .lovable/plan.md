@@ -1,146 +1,36 @@
-## Objetivo
+## Problema
 
-Ejecutar las tres acciones de mayor relación impacto/esfuerzo de la auditoría:
+En el reporte **Reportes → Exportación Contable**, las cinco tarjetas de KPI (`Ingreso Gravable`, `Ingreso Bruto Total`, `IVA Acumulado`, `Propinas`, `Utilidad Estimada`) se muestran en una sola fila horizontal de 5 columnas desde el breakpoint `lg` (≥1024 px). En el viewport actual del usuario (1032 px) cada tarjeta queda con ~190 px y, además, el layout interno coloca el icono al lado del texto, dejando poco espacio para el monto. Como el valor usa `truncate`, los importes con varios dígitos se cortan con "…" y no se alcanza a leer el número completo.
 
-1. **Eliminar el bug financiero** de las ventas canceladas que conservan `monto_efectivo > 0`.
-2. **Corregir el filtro de turnos** para que use solape con el rango (no solo `fecha_apertura`).
-3. **Profesionalizar la carga**: manejo de errores con toast, `AbortController`, límites explícitos e indicador de truncamiento — paridad con VentasTab/MenuTab tras Fase I2.
+## Cambios propuestos (un solo archivo: `src/components/reportes/GeneralTab.tsx`)
 
-No se tocan funcionalidades existentes (fórmula de arqueo, RLS, Arqueo Ciego, audit logs).
+### 1. Grid responsivo más conservador
+Sustituir `grid-cols-1 sm:grid-cols-2 lg:grid-cols-5` por `grid-cols-2 md:grid-cols-3 xl:grid-cols-5`:
+- **Móvil**: 2 columnas (compactas pero legibles).
+- **Tablet / laptop pequeña** (≥768 px): 3 columnas → cada tarjeta gana ~340 px.
+- **Pantalla amplia** (≥1280 px): las 5 tarjetas en línea, ya con espacio suficiente.
 
----
+Reducir gap de `gap-4` a `gap-3` para optimizar uso del ancho.
 
-## Acción 1 — Limpiar montos al cancelar venta
+### 2. Layout interno vertical en cada tarjeta
+Hoy el icono y el texto están en `flex items-center gap-4`, lo que reserva ~58 px para el icono y deja al monto con un ancho muy reducido. El nuevo layout coloca:
+- Fila superior: icono pequeño (h-8) + label.
+- Fila inferior: monto ocupando **todo el ancho** de la tarjeta.
 
-### Migración (schema)
+Esto multiplica el espacio horizontal disponible para el número.
 
-Trigger `BEFORE UPDATE` en `public.ventas` que, cuando `estado` cambia a `'cancelada'`, pone a cero los tres montos de cobro. Mantiene `total_neto`, `total_bruto`, `iva`, `monto_propina` intactos para preservar trazabilidad histórica del valor original cancelado.
+### 3. Tipografía adaptable y sin recortes
+- Cambiar `text-lg font-bold truncate` por `text-base sm:text-lg font-bold tabular-nums break-words`:
+  - `tabular-nums`: dígitos de igual ancho, alineación visual entre tarjetas.
+  - `break-words`: si el monto sigue siendo más largo que la tarjeta (caso extremo), se ajusta a dos líneas en lugar de cortarse con "…".
+  - `text-base` en móvil, `text-lg` en pantallas mayores.
 
-```sql
-CREATE OR REPLACE FUNCTION public.zero_montos_on_cancel()
-RETURNS trigger LANGUAGE plpgsql
-SECURITY DEFINER SET search_path = public AS $$
-BEGIN
-  IF NEW.estado = 'cancelada'
-     AND (OLD.estado IS DISTINCT FROM 'cancelada') THEN
-    NEW.monto_efectivo      := 0;
-    NEW.monto_tarjeta       := 0;
-    NEW.monto_transferencia := 0;
-    NEW.comisiones_bancarias := 0;
-  END IF;
-  RETURN NEW;
-END $$;
+### 4. Skeletons coherentes
+Actualizar los skeletons de carga para usar el mismo layout vertical y la misma cuadrícula, manteniendo el layout estable durante la transición.
 
-CREATE TRIGGER trg_zero_montos_on_cancel
-BEFORE UPDATE ON public.ventas
-FOR EACH ROW EXECUTE FUNCTION public.zero_montos_on_cancel();
-```
+## Resultado esperado
 
-### Backfill de datos históricos
-
-Operación de actualización (no schema) para limpiar las **18 ventas canceladas** que hoy conservan $1,245 en montos fantasma. Se hará vía herramienta de inserción/actualización:
-
-```sql
-UPDATE public.ventas
-   SET monto_efectivo = 0,
-       monto_tarjeta = 0,
-       monto_transferencia = 0,
-       comisiones_bancarias = 0
- WHERE estado = 'cancelada'
-   AND (monto_efectivo > 0 OR monto_tarjeta > 0 OR monto_transferencia > 0);
-```
-
-### Verificación esperada
-- Cualquier consulta agregada futura sobre `ventas.monto_*` ya no inflará efectivo por cancelaciones.
-- El reporte de Caja sigue idéntico (ya filtraba por `estado='completada'`).
-- Histórico: cero ventas canceladas con monto > 0.
-
----
-
-## Acción 2 — Filtro de turnos por solape
-
-### Cambio en `src/lib/cajaUtils.ts`
-
-Reemplazar el filtro actual:
-```ts
-.gte('fecha_apertura', desdeISO)
-.lte('fecha_apertura', hastaISO)
-```
-
-por un filtro de solape con el rango (un turno entra si su intervalo `[fecha_apertura, COALESCE(fecha_cierre, now())]` se cruza con `[desde, hasta]`):
-
-```ts
-.lte('fecha_apertura', hastaISO)
-.or(`fecha_cierre.gte.${desdeISO},fecha_cierre.is.null`)
-```
-
-### Por qué importa
-Hoy un turno abierto el 30/abr y cerrado el 1/may **NO aparece** al consultar mayo, aunque sus ventas sí caen en mayo. Con el cambio, los turnos transversales aparecen en ambos meses (lo correcto contablemente; el operador puede ver la trazabilidad completa).
-
-### Verificación
-- Selecciono un mes que termina/empieza con un turno cruzado: aparece en ambos rangos.
-- El conteo "X turnos en periodo" refleja la realidad operativa, no el accidente de cuándo se abrió.
-
----
-
-## Acción 3 — Robustez de carga (paridad con Fase I2)
-
-### Cambios en `src/lib/cajaUtils.ts`
-
-1. **Aceptar `AbortSignal` opcional** en `fetchCajaResumen(desde, hasta, signal?)`. Pasarlo a cada query con `.abortSignal(signal)`.
-2. **Throwing en errores**: hoy se hace `const { data } = await …` ignorando `error`. Cambiar a destructurar `{ data, error }` y `throw error` para que el caller pueda mostrar toast.
-3. **Límites explícitos**:
-   - `cajas`: `.limit(500)`
-   - `movimientos_caja`: `.limit(5000)`
-   - `ventas` (por turno): `.limit(5000)`
-4. **Devolver flag de truncamiento**: cambiar el retorno a `{ turnos: CajaTurnoResumen[]; truncated: boolean }` (o adjuntar `truncated` en el array). Truncated=true si **alguna** query alcanzó su límite.
-
-### Cambios en `src/components/reportes/CajaTab.tsx`
-
-1. **AbortController por efecto**:
-   ```ts
-   useEffect(() => {
-     const ctrl = new AbortController();
-     (async () => {
-       setLoading(true);
-       try {
-         const { turnos, truncated } = await fetchCajaResumen(desde, hasta, ctrl.signal);
-         if (ctrl.signal.aborted) return;
-         setTurnos(turnos);
-         setTruncated(truncated);
-         // selección activa…
-       } catch (err: any) {
-         if (ctrl.signal.aborted || err?.name === 'AbortError') return;
-         toast.error('No se pudo cargar el reporte de caja', { description: err?.message });
-       } finally {
-         if (!ctrl.signal.aborted) setLoading(false);
-       }
-     })();
-     return () => ctrl.abort();
-   }, [desde, hasta]);
-   ```
-2. **Banner de truncamiento** (mismo estilo ámbar que VentasTab/MenuTab) cuando `truncated === true`.
-3. **Import de `toast` desde `sonner`** (ya está disponible en el proyecto).
-
-### Verificación
-- Cambiar fechas rápido: solo gana el último fetch (sin parpadeos de datos viejos).
-- Forzar un error de red (con DevTools offline): aparece toast en vez de quedarse en spinner eterno.
-- Rangos enormes: aparece el banner ámbar avisando que se alcanzó el límite.
-
----
-
-## Archivos afectados
-
-- **Migración**: nueva, crea `zero_montos_on_cancel` + trigger.
-- **Update de datos**: backfill 18 filas en `ventas`.
-- `src/lib/cajaUtils.ts` — solape, abort signal, errores, límites, `truncated`.
-- `src/components/reportes/CajaTab.tsx` — AbortController, toast, banner de truncamiento.
-
-No se modifica `CancelVentaDialog.tsx` (el trigger lo hace todo a nivel BD, blindando también edge functions y futuros callers).
-
-## Lo que NO entra en este plan (queda para fases siguientes)
-
-- Eliminar N+1 (acción 4 de la auditoría) — refactor mayor; va aparte.
-- Alerta visual de turnos prolongados (>24h).
-- Presets de fecha y skeletons finos.
-- Mostrar usuario en movimientos, totales por método de pago, export PDF.
+- En el viewport actual de 1032 px (3 columnas), cada tarjeta pasa de ~190 px a ~340 px de ancho útil → el monto completo cabe sin truncarse incluso para cifras de 7-8 dígitos como `$1,234,567.89`.
+- En pantallas anchas (≥1280 px) se conserva la fila de 5 tarjetas, ahora también con suficiente espacio gracias al layout vertical.
+- En móvil/tablet la cuadrícula es estable y los textos no se atropellan.
+- Cero cambios funcionales: mismos KPIs, mismos cálculos, misma lógica de carga.

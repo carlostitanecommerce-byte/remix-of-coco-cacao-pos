@@ -559,23 +559,23 @@ export default function GeneralTab() {
         </div>
       )}
 
-      {/* L3: KPIs con skeletons */}
+      {/* L3: KPIs con skeletons — grid responsivo (2/3/5) y tarjetas verticales para que quepa el monto completo */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
           {Array.from({ length: 5 }).map((_, i) => (
             <Card key={i} className="border-border/60 shadow-sm">
-              <CardContent className="pt-5 pb-4 flex items-center gap-4">
-                <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
-                <div className="space-y-2 flex-1">
+              <CardContent className="pt-4 pb-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-8 w-8 rounded-lg shrink-0" />
                   <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-5 w-24" />
                 </div>
+                <Skeleton className="h-6 w-28" />
               </CardContent>
             </Card>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
           <KPICard icon={Receipt} label="Ingreso Gravable" value={fmt(kpis.ingresoGravable)} />
           <KPICard icon={Receipt} label="Ingreso Bruto Total" value={fmt(kpis.ingresoGravable + kpis.totalPropinas)} />
           <KPICard icon={Receipt} label={`IVA (${config.ivaPorcentaje}%) Acumulado`} value={fmt(kpis.ivaTotal)} />
@@ -661,14 +661,16 @@ function PresetButton({ label, onClick }: { label: string; onClick: () => void }
 function KPICard({ icon: Icon, label, value, accent }: { icon: React.ElementType; label: string; value: string; accent?: boolean }) {
   return (
     <Card className="border-border/60 shadow-sm">
-      <CardContent className="pt-5 pb-4 flex items-center gap-4">
-        <div className={cn('rounded-lg p-2.5 shrink-0', accent ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
-          <Icon className="h-5 w-5" />
+      <CardContent className="pt-4 pb-4 space-y-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn('rounded-lg p-1.5 shrink-0', accent ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+            <Icon className="h-4 w-4" />
+          </div>
+          <p className="text-xs text-muted-foreground leading-tight">{label}</p>
         </div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className={cn('text-lg font-bold truncate', accent && 'text-primary')}>{value}</p>
-        </div>
+        <p className={cn('text-base sm:text-lg font-bold tabular-nums break-words leading-tight', accent && 'text-primary')}>
+          {value}
+        </p>
       </CardContent>
     </Card>
   );
