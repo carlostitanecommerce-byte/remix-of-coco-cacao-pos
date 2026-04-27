@@ -565,28 +565,58 @@ export default function GeneralTab() {
   );
 }
 
-function DatePicker({ label, date, onChange }: { label: string; date: Date; onChange: (d: Date) => void }) {
+// L3: DateNav con chevrons (paso de un día) + popover de calendario
+function DateNav({ label, date, onChange }: { label: string; date: Date; onChange: (d: Date) => void }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="outline" className={cn('w-[180px] justify-start text-left font-normal', !date && 'text-muted-foreground')}>
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {format(date, 'dd MMM yyyy', { locale: es })}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
-          <Calendar
-            mode="single"
-            selected={date}
-            onSelect={d => d && onChange(d)}
-            initialFocus
-            className="p-3 pointer-events-auto"
-          />
-        </PopoverContent>
-      </Popover>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={() => onChange(subDays(date, 1))}
+          aria-label={`${label}: día anterior`}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className={cn('w-[170px] justify-start text-left font-normal', !date && 'text-muted-foreground')}>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {format(date, 'dd MMM yyyy', { locale: es })}
+              {isSameDay(date, new Date()) && <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-[10px]">Hoy</Badge>}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={date}
+              onSelect={d => d && onChange(d)}
+              initialFocus
+              className="p-3 pointer-events-auto"
+            />
+          </PopoverContent>
+        </Popover>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={() => onChange(addDays(date, 1))}
+          aria-label={`${label}: día siguiente`}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
+  );
+}
+
+function PresetButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onClick}>
+      {label}
+    </Button>
   );
 }
 
