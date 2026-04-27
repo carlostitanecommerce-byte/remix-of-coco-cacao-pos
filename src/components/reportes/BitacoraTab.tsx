@@ -454,14 +454,33 @@ const BitacoraTab = () => {
   };
 
   return (
-    <Card className="border-border/60">
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
-          <ScrollText className="h-5 w-5" />
-          Bitácora de Actividad
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="space-y-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <KpiCard icon={Activity} label="Total de eventos" value={stats?.total ?? 0} loading={statsLoading} />
+        <KpiCard icon={XCircle} label="Cancelaciones" value={stats?.cancelaciones ?? 0} loading={statsLoading} tone="destructive" />
+        <KpiCard icon={Users} label="Usuarios activos" value={stats?.usuariosActivos ?? 0} loading={statsLoading} />
+        <KpiCard
+          icon={TrendingUp}
+          label="Acción más frecuente"
+          value={stats?.topAccion ? formatActionLabel(stats.topAccion.accion) : '—'}
+          subValue={stats?.topAccion ? `${stats.topAccion.count} eventos` : undefined}
+          loading={statsLoading}
+          isText
+        />
+      </div>
+
+      <Card className="border-border/60">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ScrollText className="h-5 w-5" />
+            Bitácora de Actividad
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting || loading}>
+            <Download className="h-4 w-4 mr-2" />
+            {exporting ? 'Exportando...' : 'Exportar Excel'}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
         {/* Filtros */}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5">
