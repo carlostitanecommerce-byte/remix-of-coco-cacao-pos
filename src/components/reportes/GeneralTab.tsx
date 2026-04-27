@@ -499,6 +499,20 @@ export default function GeneralTab() {
         </CardContent>
       </Card>
 
+      {/* L2: Banner de resultados parciales */}
+      {truncated.length > 0 && (
+        <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            <p className="font-medium">Resultados parciales</p>
+            <p className="text-xs opacity-90">
+              Se alcanzó el límite de filas en: <strong>{truncated.join(', ')}</strong>. Los KPIs y exportaciones podrían
+              estar incompletos. Reduce el rango de fechas para obtener un cálculo exacto.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* KPIs */}
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
