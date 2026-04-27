@@ -459,6 +459,18 @@ export default function InventarioTab() {
         </CardContent>
       </Card>
 
+      {truncated && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Resultados parciales</p>
+            <p className="text-xs opacity-90">
+              Se alcanzó el límite de registros al reconstruir el inventario histórico. La valuación mostrada puede ser aproximada. Considera consultar una fecha más reciente.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Audit Tool */}
       <Card className="border-border/60">
         <CardHeader className="pb-3 flex flex-row items-center justify-between">
