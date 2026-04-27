@@ -86,11 +86,17 @@ export function OccupancyGrid({ areas, getOccupancy, getAreaSessions, onCheckOut
                     // Private: show single client with full block styling
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-xs">
-                        <div>
+                        <div className="min-w-0">
                           <span className="font-medium truncate">{areaSessions[0].cliente_nombre}</span>
                           <span className="text-muted-foreground ml-1">({areaSessions[0].pax_count}p)</span>
                         </div>
                       </div>
+                      <SessionTimer
+                        variant="compact"
+                        fechaInicio={areaSessions[0].fecha_inicio}
+                        fechaFinEstimada={areaSessions[0].fecha_fin_estimada}
+                        fechaSalidaReal={areaSessions[0].fecha_salida_real}
+                      />
                       <div className="flex gap-1">
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs flex-1" onClick={() => onCheckOut(areaSessions[0])}>
                           <LogOutIcon className="h-3 w-3 mr-1" />Salida
