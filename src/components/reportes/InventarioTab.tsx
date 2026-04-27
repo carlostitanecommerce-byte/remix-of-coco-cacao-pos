@@ -645,35 +645,59 @@ export default function InventarioTab() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center gap-2 text-muted-foreground py-12">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span>Cargando insumos…</span>
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton className="h-9 flex-1" />
+                  <Skeleton className="h-9 w-20" />
+                  <Skeleton className="h-9 w-16" />
+                  <Skeleton className="h-9 w-28" />
+                  <Skeleton className="h-9 w-20" />
+                </div>
+              ))}
             </div>
           ) : insumos.length === 0 ? (
             <p className="text-muted-foreground text-sm text-center py-8">No hay insumos registrados.</p>
+          ) : filteredInsumos.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center py-8">No hay insumos que coincidan con los filtros.</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Insumo</TableHead>
+                    <TableHead>Categoría</TableHead>
                     <TableHead className="text-right">Stock Teórico</TableHead>
+                    <TableHead className="text-right">Mínimo</TableHead>
                     <TableHead>Unidad</TableHead>
                     <TableHead className="text-right w-[140px]">Stock Físico</TableHead>
                     <TableHead className="text-right">Diferencia</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {insumos.map(ins => {
+                  {filteredInsumos.map(ins => {
                     const val = stockFisico[ins.id] ?? '';
                     const fisico = val !== '' ? parseFloat(val) : null;
                     const diff = fisico !== null && !isNaN(fisico) ? fisico - ins.stock_actual : null;
+                    const min = ins.stock_minimo ?? 0;
+                    const bajo = min > 0 && ins.stock_actual <= min;
 
                     return (
-                      <TableRow key={ins.id}>
-                        <TableCell className="font-medium">{ins.nombre}</TableCell>
-                        <TableCell className="text-right tabular-nums">
+                      <TableRow key={ins.id} className={cn(bajo && "bg-destructive/5")}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <span>{ins.nombre}</span>
+                            {bajo && (
+                              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Bajo</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{ins.categoria}</TableCell>
+                        <TableCell className={cn("text-right tabular-nums", bajo && "text-destructive font-semibold")}>
                           {Math.round(ins.stock_actual * 100) / 100}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {min > 0 ? Math.round(min * 100) / 100 : '—'}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{ins.unidad_medida}</TableCell>
                         <TableCell className="text-right">
