@@ -40,6 +40,7 @@ interface DetalleRow {
   subtotal: number;
   tipo_concepto: string;
   coworking_session_id: string | null;
+  paquete_id: string | null;
 }
 
 interface ProductoMap {
