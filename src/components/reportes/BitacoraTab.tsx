@@ -244,6 +244,68 @@ const BitacoraTab = () => {
     return () => controller.abort();
   }, [fetchLogs]);
 
+  // Stats agregadas (sobre el rango y filtros completos, no paginadas)
+  const fetchStats = useCallback(
+    async (signal: AbortSignal) => {
+      if (isAfter(startOfDay(fechaInicio), endOfDay(fechaFin))) {
+        setStats({ total: 0, cancelaciones: 0, usuariosActivos: 0, topAccion: null });
+        setStatsLoading(false);
+        return;
+      }
+      setStatsLoading(true);
+      try {
+        let query = supabase
+          .from('audit_logs')
+          .select('accion, user_id')
+          .gte('created_at', startOfDay(fechaInicio).toISOString())
+          .lte('created_at', endOfDay(fechaFin).toISOString());
+
+        if (usuarioId !== 'all') query = query.eq('user_id', usuarioId);
+        if (accionFilter !== 'all') query = query.eq('accion', accionFilter);
+        if (search.trim()) query = query.ilike('descripcion', `%${search.trim()}%`);
+
+        // Trae hasta 10k para agregaciones (suficiente para rangos típicos)
+        const { data, error } = await query.limit(10000);
+        if (signal.aborted) return;
+        if (error) throw error;
+
+        const rows = data ?? [];
+        const accionCounts = new Map<string, number>();
+        const usuarios = new Set<string>();
+        let cancelaciones = 0;
+        for (const r of rows) {
+          accionCounts.set(r.accion, (accionCounts.get(r.accion) ?? 0) + 1);
+          usuarios.add(r.user_id);
+          if (CANCEL_ACTIONS.includes(r.accion)) cancelaciones++;
+        }
+        let topAccion: BitacoraStats['topAccion'] = null;
+        for (const [accion, count] of accionCounts) {
+          if (!topAccion || count > topAccion.count) topAccion = { accion, count };
+        }
+        setStats({
+          total: rows.length,
+          cancelaciones,
+          usuariosActivos: usuarios.size,
+          topAccion,
+        });
+      } catch (err) {
+        if (!signal.aborted) {
+          console.error('Error stats bitácora:', err);
+          setStats(null);
+        }
+      } finally {
+        if (!signal.aborted) setStatsLoading(false);
+      }
+    },
+    [fechaInicio, fechaFin, usuarioId, accionFilter, search]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchStats(controller.signal);
+    return () => controller.abort();
+  }, [fetchStats]);
+
   // Reset page cuando cambian filtros
   useEffect(() => {
     setPage(0);
