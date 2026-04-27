@@ -24,6 +24,7 @@ const CoworkingPage = () => {
   const isAdmin = roles.includes('administrador');
 
   const METODO_LABELS: Record<string, string> = {
+    sin_cobro: 'Sin cobro de fracción extra',
     hora_cerrada: 'Hora cerrada',
     '30_min': 'Bloques de 30 min',
     '15_min': 'Bloques de 15 min',
