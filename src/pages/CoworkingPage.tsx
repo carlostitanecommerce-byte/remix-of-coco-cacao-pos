@@ -69,6 +69,11 @@ const CoworkingPage = () => {
 
     if (minCobrar > 0) {
       switch (metodo) {
+        case 'sin_cobro':
+          // Tarifa todo incluido: nunca se cobra fracción extra
+          bloquesExtra = 0;
+          cargoExtraUnidad = 0;
+          break;
         case '15_min':
           bloquesExtra = Math.ceil(minCobrar / 15);
           cargoExtraUnidad = bloquesExtra * (precioBase / 4);
