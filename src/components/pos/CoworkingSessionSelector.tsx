@@ -163,7 +163,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
     }];
 
     // Extra time charge (immutable, snapshot-driven)
-    if (minCobrar > 0 && tipoCobro === 'hora') {
+    if (minCobrar > 0 && tipoCobro === 'hora' && metodo !== 'sin_cobro') {
       let bloquesExtra = 0;
       let cargoExtra = 0;
       let descExtra = '';
