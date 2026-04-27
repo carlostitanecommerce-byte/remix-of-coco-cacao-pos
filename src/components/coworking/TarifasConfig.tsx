@@ -161,10 +161,10 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
 
     if (editingId) {
       const { error } = await supabase.from('tarifas_coworking').update(payload).eq('id', editingId);
-      if (error) { toast({ variant: 'destructive', title: 'Error al actualizar tarifa' }); setSaving(false); return; }
+      if (error) { toast({ variant: 'destructive', title: 'Error al actualizar tarifa', description: error.message }); setSaving(false); return; }
     } else {
       const { data, error } = await supabase.from('tarifas_coworking').insert(payload).select('id').single();
-      if (error || !data) { toast({ variant: 'destructive', title: 'Error al crear tarifa' }); setSaving(false); return; }
+      if (error || !data) { toast({ variant: 'destructive', title: 'Error al crear tarifa', description: error?.message }); setSaving(false); return; }
       tarifaId = data.id;
     }
 

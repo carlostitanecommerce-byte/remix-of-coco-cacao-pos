@@ -1,55 +1,50 @@
-# Coworking — Cronómetro en vivo + Modo "Sin cobro de fracción extra"
+# Correcciones en Coworking — Ocupación y Tarifa "Sin cobrar fracción extra"
 
-## Hallazgos de la auditoría de tiempo
+## Problema 1 — Información duplicada en tarjetas de Ocupación
 
-Revisé el ciclo completo entrada → salida y el tiempo **se está registrando correctamente** a nivel de datos:
+Cada tarjeta de espacio en `OccupancyGrid.tsx` repite información que ya aparece de forma completa en la tabla "Sesiones Activas" (nombre del cliente + cronómetro). Esto satura visualmente la cuadrícula sin aportar nada nuevo.
 
-- **Entrada**: `CheckInDialog` guarda `fecha_inicio = new Date()` con offset `-06:00` vía `dateToCDMX()`. La función está correcta tanto si el usuario está en CDMX como en otro huso horario (verificado matemáticamente).
-- **Salida**: `CoworkingPage.handleCheckOut` congela `fecha_salida_real = new Date().toISOString()` antes de calcular el cobro, y desde ahí todo el flujo (POS, Checkout, exportes) lee ese mismo timestamp inmutable.
-- **Cálculo**: `(salidaReal - inicio) / 60000` da los minutos reales correctamente. La tolerancia y el método de fracción se aplican bien sobre `tiempoExcedidoMin = real − contratado`.
+**Alcance exacto del cambio:**
 
-**Lo que sí falta** y suena a la preocupación del usuario: no hay un **cronómetro visible** en pantalla mientras la sesión está activa. Hoy solo se ven la hora de entrada y la hora estimada de salida, pero el cliente/operador no ve cuánto tiempo lleva transcurrido en vivo. Eso da la sensación de que "el tiempo no se está marcando".
+- **Quitar** de las tarjetas de espacio (tanto en áreas privadas como públicas):
+  - El nombre del cliente.
+  - El componente `<SessionTimer variant="compact" ... />`.
+- **Conservar** en las tarjetas:
+  - Nombre del área, badge de estado (Disponible/Ocupado/Lleno), capacidad/ocupación, precio, barra de progreso.
+  - Número de pax por sesión y botones de acción (Salida / Cancelar / Gestionar Cuenta), de modo que el operador siga pudiendo accionar desde la tarjeta sin saber a quién corresponde — la identificación se hace en la tabla.
+- **No tocar** la tabla "Sesiones Activas" (`ActiveSessionsTable.tsx`): se mantiene tal cual, con cliente y cronómetro como fuente única de verdad.
 
-## Cambios a implementar
+Resultado: la cuadrícula muestra ocupación a un vistazo y la tabla muestra el detalle por cliente y tiempo, sin duplicidad.
 
-### 1) Cronómetro en vivo en sesiones activas
+## Problema 2 — Error "Error al actualizar tarifa" al elegir "Sin cobrar fracción extra"
 
-Agregar un contador que se actualice cada segundo mostrando:
+**Causa raíz (confirmada en BD):** la tabla `tarifas_coworking` tiene un CHECK constraint:
 
-- **Tiempo transcurrido** desde `fecha_inicio` (HH:MM:SS).
-- **Tiempo restante** vs. `fecha_fin_estimada` (o **"+MM min excedido"** en rojo si ya se pasó).
+```text
+CHECK (metodo_fraccion = ANY (ARRAY['hora_cerrada','15_min','30_min','minuto_exacto']))
+```
 
-Lugares donde se mostrará:
+El valor `'sin_cobro'` que ahora envía la UI **no está permitido** por ese constraint, así que Postgres rechaza el UPDATE/INSERT y la app muestra el toast genérico "Error al actualizar tarifa".
 
-- **`ActiveSessionsTable`** — nueva columna "Tiempo" entre "Entrada" y "Salida Est." con el cronómetro y badge de estado (En curso / Por terminar / Excedido).
-- **`OccupancyGrid`** — pequeña línea bajo el nombre del cliente con el tiempo transcurrido, para verlo de un vistazo en cada tarjeta de área.
+**Acción (migración SQL):**
 
-Implementación: hook compartido `useLiveClock(intervalMs = 1000)` que devuelve `Date.now()` reactivo, y un componente `<SessionTimer session={s} />` que formatea transcurrido/restante con colores semánticos (verde, ámbar, destructive).
+1. Eliminar el CHECK existente `tarifas_coworking_metodo_fraccion_check`.
+2. Recrearlo incluyendo `'sin_cobro'`:
 
-### 2) Modo "Sin cobro de fracción extra" en tarifas
+   ```text
+   CHECK (metodo_fraccion IN ('sin_cobro','hora_cerrada','15_min','30_min','minuto_exacto'))
+   ```
 
-Agregar un nuevo valor `sin_cobro` al selector **Modo de fracción** dentro de `TarifasConfig`, junto a los actuales (Hora cerrada / 30 min / 15 min / Minuto exacto).
+Con esto la opción "Sin cobrar fracción extra" se podrá guardar tanto al crear como al editar una tarifa, y la lógica de facturación ya implementada (que fuerza `cargoExtra = 0` cuando `metodo_fraccion === 'sin_cobro'`) entrará en efecto sin más cambios.
 
-Comportamiento al hacer checkout cuando la tarifa tiene `metodo_fraccion = 'sin_cobro'`:
+## Mejora adicional de UX (recomendada)
 
-- **Sin importar cuánto se exceda**, el cargo extra es **$0**.
-- Se cobra únicamente la tarifa contratada original.
-- En el resumen de checkout aparece "Tiempo excedido sin cargo" como nota informativa.
+En `handleSave` de `TarifasConfig.tsx` el toast de error oculta el mensaje real de Postgres. Cambiarlo para incluir `error.message` en `description` y que cualquier futuro fallo de validación sea diagnosticable de inmediato.
 
-Archivos afectados (4 puntos donde vive el switch del método de fracción):
+## Detalles técnicos
 
-- `src/components/coworking/TarifasConfig.tsx` → agregar `sin_cobro: 'Sin cobrar fracción extra'` al `METODO_FRACCION_LABELS`.
-- `src/pages/CoworkingPage.tsx` → en el `switch` de `handleCheckOut`, manejar `'sin_cobro'` forzando `cargoExtraUnidad = 0` y `bloquesExtra = 0`.
-- `src/components/pos/CoworkingSessionSelector.tsx` → mismo manejo en el `switch` que arma el carrito (no se agrega línea de tiempo excedido).
-- `src/pages/CoworkingPage.tsx` → agregar al `METODO_LABELS` la etiqueta legible para mostrarla en el resumen.
-
-### 3) Detalles de calidad
-
-- El cronómetro respeta `fecha_salida_real` si ya existe (sesiones en `pendiente_pago` muestran tiempo congelado, no siguen contando).
-- El `useLiveClock` se desmonta limpiamente para no dejar intervals colgados.
-- Tipos TypeScript: `metodo_fraccion` sigue siendo `string` en la BD (no requiere migración), pero el front-end normaliza `'sin_cobro'` como valor válido.
-
-## Resultado esperado
-
-- El operador ve en cada tarjeta de área y en la tabla de sesiones activas un cronómetro corriendo en vivo, con código de color cuando se acerca o supera la hora estimada.
-- Al crear/editar una tarifa, una nueva opción permite definirla como "todo incluido" sin penalización por minutos extra, ideal para promociones, eventos privados o bonos de cortesía.
+- **Archivos a modificar:**
+  - `src/components/coworking/OccupancyGrid.tsx` — eliminar nombre del cliente y `<SessionTimer />` en los dos bloques (privado y público); conservar pax + botones; limpiar el import de `SessionTimer` si queda sin usar.
+  - `src/components/coworking/TarifasConfig.tsx` — propagar `error.message` en los toasts de crear/actualizar tarifa.
+- **Migración SQL nueva:** `ALTER TABLE public.tarifas_coworking DROP CONSTRAINT tarifas_coworking_metodo_fraccion_check;` seguido de `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` con los 5 valores válidos.
+- **Sin cambios** en `CoworkingPage.tsx`, `CoworkingSessionSelector.tsx`, `ActiveSessionsTable.tsx` ni en `SessionTimer.tsx`.
