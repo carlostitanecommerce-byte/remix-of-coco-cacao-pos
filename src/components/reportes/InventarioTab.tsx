@@ -459,8 +459,18 @@ export default function InventarioTab() {
     <div className="space-y-6">
       {/* Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-foreground">Ver inventario a la fecha:</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground mr-1">Ver inventario a la fecha:</span>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setFecha(d => subDays(d, 1))}
+            aria-label="Día anterior"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className={cn("w-[200px] justify-start text-left font-normal", !fecha && "text-muted-foreground")}>
@@ -479,6 +489,36 @@ export default function InventarioTab() {
               />
             </PopoverContent>
           </Popover>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              const next = addDays(fecha, 1);
+              if (next <= new Date()) setFecha(next);
+            }}
+            disabled={isToday(fecha)}
+            aria-label="Día siguiente"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+
+          <div className="flex items-center gap-1 ml-1">
+            <Button
+              variant={isToday(fecha) ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFecha(new Date())}
+            >
+              Hoy
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFecha(startOfMonth(new Date()))}
+            >
+              Inicio mes
+            </Button>
+          </div>
         </div>
 
         <Button onClick={handleExport} disabled={exporting || loading} variant="outline" className="gap-2">
