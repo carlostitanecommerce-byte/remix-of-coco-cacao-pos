@@ -6,8 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Download, Package, Loader2, ClipboardCheck, AlertTriangle } from 'lucide-react';
-import { format, endOfDay, isToday } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { CalendarIcon, Download, Package, Loader2, ClipboardCheck, AlertTriangle, ChevronLeft, ChevronRight, Search, AlertCircle } from 'lucide-react';
+import { format, endOfDay, isToday, addDays, subDays, startOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -19,6 +22,7 @@ interface InsumoRow {
   nombre: string;
   unidad_medida: string;
   stock_actual: number;
+  stock_minimo: number;
   costo_unitario: number;
   presentacion: string;
   cantidad_por_presentacion: number;
@@ -27,14 +31,17 @@ interface InsumoRow {
 }
 
 interface InsumoValuado {
+  id: string;
   nombre: string;
   categoria: string;
   stockUnidades: number;
+  stockMinimo: number;
   stockPresentacion: number;
   presentacion: string;
   unidad_medida: string;
   costoUnitario: number;
   valuacion: number;
+  bajoStock: boolean;
 }
 
 interface MermaRow {
@@ -64,6 +71,11 @@ export default function InventarioTab() {
   const [mermas, setMermas] = useState<MermaRow[]>([]);
   const [mermasLoading, setMermasLoading] = useState(true);
 
+  // UI filters
+  const [search, setSearch] = useState('');
+  const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
+  const [soloBajoStock, setSoloBajoStock] = useState(false);
+
   useEffect(() => {
     const ctrl = new AbortController();
     fetchData(ctrl.signal);
@@ -88,7 +100,7 @@ export default function InventarioTab() {
 
     try {
       const insumosQ = supabase.from('insumos')
-        .select('id, nombre, unidad_medida, stock_actual, costo_unitario, presentacion, cantidad_por_presentacion, costo_presentacion, categoria')
+        .select('id, nombre, unidad_medida, stock_actual, stock_minimo, costo_unitario, presentacion, cantidad_por_presentacion, costo_presentacion, categoria')
         .order('nombre')
         .limit(2000);
       const { data: insumosData, error: insumosErr } = await (signal ? insumosQ.abortSignal(signal) : insumosQ);
@@ -305,19 +317,47 @@ export default function InventarioTab() {
         : stockUnidades;
 
       return {
+        id: ins.id,
         nombre: ins.nombre,
         categoria: ins.categoria,
         stockUnidades,
+        stockMinimo: ins.stock_minimo ?? 0,
         stockPresentacion: Math.round(stockPres * 100) / 100,
         presentacion: ins.presentacion,
         unidad_medida: ins.unidad_medida,
         costoUnitario: ins.costo_unitario,
         valuacion: Math.round(stockUnidades * ins.costo_unitario * 100) / 100,
+        bajoStock: (ins.stock_minimo ?? 0) > 0 && stockUnidades <= (ins.stock_minimo ?? 0),
       };
     });
   }, [insumos, ajustes]);
 
   const totalValuacion = useMemo(() => rows.reduce((s, r) => s + r.valuacion, 0), [rows]);
+
+  const categorias = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach(r => { if (r.categoria) set.add(r.categoria); });
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const lowStockCount = useMemo(() => rows.filter(r => r.bajoStock).length, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (categoriaFilter !== 'todas' && r.categoria !== categoriaFilter) return false;
+      if (soloBajoStock && !r.bajoStock) return false;
+      if (q && !r.nombre.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [rows, search, categoriaFilter, soloBajoStock]);
+
+  const filteredInsumos = useMemo(() => {
+    const ids = new Set(filteredRows.map(r => r.id));
+    return insumos.filter(i => ids.has(i.id));
+  }, [insumos, filteredRows]);
+
+  const filteredValuacion = useMemo(() => filteredRows.reduce((s, r) => s + r.valuacion, 0), [filteredRows]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -325,13 +365,19 @@ export default function InventarioTab() {
       const fechaStr = format(fecha, 'dd_MMM_yyyy', { locale: es });
 
       // Sheet 1: Inventario
-      const wsData = rows.map(r => ({
+      const usarFiltro = filteredRows.length !== rows.length;
+      const fuente = usarFiltro ? filteredRows : rows;
+      const totalFuente = usarFiltro ? filteredValuacion : totalValuacion;
+
+      const wsData = fuente.map(r => ({
         'Insumo': r.nombre,
         'Categoría': r.categoria,
         'Existencia (Presentación)': r.stockPresentacion,
         'Presentación': r.presentacion,
         'Stock (Unidades)': Math.round(r.stockUnidades * 100) / 100,
         'Unidad': r.unidad_medida,
+        'Stock mínimo': r.stockMinimo,
+        'Bajo stock': r.bajoStock ? 'Sí' : '',
         'Costo Unitario': r.costoUnitario,
         'Valuación Total': r.valuacion,
       }));
@@ -343,8 +389,10 @@ export default function InventarioTab() {
         'Presentación': '',
         'Stock (Unidades)': 0,
         'Unidad': '',
+        'Stock mínimo': 0,
+        'Bajo stock': '',
         'Costo Unitario': 0,
-        'Valuación Total': totalValuacion,
+        'Valuación Total': totalFuente,
       });
 
       const wb = XLSX.utils.book_new();
@@ -411,8 +459,18 @@ export default function InventarioTab() {
     <div className="space-y-6">
       {/* Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-foreground">Ver inventario a la fecha:</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground mr-1">Ver inventario a la fecha:</span>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setFecha(d => subDays(d, 1))}
+            aria-label="Día anterior"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className={cn("w-[200px] justify-start text-left font-normal", !fecha && "text-muted-foreground")}>
@@ -431,6 +489,36 @@ export default function InventarioTab() {
               />
             </PopoverContent>
           </Popover>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              const next = addDays(fecha, 1);
+              if (next <= new Date()) setFecha(next);
+            }}
+            disabled={isToday(fecha)}
+            aria-label="Día siguiente"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+
+          <div className="flex items-center gap-1 ml-1">
+            <Button
+              variant={isToday(fecha) ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFecha(new Date())}
+            >
+              Hoy
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFecha(startOfMonth(new Date()))}
+            >
+              Inicio mes
+            </Button>
+          </div>
         </div>
 
         <Button onClick={handleExport} disabled={exporting || loading} variant="outline" className="gap-2">
@@ -439,25 +527,61 @@ export default function InventarioTab() {
         </Button>
       </div>
 
-      {/* KPI */}
-      <Card className="border-primary/30 bg-primary/5">
-        <CardContent className="flex items-center gap-4 py-5">
-          <div className="p-3 rounded-lg bg-primary/10">
-            <Package className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Valuación Total del Inventario</p>
-            <p className="text-2xl font-bold text-foreground">
-              {loading ? '...' : fmtMoney(totalValuacion)}
-            </p>
-            {!isToday(fecha) && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Estimación al {format(fecha, 'PPP', { locale: es })}
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex items-center gap-4 py-5">
+            <div className="p-3 rounded-lg bg-primary/10">
+              <Package className="h-6 w-6 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-muted-foreground">Valuación Total del Inventario</p>
+              {loading ? (
+                <Skeleton className="h-7 w-32 mt-1" />
+              ) : (
+                <p className="text-2xl font-bold text-foreground">{fmtMoney(totalValuacion)}</p>
+              )}
+              {!loading && filteredRows.length !== rows.length && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Filtrado: <span className="font-medium text-foreground">{fmtMoney(filteredValuacion)}</span> ({filteredRows.length} de {rows.length})
+                </p>
+              )}
+              {!isToday(fecha) && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Estimación al {format(fecha, 'PPP', { locale: es })}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className={cn("border-border/60", lowStockCount > 0 && "border-destructive/40 bg-destructive/5")}>
+          <CardContent className="flex items-center gap-4 py-5">
+            <div className={cn("p-3 rounded-lg", lowStockCount > 0 ? "bg-destructive/10" : "bg-muted")}>
+              <AlertCircle className={cn("h-6 w-6", lowStockCount > 0 ? "text-destructive" : "text-muted-foreground")} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-muted-foreground">Insumos en stock bajo</p>
+              {loading ? (
+                <Skeleton className="h-7 w-16 mt-1" />
+              ) : (
+                <p className={cn("text-2xl font-bold", lowStockCount > 0 ? "text-destructive" : "text-foreground")}>
+                  {lowStockCount}
+                </p>
+              )}
+              {!loading && lowStockCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSoloBajoStock(v => !v)}
+                  className="text-xs text-primary hover:underline mt-0.5"
+                >
+                  {soloBajoStock ? 'Mostrar todos' : 'Ver solo bajo stock'}
+                </button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {truncated && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
@@ -470,6 +594,38 @@ export default function InventarioTab() {
           </div>
         </div>
       )}
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar insumo por nombre…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={categoriaFilter} onValueChange={setCategoriaFilter}>
+          <SelectTrigger className="w-full sm:w-[220px]">
+            <SelectValue placeholder="Categoría" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas las categorías</SelectItem>
+            {categorias.map(c => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant={soloBajoStock ? 'default' : 'outline'}
+          onClick={() => setSoloBajoStock(v => !v)}
+          className="gap-2"
+        >
+          <AlertCircle className="h-4 w-4" />
+          Bajo stock
+        </Button>
+      </div>
 
       {/* Audit Tool */}
       <Card className="border-border/60">
@@ -489,35 +645,59 @@ export default function InventarioTab() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center gap-2 text-muted-foreground py-12">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span>Cargando insumos…</span>
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton className="h-9 flex-1" />
+                  <Skeleton className="h-9 w-20" />
+                  <Skeleton className="h-9 w-16" />
+                  <Skeleton className="h-9 w-28" />
+                  <Skeleton className="h-9 w-20" />
+                </div>
+              ))}
             </div>
           ) : insumos.length === 0 ? (
             <p className="text-muted-foreground text-sm text-center py-8">No hay insumos registrados.</p>
+          ) : filteredInsumos.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center py-8">No hay insumos que coincidan con los filtros.</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Insumo</TableHead>
+                    <TableHead>Categoría</TableHead>
                     <TableHead className="text-right">Stock Teórico</TableHead>
+                    <TableHead className="text-right">Mínimo</TableHead>
                     <TableHead>Unidad</TableHead>
                     <TableHead className="text-right w-[140px]">Stock Físico</TableHead>
                     <TableHead className="text-right">Diferencia</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {insumos.map(ins => {
+                  {filteredInsumos.map(ins => {
                     const val = stockFisico[ins.id] ?? '';
                     const fisico = val !== '' ? parseFloat(val) : null;
                     const diff = fisico !== null && !isNaN(fisico) ? fisico - ins.stock_actual : null;
+                    const min = ins.stock_minimo ?? 0;
+                    const bajo = min > 0 && ins.stock_actual <= min;
 
                     return (
-                      <TableRow key={ins.id}>
-                        <TableCell className="font-medium">{ins.nombre}</TableCell>
-                        <TableCell className="text-right tabular-nums">
+                      <TableRow key={ins.id} className={cn(bajo && "bg-destructive/5")}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <span>{ins.nombre}</span>
+                            {bajo && (
+                              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Bajo</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{ins.categoria}</TableCell>
+                        <TableCell className={cn("text-right tabular-nums", bajo && "text-destructive font-semibold")}>
                           {Math.round(ins.stock_actual * 100) / 100}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {min > 0 ? Math.round(min * 100) / 100 : '—'}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{ins.unidad_medida}</TableCell>
                         <TableCell className="text-right">
