@@ -25,9 +25,11 @@ import {
   Filter,
   X,
 } from 'lucide-react';
-import { format, startOfDay, endOfDay, subDays } from 'date-fns';
+import { format, startOfDay, endOfDay, subDays, isAfter } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface AuditLog {
   id: string;
@@ -116,20 +118,45 @@ const BitacoraTab = () => {
 
   // Cargar listas para los filtros (una sola vez)
   useEffect(() => {
+    const controller = new AbortController();
     const loadFilterOptions = async () => {
-      const [{ data: profs }, { data: accs }] = await Promise.all([
-        supabase.from('profiles').select('id, nombre').order('nombre'),
-        supabase.from('audit_logs').select('accion'),
-      ]);
-      setProfiles(profs ?? []);
-      const unique = Array.from(new Set((accs ?? []).map((a) => a.accion))).sort();
-      setAcciones(unique);
+      try {
+        const [profsRes, accsRes] = await Promise.all([
+          supabase.from('profiles').select('id, nombre').order('nombre'),
+          supabase.from('audit_logs').select('accion'),
+        ]);
+        if (controller.signal.aborted) return;
+        if (profsRes.error) throw profsRes.error;
+        if (accsRes.error) throw accsRes.error;
+        setProfiles(profsRes.data ?? []);
+        const unique = Array.from(
+          new Set((accsRes.data ?? []).map((a) => a.accion))
+        ).sort();
+        setAcciones(unique);
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.error('Error cargando filtros bitácora:', err);
+          toast.error('No se pudieron cargar los filtros de la bitácora.');
+        }
+      }
     };
     loadFilterOptions();
+    return () => controller.abort();
   }, []);
 
   const fetchLogs = useCallback(
     async (signal: AbortSignal) => {
+      // Validación: rango invertido
+      if (isAfter(startOfDay(fechaInicio), endOfDay(fechaFin))) {
+        toast.error('El rango de fechas es inválido.', {
+          description: 'La fecha "Desde" no puede ser posterior a la fecha "Hasta".',
+        });
+        setLogs([]);
+        setTotalCount(0);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
         let query = supabase
@@ -151,11 +178,12 @@ const BitacoraTab = () => {
         const userIds = [...new Set((data ?? []).map((l) => l.user_id))];
         let profileMap = new Map<string, string>();
         if (userIds.length > 0) {
-          const { data: profs } = await supabase
+          const { data: profs, error: profErr } = await supabase
             .from('profiles')
             .select('id, nombre')
             .in('id', userIds);
           if (signal.aborted) return;
+          if (profErr) throw profErr;
           profileMap = new Map((profs ?? []).map((p) => [p.id, p.nombre]));
         }
 
@@ -170,6 +198,11 @@ const BitacoraTab = () => {
       } catch (err) {
         if (!signal.aborted) {
           console.error('Error fetching audit logs:', err);
+          const message =
+            err instanceof Error ? err.message : 'Error desconocido';
+          toast.error('No se pudieron cargar los registros.', {
+            description: message,
+          });
           setLogs([]);
           setTotalCount(0);
         }
@@ -347,11 +380,13 @@ const BitacoraTab = () => {
             </TableHeader>
             <TableBody>
               {loading ? (
-                Array.from({ length: 6 }).map((_, i) => (
+                Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={`sk-${i}`}>
-                    <TableCell colSpan={5}>
-                      <div className="h-6 bg-muted/50 rounded animate-pulse" />
-                    </TableCell>
+                    <TableCell><Skeleton className="h-4 w-4" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-28 rounded-full" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-full max-w-md" /></TableCell>
                   </TableRow>
                 ))
               ) : logs.length === 0 ? (
