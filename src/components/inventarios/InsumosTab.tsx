@@ -312,28 +312,39 @@ const InsumosTab = ({ isAdmin }: Props) => {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost" size="icon"
-                          title="Registrar merma"
-                          onClick={() => { setSelectedInsumo(insumo); setMermaDialogOpen(true); }}
-                        >
-                          <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                        {isAdmin && (
-                          <>
-                            <Button variant="ghost" size="icon" title="Duplicar insumo" onClick={() => handleDuplicate(insumo)}>
-                              <Copy className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => openEdit(insumo)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(insumo)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" title="Acciones">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => { setSelectedInsumo(insumo); setMermaDialogOpen(true); }}>
+                            <ShieldAlert className="h-4 w-4 mr-2 text-muted-foreground" />
+                            Registrar merma
+                          </DropdownMenuItem>
+                          {isAdmin && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => handleDuplicate(insumo)}>
+                                <Copy className="h-4 w-4 mr-2 text-muted-foreground" />
+                                Duplicar insumo
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openEdit(insumo)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => setDeleteTarget(insumo)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Eliminar
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 );
