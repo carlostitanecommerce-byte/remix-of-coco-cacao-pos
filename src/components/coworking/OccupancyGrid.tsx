@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LogOut as LogOutIcon, Lock, Users, XCircle } from 'lucide-react';
 import type { Area, CoworkingSession } from './types';
+import { SessionTimer } from './SessionTimer';
 
 interface Props {
   areas: Area[];
