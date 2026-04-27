@@ -106,6 +106,22 @@ const formatActionLabel = (accion: string) =>
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join(' ');
 
+interface BitacoraStats {
+  total: number;
+  cancelaciones: number;
+  usuariosActivos: number;
+  topAccion: { accion: string; count: number } | null;
+}
+
+const CANCEL_ACTIONS = [
+  'cancelar_venta',
+  'cancelar_sesion_coworking',
+  'cancelar_reservacion',
+  'eliminacion_usuario',
+  'eliminar_paquete',
+  'descuento_inventario_cancelacion_sesion',
+];
+
 const BitacoraTab = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,6 +129,9 @@ const BitacoraTab = () => {
   const [acciones, setAcciones] = useState<string[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [stats, setStats] = useState<BitacoraStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   // Filters
   const [page, setPage] = useState(0);
