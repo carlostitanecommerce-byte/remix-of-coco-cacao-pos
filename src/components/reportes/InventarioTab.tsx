@@ -368,9 +368,8 @@ export default function InventarioTab() {
         return !isNaN(fisico) && fisico !== ins.stock_actual;
       })
       .map(ins => ({
-        insumo: ins,
-        fisico: parseFloat(stockFisico[ins.id]),
-        diferencia: parseFloat(stockFisico[ins.id]) - ins.stock_actual,
+        insumo_id: ins.id,
+        stock_fisico: parseFloat(stockFisico[ins.id]),
       }));
 
     if (entries.length === 0) {
@@ -379,52 +378,24 @@ export default function InventarioTab() {
     }
 
     setSaving(true);
-    let errores = 0;
-
-    for (const e of entries) {
-      // If negative difference, create merma
-      if (e.diferencia < 0) {
-        const { error: mermaErr } = await supabase.from('mermas').insert({
-          insumo_id: e.insumo.id,
-          cantidad: Math.abs(e.diferencia),
-          motivo: 'Ajuste por auditoría física',
-          usuario_id: user.id,
-        });
-        if (mermaErr) { errores++; continue; }
-      }
-
-      // Log the adjustment
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion: 'ajuste_inventario',
-        descripcion: `Auditoría física: ${e.insumo.nombre} de ${e.insumo.stock_actual} a ${e.fisico} (dif: ${e.diferencia > 0 ? '+' : ''}${Math.round(e.diferencia * 100) / 100})`,
-        metadata: {
-          insumo_id: e.insumo.id,
-          stock_anterior: e.insumo.stock_actual,
-          stock_nuevo: e.fisico,
-          diferencia_stock: e.diferencia,
-        },
+    try {
+      const { data, error } = await supabase.rpc('aplicar_auditoria_inventario', {
+        p_ajustes: entries,
       });
-
-      // Update stock
-      const { error: updateErr } = await supabase
-        .from('insumos')
-        .update({ stock_actual: e.fisico })
-        .eq('id', e.insumo.id);
-      if (updateErr) errores++;
+      if (error) throw error;
+      const aplicados = (data as { aplicados?: number } | null)?.aplicados ?? entries.length;
+      toast.success(`Auditoría guardada: ${aplicados} insumo(s) ajustados`);
+      setStockFisico({});
+      fetchData();
+      fetchMermas();
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      toast.error('No se pudo aplicar la auditoría', {
+        description: e?.message ?? 'Los cambios fueron revertidos. Intenta de nuevo.',
+      });
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    setStockFisico({});
-
-    if (errores > 0) {
-      toast.error(`Auditoría guardada con ${errores} error(es). Verifica permisos.`);
-    } else {
-      toast.success(`Auditoría guardada: ${entries.length} insumo(s) ajustados`);
-    }
-
-    fetchData();
-    fetchMermas();
   };
 
   const fmtMoney = (v: number) => `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
