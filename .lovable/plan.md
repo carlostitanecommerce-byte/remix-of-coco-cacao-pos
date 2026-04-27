@@ -1,35 +1,44 @@
 ## Problema
 
-En **Inventarios → Insumos**:
+En **Inventarios → Insumos**, la columna "Acciones" tiene 4 botones de icono (Merma, Duplicar, Editar, Eliminar) que ensanchan demasiado la tabla y obligan a usar la barra de scroll horizontal inferior, incluso después del intento previo con `overflow-x-auto`.
 
-1. **Scroll horizontal en toda la página**: la tabla tiene 9 columnas (Insumo, Categoría, Presentación, Unidad, Stock Actual, Stock Mínimo, Costo Unitario, Estado, Acciones) y se desborda del ancho disponible, lo que obliga a usar la barra horizontal inferior del navegador para ver columnas como Estado y Acciones.
-2. **Diálogo de Nuevo/Editar Insumo se corta**: en viewports cortos (≈575px de alto) el contenido del dialog (nombre, categoría, unidad, bloque de presentación con costo calculado, stock actual y mínimo + footer) excede la altura de la pantalla y los botones quedan inaccesibles porque el `DialogContent` no tiene scroll interno.
+## Solución
 
-## Cambios propuestos
+Unificar las 4 acciones en un solo botón **dropdown menu de tres puntitos** (`MoreHorizontal`) usando el componente shadcn `DropdownMenu` (ya disponible en el proyecto en `src/components/ui/dropdown-menu.tsx`). Esto reduce drásticamente el ancho de la columna Acciones y permite que la tabla quepa en el ancho disponible sin scroll horizontal.
+
+## Cambios
 
 Archivo único: `src/components/inventarios/InsumosTab.tsx`
 
-### 1. Confinar el scroll horizontal a la tabla
+### 1. Imports
 
-Envolver la `<Table>` en un contenedor con `overflow-x-auto` para que **solo la tabla** haga scroll horizontal cuando sea necesario, en lugar de empujar todo el layout de la página.
+- Añadir `MoreHorizontal` a la importación de `lucide-react`.
+- Añadir importación de `DropdownMenu`, `DropdownMenuContent`, `DropdownMenuItem`, `DropdownMenuSeparator`, `DropdownMenuTrigger` desde `@/components/ui/dropdown-menu`.
 
-- Cambiar el `<CardContent className="p-0">` para que su hijo directo sea un `<div className="overflow-x-auto">` que contenga la `<Table>`.
-- Agregar `min-w-[900px]` (o similar) a la tabla para garantizar legibilidad de las columnas cuando se active el scroll.
+### 2. Reemplazar la celda de Acciones (líneas ~311-333)
 
-Resultado: la página ya no muestra barra horizontal global; solo la tabla la muestra cuando el viewport es estrecho.
+Reemplazar el bloque actual de 4 `<Button>` por un único botón ghost icon con `MoreHorizontal` que abra un `DropdownMenu` con los items:
 
-### 2. Hacer el diálogo desplazable y limitar su altura
+- **Registrar merma** (icono `ShieldAlert`) — visible para todos los roles, igual que ahora.
+- **Separador** + (solo si `isAdmin`):
+  - **Duplicar insumo** (icono `Copy`)
+  - **Editar** (icono `Pencil`)
+  - **Eliminar** (icono `Trash2`, con clase de texto destructivo)
 
-Modificar el `<DialogContent>` del formulario para:
+Cada `DropdownMenuItem` conserva exactamente el mismo `onClick` que el botón original.
 
-- Limitar la altura a la del viewport: `max-h-[90vh]`.
-- Convertirlo en flex column: `flex flex-col`.
-- Hacer scrollable únicamente la sección del formulario (el `<div className="space-y-4 py-2">` actual): añadir `flex-1 overflow-y-auto pr-1`.
-- El `DialogHeader` y `DialogFooter` quedan fijos arriba/abajo; solo el contenido central scrollea.
+### 3. Limpiar `min-w-[900px]` de la tabla
 
-Resultado: en cualquier altura de pantalla el header (título) y el footer (botones Cancelar/Guardar) siempre son visibles, y los campos del formulario se pueden navegar con scroll interno.
+Quitar la clase `min-w-[900px]` del `<Table>` (línea 260) para que la tabla use el ancho del contenedor sin forzar scroll. El wrapper `overflow-x-auto` se mantiene como red de seguridad por si en el futuro se añaden más columnas.
+
+## Resultado esperado
+
+- Columna "Acciones" pasa de ~160px (4 iconos) a ~40px (1 icono).
+- La tabla cabe en el ancho del viewport (~1032px) sin necesidad de barra horizontal.
+- Todas las acciones siguen siendo accesibles vía el menú dropdown.
+- Permisos por rol intactos: las acciones admin solo aparecen si `isAdmin` es verdadero.
 
 ## Fuera de alcance
 
-- No se cambia ninguna lógica de negocio, ni columnas, ni datos.
-- No se tocan otros tabs de Inventarios (esos pueden tener problemas similares pero el usuario reportó solo Insumos).
+- No se cambia ninguna lógica de negocio (handlers `handleDuplicate`, `openEdit`, `setDeleteTarget`, `setMermaDialogOpen` permanecen iguales).
+- No se modifican otras pestañas de Inventarios.

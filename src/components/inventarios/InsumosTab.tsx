@@ -21,7 +21,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { AlertTriangle, PackagePlus, Pencil, Trash2, ShieldAlert, Search, Copy } from 'lucide-react';
+import { AlertTriangle, PackagePlus, Pencil, Trash2, ShieldAlert, Search, Copy, MoreHorizontal } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import MermaDialog from './MermaDialog';
 
