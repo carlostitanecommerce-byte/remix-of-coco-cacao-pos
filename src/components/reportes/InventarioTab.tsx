@@ -71,6 +71,11 @@ export default function InventarioTab() {
   const [mermas, setMermas] = useState<MermaRow[]>([]);
   const [mermasLoading, setMermasLoading] = useState(true);
 
+  // UI filters
+  const [search, setSearch] = useState('');
+  const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
+  const [soloBajoStock, setSoloBajoStock] = useState(false);
+
   useEffect(() => {
     const ctrl = new AbortController();
     fetchData(ctrl.signal);
