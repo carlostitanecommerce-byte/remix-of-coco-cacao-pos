@@ -337,16 +337,17 @@ const InsumosTab = ({ isAdmin }: Props) => {
               })}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
       {/* Dialog CRUD */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingId ? 'Editar Insumo' : 'Nuevo Insumo'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 flex-1 overflow-y-auto pr-1">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1 col-span-2">
                 <Label>Nombre del insumo *</Label>
