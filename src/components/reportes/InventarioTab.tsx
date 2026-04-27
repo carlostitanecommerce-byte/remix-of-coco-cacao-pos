@@ -95,7 +95,7 @@ export default function InventarioTab() {
 
     try {
       const insumosQ = supabase.from('insumos')
-        .select('id, nombre, unidad_medida, stock_actual, costo_unitario, presentacion, cantidad_por_presentacion, costo_presentacion, categoria')
+        .select('id, nombre, unidad_medida, stock_actual, stock_minimo, costo_unitario, presentacion, cantidad_por_presentacion, costo_presentacion, categoria')
         .order('nombre')
         .limit(2000);
       const { data: insumosData, error: insumosErr } = await (signal ? insumosQ.abortSignal(signal) : insumosQ);
