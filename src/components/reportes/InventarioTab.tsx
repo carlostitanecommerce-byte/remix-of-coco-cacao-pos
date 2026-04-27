@@ -312,14 +312,17 @@ export default function InventarioTab() {
         : stockUnidades;
 
       return {
+        id: ins.id,
         nombre: ins.nombre,
         categoria: ins.categoria,
         stockUnidades,
+        stockMinimo: ins.stock_minimo ?? 0,
         stockPresentacion: Math.round(stockPres * 100) / 100,
         presentacion: ins.presentacion,
         unidad_medida: ins.unidad_medida,
         costoUnitario: ins.costo_unitario,
         valuacion: Math.round(stockUnidades * ins.costo_unitario * 100) / 100,
+        bajoStock: (ins.stock_minimo ?? 0) > 0 && stockUnidades <= (ins.stock_minimo ?? 0),
       };
     });
   }, [insumos, ajustes]);
