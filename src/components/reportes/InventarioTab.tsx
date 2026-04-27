@@ -54,6 +54,7 @@ export default function InventarioTab() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [ajustes, setAjustes] = useState<Map<string, number>>(new Map());
+  const [truncated, setTruncated] = useState(false);
 
   // Audit state
   const [stockFisico, setStockFisico] = useState<Record<string, string>>({});
@@ -64,7 +65,9 @@ export default function InventarioTab() {
   const [mermasLoading, setMermasLoading] = useState(true);
 
   useEffect(() => {
-    fetchData();
+    const ctrl = new AbortController();
+    fetchData(ctrl.signal);
+    return () => ctrl.abort();
   }, [fecha]);
 
   useEffect(() => {
