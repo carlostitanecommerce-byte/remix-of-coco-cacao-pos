@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
-import { CalendarIcon, Download, FileSpreadsheet, Loader2, Receipt, CreditCard, TrendingUp, Wallet } from 'lucide-react';
+import { CalendarIcon, Download, FileSpreadsheet, Loader2, Receipt, CreditCard, TrendingUp, Wallet, AlertTriangle } from 'lucide-react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
