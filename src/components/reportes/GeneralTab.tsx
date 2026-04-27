@@ -96,6 +96,9 @@ export default function GeneralTab() {
   const [exportingCOGS, setExportingCOGS] = useState(false);
   const [exportingCaja, setExportingCaja] = useState(false);
 
+  const [paqueteComponentes, setPaqueteComponentes] = useState<PaqueteComponente[]>([]);
+  const [config, setConfig] = useState<ConfigVentas>({ ivaPorcentaje: 16, comisionPorcentaje: 0 });
+
   useEffect(() => {
     fetchData();
   }, [desde, hasta]);
@@ -105,43 +108,57 @@ export default function GeneralTab() {
     const desdeISO = format(desde, 'yyyy-MM-dd') + 'T00:00:00-06:00';
     const hastaISO = format(hasta, 'yyyy-MM-dd') + 'T23:59:59-06:00';
 
-    const [ventasRes, productosRes, recetasRes, insumosRes] = await Promise.all([
+    const [ventasRes, productosRes, recetasRes, insumosRes, paqueteRes, configRes] = await Promise.all([
       supabase
         .from('ventas')
         .select('id, folio, fecha, total_bruto, total_neto, iva, comisiones_bancarias, metodo_pago, estado, coworking_session_id, monto_propina, monto_tarjeta, monto_efectivo, monto_transferencia')
         .gte('fecha', desdeISO)
         .lte('fecha', hastaISO)
         .eq('estado', 'completada'),
-      supabase.from('productos').select('id, nombre, categoria').eq('tipo', 'simple'),
+      // L1: incluir paquetes también, para no perder su nombre/categoría en exportación
+      supabase.from('productos').select('id, nombre, categoria, tipo'),
       supabase.from('recetas').select('producto_id, insumo_id, cantidad_necesaria'),
       supabase.from('insumos').select('id, nombre, categoria, unidad_medida, costo_unitario'),
+      supabase.from('paquete_componentes').select('paquete_id, producto_id, cantidad'),
+      supabase.from('configuracion_ventas').select('clave, valor'),
     ]);
 
     const ventasData = ventasRes.data ?? [];
     setVentas(ventasData);
 
     const pMap: ProductoMap = {};
-    (productosRes.data ?? []).forEach(p => { pMap[p.id] = { nombre: p.nombre, categoria: p.categoria }; });
+    (productosRes.data ?? []).forEach((p: ProductoFull) => {
+      pMap[p.id] = { nombre: p.nombre, categoria: p.categoria };
+    });
     setProductos(pMap);
     setRecetas(recetasRes.data ?? []);
+    setPaqueteComponentes(paqueteRes.data ?? []);
 
     const iMap: InsumoMap = {};
     (insumosRes.data ?? []).forEach(i => { iMap[i.id] = { nombre: i.nombre, categoria: i.categoria, unidad_medida: i.unidad_medida, costo_unitario: i.costo_unitario }; });
     setInsumos(iMap);
 
+    // L1: cargar IVA y comisión dinámicas desde configuracion_ventas
+    const cfgRows = configRes.data ?? [];
+    const ivaRow = cfgRows.find(r => r.clave === 'iva_porcentaje');
+    const comRow = cfgRows.find(r => r.clave === 'comision_bancaria_porcentaje');
+    setConfig({
+      ivaPorcentaje: ivaRow ? Number(ivaRow.valor) : 16,
+      comisionPorcentaje: comRow ? Number(comRow.valor) : 0,
+    });
+
     if (ventasData.length > 0) {
       const ventaIds = ventasData.map(v => v.id);
-      // Fetch in batches of 100 to avoid URL length limits
       const allDetalles: DetalleRow[] = [];
       for (let i = 0; i < ventaIds.length; i += 100) {
         const batch = ventaIds.slice(i, i + 100);
         const { data } = await supabase
           .from('detalle_ventas')
-          .select('id, venta_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, tipo_concepto, coworking_session_id')
+          .select('id, venta_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, tipo_concepto, coworking_session_id, paquete_id')
           .in('venta_id', batch);
         if (data) allDetalles.push(...data);
       }
-      setDetalles(allDetalles);
+      setDetalles(allDetalles as DetalleRow[]);
     } else {
       setDetalles([]);
     }
@@ -149,23 +166,42 @@ export default function GeneralTab() {
     setLoading(false);
   };
 
-  const kpis = useMemo(() => {
-    // Ingreso Gravable = sum of total_neto (includes IVA, excludes propinas)
-    const ingresoGravable = ventas.reduce((s, v) => s + v.total_neto, 0);
-    const totalPropinas = ventas.reduce((s, v) => s + v.monto_propina, 0);
-    const ivaTotal = ventas.reduce((s, v) => s + v.iva, 0);
-    const comisionesTotal = ventas.reduce((s, v) => s + v.comisiones_bancarias, 0);
-
-    // Calculate COGS from recipes
-    let costoInsumos = 0;
-    detalles.forEach(d => {
-      if (!d.producto_id) return;
-      const recetasProducto = recetas.filter(r => r.producto_id === d.producto_id);
-      recetasProducto.forEach(r => {
-        const ins = insumos[r.insumo_id];
-        if (ins) costoInsumos += r.cantidad_necesaria * d.cantidad * ins.costo_unitario;
-      });
+  // L1: índice O(1) de recetas por producto (también usado para expansión de paquetes)
+  const recetasPorProducto = useMemo(() => {
+    const map: Record<string, RecetaRow[]> = {};
+    recetas.forEach(r => {
+      (map[r.producto_id] ||= []).push(r);
     });
+    return map;
+  }, [recetas]);
+
+  // L1: índice de componentes por paquete
+  const componentesPorPaquete = useMemo(() => {
+    const map: Record<string, PaqueteComponente[]> = {};
+    paqueteComponentes.forEach(c => {
+      (map[c.paquete_id] ||= []).push(c);
+    });
+    return map;
+  }, [paqueteComponentes]);
+
+  // L1: dado un detalle (producto simple o paquete) devuelve costo total real de insumos
+  const costoInsumosDeDetalle = (d: DetalleRow): number => {
+    let costo = 0;
+    const acumulaProducto = (productoId: string, factor: number) => {
+      const recs = recetasPorProducto[productoId] || [];
+      recs.forEach(r => {
+        const ins = insumos[r.insumo_id];
+        if (ins) costo += r.cantidad_necesaria * factor * ins.costo_unitario;
+      });
+    };
+    if (d.paquete_id) {
+      const comps = componentesPorPaquete[d.paquete_id] || [];
+      comps.forEach(c => acumulaProducto(c.producto_id, c.cantidad * d.cantidad));
+    } else if (d.producto_id) {
+      acumulaProducto(d.producto_id, d.cantidad);
+    }
+    return costo;
+  };
 
     // Utilidad = ingreso gravable - IVA - comisiones - COGS (propinas are non-taxable pass-through)
     const utilidad = ingresoGravable - ivaTotal - comisionesTotal - costoInsumos;
