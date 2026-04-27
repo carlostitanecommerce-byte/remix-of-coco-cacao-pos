@@ -1,50 +1,26 @@
-# Correcciones en Coworking — Ocupación y Tarifa "Sin cobrar fracción extra"
+# Quitar el bloque de sesiones de las tarjetas de Ocupación
 
-## Problema 1 — Información duplicada en tarjetas de Ocupación
+En `OccupancyGrid.tsx`, eliminar por completo el bloque que renderiza las sesiones dentro de cada tarjeta de espacio (las líneas que muestran "Sesión 1 · N pax", "Salida" y "Cancelar", tanto para áreas privadas como públicas).
 
-Cada tarjeta de espacio en `OccupancyGrid.tsx` repite información que ya aparece de forma completa en la tabla "Sesiones Activas" (nombre del cliente + cronómetro). Esto satura visualmente la cuadrícula sin aportar nada nuevo.
+## Lo que queda en cada tarjeta
 
-**Alcance exacto del cambio:**
+- Nombre del área e ícono.
+- Badge superior derecho con la capacidad/ocupación (ej. `3/7`) o estado "Privado · Libre/Ocupado".
+- Etiqueta de estado (Vacío / Disponible / Lleno) y precio por hora.
+- Barra de progreso de ocupación.
 
-- **Quitar** de las tarjetas de espacio (tanto en áreas privadas como públicas):
-  - El nombre del cliente.
-  - El componente `<SessionTimer variant="compact" ... />`.
-- **Conservar** en las tarjetas:
-  - Nombre del área, badge de estado (Disponible/Ocupado/Lleno), capacidad/ocupación, precio, barra de progreso.
-  - Número de pax por sesión y botones de acción (Salida / Cancelar / Gestionar Cuenta), de modo que el operador siga pudiendo accionar desde la tarjeta sin saber a quién corresponde — la identificación se hace en la tabla.
-- **No tocar** la tabla "Sesiones Activas" (`ActiveSessionsTable.tsx`): se mantiene tal cual, con cliente y cronómetro como fuente única de verdad.
+## Lo que se elimina
 
-Resultado: la cuadrícula muestra ocupación a un vistazo y la tabla muestra el detalle por cliente y tiempo, sin duplicidad.
+- El bloque completo `{areaSessions.length > 0 && (...)}` con sus dos ramas (privado / público), incluyendo:
+  - Indicador "Sesión 1 · N pax".
+  - Botones "Salida" y "Cancelar".
 
-## Problema 2 — Error "Error al actualizar tarifa" al elegir "Sin cobrar fracción extra"
-
-**Causa raíz (confirmada en BD):** la tabla `tarifas_coworking` tiene un CHECK constraint:
-
-```text
-CHECK (metodo_fraccion = ANY (ARRAY['hora_cerrada','15_min','30_min','minuto_exacto']))
-```
-
-El valor `'sin_cobro'` que ahora envía la UI **no está permitido** por ese constraint, así que Postgres rechaza el UPDATE/INSERT y la app muestra el toast genérico "Error al actualizar tarifa".
-
-**Acción (migración SQL):**
-
-1. Eliminar el CHECK existente `tarifas_coworking_metodo_fraccion_check`.
-2. Recrearlo incluyendo `'sin_cobro'`:
-
-   ```text
-   CHECK (metodo_fraccion IN ('sin_cobro','hora_cerrada','15_min','30_min','minuto_exacto'))
-   ```
-
-Con esto la opción "Sin cobrar fracción extra" se podrá guardar tanto al crear como al editar una tarifa, y la lógica de facturación ya implementada (que fuerza `cargoExtra = 0` cuando `metodo_fraccion === 'sin_cobro'`) entrará en efecto sin más cambios.
-
-## Mejora adicional de UX (recomendada)
-
-En `handleSave` de `TarifasConfig.tsx` el toast de error oculta el mensaje real de Postgres. Cambiarlo para incluir `error.message` en `description` y que cualquier futuro fallo de validación sea diagnosticable de inmediato.
+Las acciones de Salida y Cancelar siguen disponibles en la tabla "Sesiones Activas" debajo, que es la fuente única de verdad para gestionar cada sesión.
 
 ## Detalles técnicos
 
-- **Archivos a modificar:**
-  - `src/components/coworking/OccupancyGrid.tsx` — eliminar nombre del cliente y `<SessionTimer />` en los dos bloques (privado y público); conservar pax + botones; limpiar el import de `SessionTimer` si queda sin usar.
-  - `src/components/coworking/TarifasConfig.tsx` — propagar `error.message` en los toasts de crear/actualizar tarifa.
-- **Migración SQL nueva:** `ALTER TABLE public.tarifas_coworking DROP CONSTRAINT tarifas_coworking_metodo_fraccion_check;` seguido de `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` con los 5 valores válidos.
-- **Sin cambios** en `CoworkingPage.tsx`, `CoworkingSessionSelector.tsx`, `ActiveSessionsTable.tsx` ni en `SessionTimer.tsx`.
+- **Archivo:** `src/components/coworking/OccupancyGrid.tsx`.
+- Eliminar las líneas 81–116 aprox. (el bloque `{/* Sessions display */}`).
+- Eliminar también del import `LogOutIcon` y `XCircle` si quedan sin usar; mantener `Users` (todavía se usa en el header de áreas públicas) y `Lock`.
+- Las props `onCheckOut` y `onCancel` siguen siendo recibidas por el componente (las pasa `CoworkingPage`) pero ya no se invocan desde aquí; las dejamos en la firma para no romper el llamador y porque podrían reactivarse en el futuro — sin ningún costo en runtime.
+- Sin cambios en `ActiveSessionsTable.tsx`, `SessionTimer.tsx` ni en la lógica de cobro.
