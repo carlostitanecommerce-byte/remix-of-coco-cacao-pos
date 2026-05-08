@@ -260,6 +260,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       setUploadingImage(false);
     }
   };
+  const [deleteCandidate, setDeleteCandidate] = useState<Producto | null>(null);
   const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
 
   const checkAndPromptDelete = async (p: Producto) => {
