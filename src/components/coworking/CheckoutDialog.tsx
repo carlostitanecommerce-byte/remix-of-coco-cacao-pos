@@ -69,7 +69,7 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
       toast({ title: 'Sesión lista para cobro', description: 'Redirigiendo al Punto de Venta...' });
       onClose();
       await onSuccess?.();
-      navigate(`/pos?session=${summary.session.id}`);
+      navigate(`/caja?session=${summary.session.id}`);
     } finally {
       setConfirming(false);
       inFlightRef.current = false;

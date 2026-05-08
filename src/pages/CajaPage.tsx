@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,6 +20,8 @@ import type { CartItem } from '@/components/pos/types';
 
 const CajaPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pendingSessionId = searchParams.get('session');
   const { roles } = useAuth();
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
@@ -85,6 +87,8 @@ const CajaPage = () => {
         <CoworkingSessionSelector
           onImportSession={handleImportSession}
           importedSessionId={coworkingSessionId ?? undefined}
+          pendingSessionId={pendingSessionId}
+          onPendingConsumed={() => setSearchParams({})}
         />
       )}
 
