@@ -224,7 +224,7 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
                     size="sm"
                     variant="outline"
                     className="h-9 text-xs font-semibold border-emerald-500/50 text-emerald-700 hover:bg-emerald-500/10"
-                    onClick={() => onResolveCancel(c.id, 'retornado_stock')}
+                    onClick={() => { setNotas(''); setResolveDialog({ cancelId: c.id, decision: 'retornado_stock', nombre: c.nombre_producto }); }}
                     disabled={busy || resolvingCancelId === c.id}
                     title="No se preparó: regresa los insumos al inventario"
                   >
@@ -235,7 +235,7 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
                     size="sm"
                     variant="outline"
                     className="h-9 text-xs font-semibold border-amber-500/50 text-amber-700 hover:bg-amber-500/10"
-                    onClick={() => onResolveCancel(c.id, 'merma')}
+                    onClick={() => { setNotas(''); setResolveDialog({ cancelId: c.id, decision: 'merma', nombre: c.nombre_producto }); }}
                     disabled={busy || resolvingCancelId === c.id}
                     title="Ya se preparó: registra los insumos como merma"
                   >
