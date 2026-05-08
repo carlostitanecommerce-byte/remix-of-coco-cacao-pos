@@ -198,8 +198,16 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     };
 
     let productoId = editingId;
+    let recetasPrevias: { insumo_id: string; cantidad_necesaria: number }[] = [];
 
     if (editingId) {
+      // Snapshot de recetas previas para posible rollback
+      const { data: prevRecetas } = await supabase
+        .from('recetas')
+        .select('insumo_id, cantidad_necesaria')
+        .eq('producto_id', editingId);
+      recetasPrevias = (prevRecetas ?? []) as any;
+
       const { error } = await supabase.from('productos').update(payload).eq('id', editingId);
       if (error) { toast.error('Error al actualizar producto'); setSaving(false); return; }
     } else {
@@ -208,11 +216,30 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       productoId = data.id;
     }
 
-    await supabase.from('recetas').delete().eq('producto_id', productoId!);
+    const { error: delErr } = await supabase.from('recetas').delete().eq('producto_id', productoId!);
+    if (delErr) {
+      toast.error('Error al actualizar la receta');
+      if (!editingId && productoId) await supabase.from('productos').delete().eq('id', productoId);
+      setSaving(false);
+      return;
+    }
     if (receta.length > 0) {
-      await supabase.from('recetas').insert(
+      const { error: insErr } = await supabase.from('recetas').insert(
         receta.map(l => ({ producto_id: productoId!, insumo_id: l.insumo_id, cantidad_necesaria: l.cantidad_necesaria }))
       );
+      if (insErr) {
+        toast.error('Error al guardar la receta. Revirtiendo cambios…');
+        // Rollback
+        if (!editingId && productoId) {
+          await supabase.from('productos').delete().eq('id', productoId);
+        } else if (editingId && recetasPrevias.length > 0) {
+          await supabase.from('recetas').insert(
+            recetasPrevias.map(r => ({ producto_id: editingId, insumo_id: r.insumo_id, cantidad_necesaria: r.cantidad_necesaria }))
+          );
+        }
+        setSaving(false);
+        return;
+      }
     }
 
     await supabase.from('audit_logs').insert({
