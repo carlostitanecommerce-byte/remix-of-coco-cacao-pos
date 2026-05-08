@@ -338,7 +338,38 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     toast({ title: 'Eliminado' });
   };
 
-  const handleUpdateQuantity = (item: SessionItem, delta: number) => withLock(() => doUpdateQuantity(item, delta));
+  const openCancelDialog = (item: SessionItem) => {
+    const maxQty = item.cantidad - item.pendingCancelQty;
+    setCancelTarget(item);
+    setCancelQty(Math.min(1, maxQty) || 1);
+    setCancelMotivo('');
+  };
+
+  const submitCancelRequest = () => withLock(async () => {
+    if (!cancelTarget) return;
+    const motivo = cancelMotivo.trim();
+    if (!motivo) {
+      toast({ variant: 'destructive', title: 'Motivo requerido' });
+      return;
+    }
+    const maxQty = cancelTarget.cantidad - cancelTarget.pendingCancelQty;
+    if (cancelQty < 1 || cancelQty > maxQty) {
+      toast({ variant: 'destructive', title: 'Cantidad inválida', description: `Máximo ${maxQty}.` });
+      return;
+    }
+    const { error } = await supabase.rpc('solicitar_cancelacion_item_sesion' as any, {
+      p_upsell_id: cancelTarget.id,
+      p_cantidad: cancelQty,
+      p_motivo: motivo,
+    });
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      return;
+    }
+    toast({ title: 'Solicitud enviada a cocina', description: `${cancelTarget.nombre} ×${cancelQty}` });
+    setCancelTarget(null);
+    await reloadItemsAndCancels();
+  });
   const doUpdateQuantity = async (item: SessionItem, delta: number) => {
     const newQty = item.cantidad + delta;
     if (newQty < 0) return;
