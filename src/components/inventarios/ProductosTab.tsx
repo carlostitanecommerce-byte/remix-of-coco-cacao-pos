@@ -268,6 +268,12 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       metadata: { producto_id: productoId, ...payload, receta_insumos: receta.length },
     });
 
+    // M2: limpiar imágenes huérfanas en storage tras guardar correctamente
+    if (imagenesPendientesEliminar.length > 0) {
+      await eliminarImagenesStorage(imagenesPendientesEliminar);
+      setImagenesPendientesEliminar([]);
+    }
+
     toast.success(`Producto ${editingId ? 'actualizado' : 'creado'}`);
     setSaving(false);
     setDialogOpen(false);
