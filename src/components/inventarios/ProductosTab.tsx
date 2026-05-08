@@ -76,6 +76,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   const [expandedRecetas, setExpandedRecetas] = useState<Record<string, RecetaLine[]>>({});
   const [expandedInstrucciones, setExpandedInstrucciones] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const fetchProductos = useCallback(async () => {
     setLoading(true);
