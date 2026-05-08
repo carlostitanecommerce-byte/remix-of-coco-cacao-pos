@@ -189,6 +189,8 @@ export default function CocinaPage() {
         nombre_producto: item.nombre_producto,
         cantidad: item.cantidad,
         notas: item.notas,
+        cancel_requested: item.cancel_requested ?? false,
+        cancel_qty: item.cancel_qty ?? 0,
       });
     });
 
