@@ -20,6 +20,8 @@ import type { CartItem } from '@/components/pos/types';
 
 const CajaPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pendingSessionId = searchParams.get('session');
   const { roles } = useAuth();
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja } = useCajaSession();
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
