@@ -8,7 +8,7 @@ interface Props {
   onMarkReady: (orderId: string) => void;
   onRevert: (orderId: string) => void;
   cancelacionesPorOrden?: Record<string, KdsItemCancelacion[]>;
-  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma') => void;
+  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma', notas?: string | null) => void;
   resolvingCancelId?: string | null;
   busyId: string | null;
 }

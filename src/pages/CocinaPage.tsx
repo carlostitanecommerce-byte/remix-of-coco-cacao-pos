@@ -331,6 +331,45 @@ export default function CocinaPage() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // ------- Promedio de preparación del día (CDMX), fuente de verdad: DB -------
+  // Lee las órdenes que terminaron en estado "listo" hoy y calcula el delta
+  // entre created_at y updated_at. Persiste entre recargas y entre dispositivos.
+  const fetchAvgPrepFromDB = useCallback(async () => {
+    // Inicio del día en CDMX expresado como UTC
+    const now = new Date();
+    const cdmxOffsetH = -6;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+    const cdmxNow = new Date(utcMs + cdmxOffsetH * 3_600_000);
+    const cdmxMidnight = new Date(cdmxNow.getFullYear(), cdmxNow.getMonth(), cdmxNow.getDate());
+    const startIso = new Date(
+      cdmxMidnight.getTime() - cdmxOffsetH * 3_600_000 - now.getTimezoneOffset() * 60_000,
+    ).toISOString();
+
+    const { data, error } = await supabase
+      .from('kds_orders')
+      .select('created_at, updated_at')
+      .eq('estado', 'listo' as any)
+      .gte('updated_at', startIso);
+    if (error || !data) return;
+
+    const durations: number[] = [];
+    data.forEach((o: any) => {
+      const dt = (new Date(o.updated_at).getTime() - new Date(o.created_at).getTime()) / 60_000;
+      if (dt > 0 && dt < 120) durations.push(dt);
+    });
+    if (durations.length === 0) {
+      setAvgPrepMin(null);
+      prepDurations.current = [];
+      return;
+    }
+    prepDurations.current = durations;
+    setAvgPrepMin(durations.reduce((a, b) => a + b, 0) / durations.length);
+  }, []);
+
+  useEffect(() => {
+    fetchAvgPrepFromDB();
+  }, [fetchAvgPrepFromDB]);
+
   // ------- Realtime: subscription with reconnection + status tracking -------
   // Estrategia: mientras el canal está SUBSCRIBED, los handlers son la única
   // fuente de verdad (cambios optimistas e in-place). fetchOrders sólo se
@@ -380,9 +419,21 @@ export default function CocinaPage() {
             playNewOrderSound();
           }
           knownIds.current.add(o.id);
-          // Si es coworking, hidratamos cliente/área de forma asíncrona
+          // Si es coworking, hidratamos cliente/área inmediatamente.
           if (o.coworking_session_id) {
             fetchSingleOrder(o.id);
+          } else {
+            // Para POS: si en 250ms no llegaron los items por realtime,
+            // los traemos puntualmente para evitar mostrar la tarjeta vacía.
+            setTimeout(() => {
+              setOrders((prev) => {
+                const target = prev.find((x) => x.id === o.id);
+                if (target && target.items.length === 0) {
+                  fetchSingleOrder(o.id);
+                }
+                return prev;
+              });
+            }, 250);
           }
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
@@ -608,12 +659,11 @@ export default function CocinaPage() {
       (data ?? []).map((c: any) => ({
         id: c.id,
         kds_item_id: c.kds_item_id,
+        kds_order_id: c.kds_order_id ?? null,
         cantidad: c.cantidad,
         motivo: c.motivo,
         nombre_producto: c.nombre_producto,
-        // attach order id via property for indexing below
-        ...(c.kds_order_id ? { kds_order_id: c.kds_order_id } : {}),
-      })) as any,
+      })),
     );
   }, []);
 
@@ -632,7 +682,7 @@ export default function CocinaPage() {
 
   const cancelacionesPorOrden = useMemo(() => {
     const map: Record<string, KdsItemCancelacion[]> = {};
-    (cancelaciones as any[]).forEach((c) => {
+    cancelaciones.forEach((c) => {
       const oid = c.kds_order_id;
       if (!oid) return;
       if (!map[oid]) map[oid] = [];
@@ -644,12 +694,13 @@ export default function CocinaPage() {
   const handleResolveCancel = async (
     cancelId: string,
     decision: 'retornado_stock' | 'merma',
+    notas?: string | null,
   ) => {
     setResolvingCancelId(cancelId);
     const { error } = await supabase.rpc('resolver_cancelacion_item_sesion' as any, {
       p_cancelacion_id: cancelId,
       p_decision: decision,
-      p_notas: null,
+      p_notas: notas ?? null,
     });
     if (error) {
       toast.error('Error al resolver cancelación', { description: error.message });

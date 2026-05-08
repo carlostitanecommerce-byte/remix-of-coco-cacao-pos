@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee, Building2, Ban, PackageCheck, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +23,7 @@ export interface KdsOrderItem {
 export interface KdsItemCancelacion {
   id: string;
   kds_item_id: string;
+  kds_order_id: string | null;
   cantidad: number;
   motivo: string;
   nombre_producto: string;
@@ -47,8 +53,8 @@ interface Props {
   onRevert?: (orderId: string) => void;
   /** Cancelaciones pendientes asociadas a esta orden, indexadas por kds_item_id */
   cancelaciones?: KdsItemCancelacion[];
-  /** Resolver una cancelación (cocina decide retorno o merma) */
-  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma') => void;
+  /** Resolver una cancelación (cocina decide retorno o merma, con notas opcionales) */
+  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma', notas?: string | null) => void;
   /** Indica si una resolución está en curso (deshabilita botones) */
   resolvingCancelId?: string | null;
   busy?: boolean;
@@ -68,6 +74,8 @@ const ConsumoIcon = ({ tipo }: { tipo: string }) => {
 
 export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelaciones, onResolveCancel, resolvingCancelId, busy }: Props) {
   const [elapsed, setElapsed] = useState(0);
+  const [resolveDialog, setResolveDialog] = useState<{ cancelId: string; decision: 'retornado_stock' | 'merma'; nombre: string } | null>(null);
+  const [notas, setNotas] = useState('');
 
   useEffect(() => {
     const start = new Date(order.created_at).getTime();
@@ -216,7 +224,7 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
                     size="sm"
                     variant="outline"
                     className="h-9 text-xs font-semibold border-emerald-500/50 text-emerald-700 hover:bg-emerald-500/10"
-                    onClick={() => onResolveCancel(c.id, 'retornado_stock')}
+                    onClick={() => { setNotas(''); setResolveDialog({ cancelId: c.id, decision: 'retornado_stock', nombre: c.nombre_producto }); }}
                     disabled={busy || resolvingCancelId === c.id}
                     title="No se preparó: regresa los insumos al inventario"
                   >
@@ -227,7 +235,7 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
                     size="sm"
                     variant="outline"
                     className="h-9 text-xs font-semibold border-amber-500/50 text-amber-700 hover:bg-amber-500/10"
-                    onClick={() => onResolveCancel(c.id, 'merma')}
+                    onClick={() => { setNotas(''); setResolveDialog({ cancelId: c.id, decision: 'merma', nombre: c.nombre_producto }); }}
                     disabled={busy || resolvingCancelId === c.id}
                     title="Ya se preparó: registra los insumos como merma"
                   >
@@ -278,6 +286,41 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
           </Button>
         )}
       </CardContent>
+
+      <AlertDialog open={!!resolveDialog} onOpenChange={(o) => { if (!o) setResolveDialog(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {resolveDialog?.decision === 'retornado_stock' ? 'Retornar a stock' : 'Registrar merma'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resolveDialog?.decision === 'retornado_stock'
+                ? `Los insumos de "${resolveDialog?.nombre}" se reintegrarán al inventario.`
+                : `Se mantendrá el descuento de inventario y se registrará "${resolveDialog?.nombre}" como merma.`}
+              {' '}Puedes agregar una nota visible para el solicitante.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+            placeholder="Notas opcionales para cocina/solicitante…"
+            className="min-h-[80px]"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (resolveDialog && onResolveCancel) {
+                  onResolveCancel(resolveDialog.cancelId, resolveDialog.decision, notas.trim() || null);
+                }
+                setResolveDialog(null);
+              }}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
