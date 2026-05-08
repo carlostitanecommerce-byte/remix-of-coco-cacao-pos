@@ -182,6 +182,21 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         return;
       }
 
+      // B3: validar contra reservaciones de hoy en el horario solicitado
+      if (selectedArea) {
+        const rsvConflict = await checkWalkInVsReservations({
+          areaId: selectedAreaId,
+          horas: horasNum,
+          paxCount: pax,
+          esPrivado: selectedArea.es_privado,
+          capacidadPax: selectedArea.capacidad_pax,
+        });
+        if (rsvConflict.hasConflict) {
+          toast({ variant: 'destructive', title: 'Conflicto con reservación', description: rsvConflict.message });
+          return;
+        }
+      }
+
       const fechaInicio = new Date();
       const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
 
