@@ -40,7 +40,7 @@ const CoworkingPage = () => {
 
     // Freeze fecha_salida_real in DB if not already set
     if (!session.fecha_salida_real) {
-      const ahora = new Date().toISOString();
+      const ahora = nowCDMX();
       await supabase
         .from('coworking_sessions')
         .update({ fecha_salida_real: ahora })
