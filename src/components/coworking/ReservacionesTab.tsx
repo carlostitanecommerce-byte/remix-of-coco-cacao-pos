@@ -47,6 +47,9 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
   const [horaInicio, setHoraInicio] = useState('09:00');
   const [duracion, setDuracion] = useState('1');
   const [saving, setSaving] = useState(false);
+  const [reservacionToCancel, setReservacionToCancel] = useState<Reservacion | null>(null);
+  const [cancelMotivo, setCancelMotivo] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   // Scroll to selected row when switching to list tab
   useEffect(() => {
