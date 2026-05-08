@@ -89,6 +89,28 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={confirmHigh} onOpenChange={setConfirmHigh}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fondo fijo inusualmente alto</AlertDialogTitle>
+            <AlertDialogDescription>
+              Estás a punto de abrir caja con ${parseFloat(monto || '0').toFixed(2)},
+              que supera el umbral típico de ${MAX_FONDO_FIJO.toLocaleString('es-MX')}.
+              Verifica que el monto sea correcto antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Revisar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              onClick={() => { setConfirmHigh(false); void ejecutar(parseFloat(monto)); }}
+            >
+              Confirmar y abrir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
