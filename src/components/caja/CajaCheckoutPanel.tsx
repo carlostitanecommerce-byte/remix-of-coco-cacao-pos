@@ -117,29 +117,36 @@ export function CajaCheckoutPanel() {
             <p className="text-xs mt-1">Agrega productos desde POS o importa una sesión de coworking</p>
           </div>
         ) : (
-          items.map((item) => (
-            <div key={item.producto_id} className="flex items-center gap-2 text-sm border border-border rounded-md p-2">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{item.nombre}</p>
-                <p className="text-xs text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
-              </div>
-              {item.tipo_concepto !== 'coworking' && (
-                <div className="flex items-center gap-1">
-                  <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(item.producto_id, -1)}>
-                    <Minus className="h-3 w-3" />
-                  </Button>
-                  <span className="w-5 text-center text-xs">{item.cantidad}</span>
-                  <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(item.producto_id, 1)}>
-                    <Plus className="h-3 w-3" />
-                  </Button>
+          items.map((item) => {
+            const esCoworking = item.tipo_concepto === 'coworking' || !!item.coworking_session_id;
+            return (
+              <div key={item.producto_id} className="flex items-center gap-2 text-sm border border-border rounded-md p-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{item.nombre}</p>
+                  <p className="text-xs text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
                 </div>
-              )}
-              <span className="font-bold w-16 text-right">${item.subtotal.toFixed(2)}</span>
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem(item.producto_id)}>
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          ))
+                {!esCoworking ? (
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(item.producto_id, -1)}>
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <span className="w-5 text-center text-xs">{item.cantidad}</span>
+                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(item.producto_id, 1)}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground px-2">×{item.cantidad}</span>
+                )}
+                <span className="font-bold w-16 text-right">${item.subtotal.toFixed(2)}</span>
+                {!esCoworking && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem(item.producto_id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
