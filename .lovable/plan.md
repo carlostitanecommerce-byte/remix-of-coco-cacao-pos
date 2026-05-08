@@ -1,31 +1,21 @@
-## Causa raíz
+# Redirigir checkout de coworking a Caja
 
-La tabla `detalle_ventas` tiene **dos triggers idénticos** que ejecutan la misma función `descontar_inventario_venta()` `AFTER INSERT FOR EACH ROW`:
+## Problema
+Al registrar la salida de una sesión de coworking, `CheckoutDialog` redirige a `/pos?session=...`, pero el cobro ahora se hace en la sección de Caja. Además, `PosPage` ya no procesa el query param, por lo que la sesión no se carga automáticamente en ningún lado.
 
-1. `trg_descontar_inventario_venta` (nomenclatura estándar `trg_*` del proyecto)
-2. `trigger_descontar_inventario` (duplicado legacy)
+## Cambios
 
-Cada inserción en `detalle_ventas` dispara la función dos veces, descontando el doble de cada insumo del stock. Esto explica exactamente el síntoma reportado: una venta de 1 unidad descuenta como si fueran 2.
+### 1. `src/components/coworking/CheckoutDialog.tsx` (línea 72)
+Cambiar la redirección:
+- Antes: `navigate(\`/pos?session=${summary.session.id}\`)`
+- Después: `navigate(\`/caja?session=${summary.session.id}\`)`
 
-No es un bug de la app — todo el frontend (`ConfirmVentaDialog`) inserta una sola fila por línea. El problema está en la base de datos.
+### 2. `src/pages/CajaPage.tsx`
+- Leer `session` desde `useSearchParams` (react-router-dom).
+- Mantener un estado local `pendingSessionId` inicializado con ese valor.
+- Pasarlo a `<CoworkingSessionSelector pendingSessionId={pendingSessionId} onPendingConsumed={...} />`. El selector ya soporta esos props y autoejecuta `handleSelect` cuando la sesión aparece en la lista de pendientes de pago.
+- Al consumir, limpiar el query param con `setSearchParams({})` para evitar reimportaciones.
+- Si la caja está cerrada y hay `?session=...`, mostrar primero el diálogo de apertura (comportamiento actual); el param persiste y se procesará cuando se abra la caja.
 
-## Solución
-
-Migración SQL que elimina el trigger duplicado y conserva el que sigue la nomenclatura estándar del proyecto:
-
-```sql
-DROP TRIGGER IF EXISTS trigger_descontar_inventario ON public.detalle_ventas;
-```
-
-Se conserva `trg_descontar_inventario_venta`, que ejecuta la misma función. No hay cambios de código en la app, no hay cambios en la función `descontar_inventario_venta()`, no hay impacto en otras tablas.
-
-## Validación posterior
-
-Después de aplicar la migración:
-1. Hacer una venta de prueba de 1 unidad de un producto con receta conocida.
-2. Verificar en `insumos.stock_actual` que el descuento corresponde exactamente a `cantidad_necesaria * 1` (no x2).
-3. Confirmar en `pg_trigger` que solo queda un trigger de descuento sobre `detalle_ventas`.
-
-## Nota sobre ventas previas
-
-Las ventas ya procesadas con doble descuento dejaron stock subestimado. Si quieres, en un paso posterior puedo ofrecerte un ajuste manual de inventario (vía el módulo de Compras o una merma negativa) para corregir el stock de los insumos afectados por las pruebas recientes — pero eso depende de cuántas ventas de prueba se hicieron y prefiero confirmarlo contigo antes de tocar inventario histórico.
+## Resultado
+Al hacer checkout de una sesión de coworking, el usuario va directo a `/caja`, la sesión se importa automáticamente al ticket activo (panel derecho `CajaCheckoutPanel`) y puede proceder al cobro sin pasos extras.
