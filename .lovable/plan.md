@@ -1,42 +1,33 @@
-## Problema detectado
+## Objetivo
 
-En la imagen se ve un item del ticket con el nombre truncado a "Ca..." porque todos los elementos (nombre, precio unitario, controles -/+, cantidad, subtotal, nota, eliminar) están forzados en una sola fila horizontal muy estrecha. Resultado: no se lee el producto, los precios chocan visualmente y se ve amateur.
+Reemplazar el campo "URL de imagen" en el diálogo Editar/Nuevo Producto (Inventarios → Productos & Recetas) por un cargador de archivos (PNG/JPG). La imagen se guarda en almacenamiento de Lovable Cloud y su URL pública se persiste en `productos.imagen_url`, que ya consume el grid del POS.
 
-## Rediseño propuesto (CartPanel.tsx)
+## Cambios
 
-Reorganizar cada item del ticket en **dos filas** dentro de una tarjeta limpia, en vez de una sola fila apretada:
+### 1. Backend (migración SQL)
+- Crear bucket público `productos` en Storage.
+- Políticas RLS sobre `storage.objects` para el bucket:
+  - SELECT: público (lectura abierta, necesario para mostrar en POS).
+  - INSERT / UPDATE / DELETE: solo administradores (`has_role(auth.uid(), 'administrador')`), alineado con quién puede gestionar productos.
 
-### Fila 1 — Identidad del producto
-- Nombre del producto en `text-sm font-medium`, con espacio para 2 líneas (`line-clamp-2`), sin truncar agresivamente.
-- A la derecha: subtotal en `text-sm font-bold text-primary` (es el dato más importante visualmente).
-- Si es paquete: ícono `Package` antes del nombre.
+### 2. Frontend — `src/components/inventarios/ProductosTab.tsx`
+Reemplazar el `<Input>` de URL (línea 526–529) por un control de carga:
 
-### Fila 2 — Controles y metadata
-- Izquierda: precio unitario en `text-[11px] text-muted-foreground` ("$70.00 c/u").
-- Centro/derecha: stepper de cantidad agrupado (`-` `1` `+`) con fondo sutil `bg-muted/40 rounded-md` para que se lea como un control unificado, botones `h-7 w-7`.
-- Extremo derecho: botones de acción secundarios (nota 📝 y eliminar 🗑) agrupados, separados visualmente del stepper con un pequeño gap.
+- **Vista previa**: si `form.imagen_url` existe, mostrar miniatura (~80×80, `object-cover`, `rounded-md border`) con botón "Quitar" que limpia el campo.
+- **Botón "Subir imagen"** (`<input type="file" accept="image/png,image/jpeg,image/webp">` oculto, disparado por un Button):
+  - Validar tipo (PNG/JPG/WEBP) y tamaño (≤ 2 MB) → `toast.error` si falla.
+  - Estado local `uploading` que deshabilita el botón y muestra spinner/etiqueta "Subiendo…".
+  - Generar nombre único: `${crypto.randomUUID()}.${ext}`.
+  - `supabase.storage.from('productos').upload(path, file, { upsert: false, contentType: file.type })`.
+  - Obtener URL pública con `getPublicUrl(path)` y asignarla a `form.imagen_url`.
+  - Toast de éxito.
+- Mantener el campo opcional (sin imagen → se guarda `null`, igual que hoy).
+- Sin cambios en la lógica de guardado existente (ya envía `imagen_url`).
 
-### Mejoras visuales
-- Tarjeta con `p-2.5`, `rounded-lg`, `border-border`, hover sutil `hover:border-primary/30 transition-colors`.
-- Botón eliminar en `ghost` con `text-muted-foreground hover:text-destructive` (no rojo permanente — más limpio).
-- Nota inline (cuando exista) con fondo `bg-primary/5` y borde izquierdo `border-l-2 border-primary` en lugar del emoji suelto.
-- Componentes de paquete sin cambios estructurales, solo ajuste de spacing.
+### 3. POS
+No requiere cambios. `ProductGrid.tsx` ya renderiza `p.imagen_url` cuando existe.
 
-### Layout esquemático
-
-```text
-┌─────────────────────────────────────────┐
-│ Cappuccino Grande               $70.00  │
-│ $70.00 c/u        [- 1 +]      📝  🗑   │
-└─────────────────────────────────────────┘
-```
-
-## Archivos a modificar
-
-- `src/components/pos/CartPanel.tsx` — solo la función `renderItem` y estilos. Sin cambios en lógica, props ni store.
-
-## Lo que NO cambia
-
-- Lógica de carrito, cálculos, totales, footer del ticket, validaciones.
-- Ancho del panel de ticket (sigue siendo 2/7 del grid del POS).
-- Otros componentes (ProductGrid, PosPage, CajaCheckoutPanel).
+## Notas técnicas
+- No se borra la imagen anterior del bucket al reemplazar (evita pérdidas si está reutilizada). Limpieza puede atenderse más adelante si se desea.
+- No se redimensiona en cliente; el límite de 2 MB es suficiente para miniaturas de POS.
+- Se conserva la firma de `productos.imagen_url` (text nullable) para no romper datos existentes que ya tengan URLs externas.
