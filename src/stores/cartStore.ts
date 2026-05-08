@@ -6,6 +6,8 @@ interface CartState {
   items: CartItem[];
   coworkingSessionId: string | null;
   clienteNombre: string | null;
+  ownerUserId: string | null;
+  ensureOwner: (userId: string | null) => void;
   setItems: (items: CartItem[]) => void;
   addOrIncrementProduct: (item: CartItem) => void;
   addOrIncrementPaquete: (item: CartItem) => void;
