@@ -181,38 +181,82 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     }
   };
 
+  // Construye un SessionItem usando el cache de requiere_preparacion
+  const buildItem = (u: any, prepFromJoin?: boolean): SessionItem => {
+    const requiere = prepFromJoin ?? prepCacheRef.current.get(u.producto_id) ?? true;
+    return {
+      id: u.id,
+      producto_id: u.producto_id,
+      nombre: u.productos?.nombre ?? u.nombre ?? 'Producto',
+      precio_especial: Number(u.precio_especial) || 0,
+      cantidad: u.cantidad,
+      requiere_preparacion: requiere,
+      pendingCancelQty: 0,
+    };
+  };
+
+  // Recarga items + cancelaciones pendientes (para refrescar pendingCancelQty)
+  const reloadItemsAndCancels = async () => {
+    if (!session) return;
+    const [itemsRes, cancelRes] = await Promise.all([
+      supabase
+        .from('coworking_session_upsells')
+        .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre, requiere_preparacion)')
+        .eq('session_id', session.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('cancelaciones_items_sesion')
+        .select('upsell_id, cantidad')
+        .eq('session_id', session.id)
+        .eq('estado', 'pendiente_decision'),
+    ]);
+    const pendingByUpsell = new Map<string, number>();
+    (cancelRes.data ?? []).forEach((c: any) => {
+      if (c.upsell_id) pendingByUpsell.set(c.upsell_id, (pendingByUpsell.get(c.upsell_id) ?? 0) + (c.cantidad || 0));
+    });
+    const mapped = (itemsRes.data ?? []).map((u: any) => {
+      const requiere = u.productos?.requiere_preparacion !== false;
+      prepCacheRef.current.set(u.producto_id, requiere);
+      const it = buildItem(u, requiere);
+      it.pendingCancelQty = pendingByUpsell.get(u.id) ?? 0;
+      return it;
+    });
+    setItems(mapped);
+  };
+
   useEffect(() => {
     if (!session) return;
     setSearch('');
     const fetchAll = async () => {
       setLoading(true);
-      const [prodRes, itemsRes] = await Promise.all([
-        supabase
-          .from('productos')
-          .select('id, nombre, categoria, precio_venta')
-          .eq('activo', true)
-          .eq('tipo', 'simple')
-          .order('nombre'),
-        supabase
-          .from('coworking_session_upsells')
-          .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-          .eq('session_id', session.id)
-          .order('created_at', { ascending: true }),
-      ]);
-      setProductos((prodRes.data as Producto[]) ?? []);
-      setItems(
-        (itemsRes.data ?? []).map((u: any) => ({
-          id: u.id,
-          producto_id: u.producto_id,
-          nombre: u.productos?.nombre ?? 'Producto',
-          precio_especial: Number(u.precio_especial) || 0,
-          cantidad: u.cantidad,
-        })),
-      );
+      const prodRes = await supabase
+        .from('productos')
+        .select('id, nombre, categoria, precio_venta, requiere_preparacion')
+        .eq('activo', true)
+        .eq('tipo', 'simple')
+        .order('nombre');
+      const prods = (prodRes.data as Producto[]) ?? [];
+      setProductos(prods);
+      prods.forEach(p => prepCacheRef.current.set(p.id, p.requiere_preparacion !== false));
+      await reloadItemsAndCancels();
       setLoading(false);
     };
     fetchAll();
   }, [session]);
+
+  // Realtime: refrescar al cambiar cancelaciones (decisión de cocina)
+  useEffect(() => {
+    if (!session) return;
+    const ch = supabase
+      .channel(`cancel-items-session-${session.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cancelaciones_items_sesion', filter: `session_id=eq.${session.id}` },
+        () => { reloadItemsAndCancels(); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [session?.id]);
 
   const resolvePrice = (productoId: string, precioVenta: number) => {
     if (upsellsMap.has(productoId)) {
