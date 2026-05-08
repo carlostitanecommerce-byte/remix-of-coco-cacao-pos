@@ -267,6 +267,8 @@ export default function CocinaPage() {
       nombre_producto: it.nombre_producto,
       cantidad: it.cantidad,
       notas: it.notas,
+      cancel_requested: it.cancel_requested ?? false,
+      cancel_qty: it.cancel_qty ?? 0,
     }));
 
     // Enriquecer con datos de coworking si aplica
