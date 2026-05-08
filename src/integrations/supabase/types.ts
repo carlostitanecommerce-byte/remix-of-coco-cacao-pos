@@ -1031,6 +1031,7 @@ export type Database = {
       }
       ventas: {
         Row: {
+          caja_id: string | null
           comisiones_bancarias: number
           coworking_session_id: string | null
           created_at: string
@@ -1052,6 +1053,7 @@ export type Database = {
           usuario_id: string
         }
         Insert: {
+          caja_id?: string | null
           comisiones_bancarias?: number
           coworking_session_id?: string | null
           created_at?: string
@@ -1073,6 +1075,7 @@ export type Database = {
           usuario_id: string
         }
         Update: {
+          caja_id?: string | null
           comisiones_bancarias?: number
           coworking_session_id?: string | null
           created_at?: string
@@ -1094,6 +1097,13 @@ export type Database = {
           usuario_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "ventas_caja_id_fkey"
+            columns: ["caja_id"]
+            isOneToOne: false
+            referencedRelation: "cajas"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "ventas_coworking_session_id_fkey"
             columns: ["coworking_session_id"]

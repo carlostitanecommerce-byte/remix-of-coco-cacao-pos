@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useCartStore } from '@/stores/cartStore';
 import { useVentaConfig } from '@/components/caja/useVentaConfig';
 import { ConfirmVentaDialog } from '@/components/caja/ConfirmVentaDialog';
+import { useCajaSession } from '@/hooks/useCajaSession';
 import type { VentaSummary, MixedPayment } from '@/components/pos/types';
 
 type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
@@ -25,6 +26,7 @@ export function CajaCheckoutPanel() {
   const clear = useCartStore((s) => s.clear);
 
   const { config } = useVentaConfig();
+  const { cajaAbierta } = useCajaSession();
 
   const [tipoConsumo, setTipoConsumo] = useState<TipoConsumo>('sitio');
   const [metodoPago, setMetodoPago] = useState<MetodoPago>('efectivo');
@@ -73,6 +75,7 @@ export function CajaCheckoutPanel() {
       mixed_payment: metodoPago === 'mixto' ? mixed : undefined,
       propina_en_digital: propinaEnDigital,
       coworking_session_id: coworkingSessionId ?? undefined,
+      caja_id: cajaAbierta?.id,
     };
     setSummary(ventaSummary);
   };
