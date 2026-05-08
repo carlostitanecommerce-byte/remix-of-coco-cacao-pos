@@ -87,11 +87,11 @@ const PosPage = () => {
   const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-      <div className="lg:col-span-3">
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 h-[calc(100vh-7rem)]">
+      <div className="lg:col-span-3 min-h-0">
         <ProductGrid onAdd={addProduct} />
       </div>
-      <div className="lg:col-span-2 border border-border rounded-lg p-4 bg-card flex flex-col">
+      <div className="lg:col-span-2 border border-border rounded-lg p-4 bg-card flex flex-col min-h-0">
         <CartPanel
           items={items}
           onUpdateQty={handleUpdateQty}
