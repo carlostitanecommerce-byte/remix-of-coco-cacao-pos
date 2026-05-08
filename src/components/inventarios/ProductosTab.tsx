@@ -77,6 +77,23 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   const [expandedInstrucciones, setExpandedInstrucciones] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // M2: cola de imágenes a eliminar del storage al guardar (evita huérfanos)
+  const [imagenesPendientesEliminar, setImagenesPendientesEliminar] = useState<string[]>([]);
+
+  // Extrae el path interno del bucket "productos" desde una URL pública
+  const extraerPathProducto = (url: string | null | undefined): string | null => {
+    if (!url) return null;
+    const marker = '/storage/v1/object/public/productos/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return url.substring(idx + marker.length).split('?')[0];
+  };
+
+  const eliminarImagenesStorage = async (urls: string[]) => {
+    const paths = urls.map(extraerPathProducto).filter((p): p is string => !!p);
+    if (paths.length === 0) return;
+    await supabase.storage.from('productos').remove(paths);
+  };
 
   const fetchProductos = useCallback(async () => {
     setLoading(true);
