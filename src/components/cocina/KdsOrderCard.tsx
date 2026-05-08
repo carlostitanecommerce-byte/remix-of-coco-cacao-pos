@@ -106,9 +106,14 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
       : urgencyStyles[urgency];
 
   const isCoworking = !!order.coworking_session_id;
+  const cancelList = cancelaciones ?? [];
+  const cancelByItem = new Map<string, KdsItemCancelacion>();
+  cancelList.forEach((c) => { if (c.kds_item_id) cancelByItem.set(c.kds_item_id, c); });
+  const hasCancel = cancelList.length > 0;
   const coworkingCardStyle = isCoworking && !isReady && !isInProgress
     ? 'border-amber-500/60 bg-amber-500/10 shadow-amber-500/20'
     : '';
+  const cancelCardStyle = hasCancel ? 'border-destructive/70 bg-destructive/5 animate-pulse' : '';
 
   return (
     <Card
