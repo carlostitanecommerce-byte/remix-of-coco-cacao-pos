@@ -620,12 +620,11 @@ export default function CocinaPage() {
       (data ?? []).map((c: any) => ({
         id: c.id,
         kds_item_id: c.kds_item_id,
+        kds_order_id: c.kds_order_id ?? null,
         cantidad: c.cantidad,
         motivo: c.motivo,
         nombre_producto: c.nombre_producto,
-        // attach order id via property for indexing below
-        ...(c.kds_order_id ? { kds_order_id: c.kds_order_id } : {}),
-      })) as any,
+      })),
     );
   }, []);
 
