@@ -331,6 +331,45 @@ export default function CocinaPage() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // ------- Promedio de preparación del día (CDMX), fuente de verdad: DB -------
+  // Lee las órdenes que terminaron en estado "listo" hoy y calcula el delta
+  // entre created_at y updated_at. Persiste entre recargas y entre dispositivos.
+  const fetchAvgPrepFromDB = useCallback(async () => {
+    // Inicio del día en CDMX expresado como UTC
+    const now = new Date();
+    const cdmxOffsetH = -6;
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+    const cdmxNow = new Date(utcMs + cdmxOffsetH * 3_600_000);
+    const cdmxMidnight = new Date(cdmxNow.getFullYear(), cdmxNow.getMonth(), cdmxNow.getDate());
+    const startIso = new Date(
+      cdmxMidnight.getTime() - cdmxOffsetH * 3_600_000 - now.getTimezoneOffset() * 60_000,
+    ).toISOString();
+
+    const { data, error } = await supabase
+      .from('kds_orders')
+      .select('created_at, updated_at')
+      .eq('estado', 'listo' as any)
+      .gte('updated_at', startIso);
+    if (error || !data) return;
+
+    const durations: number[] = [];
+    data.forEach((o: any) => {
+      const dt = (new Date(o.updated_at).getTime() - new Date(o.created_at).getTime()) / 60_000;
+      if (dt > 0 && dt < 120) durations.push(dt);
+    });
+    if (durations.length === 0) {
+      setAvgPrepMin(null);
+      prepDurations.current = [];
+      return;
+    }
+    prepDurations.current = durations;
+    setAvgPrepMin(durations.reduce((a, b) => a + b, 0) / durations.length);
+  }, []);
+
+  useEffect(() => {
+    fetchAvgPrepFromDB();
+  }, [fetchAvgPrepFromDB]);
+
   // ------- Realtime: subscription with reconnection + status tracking -------
   // Estrategia: mientras el canal está SUBSCRIBED, los handlers son la única
   // fuente de verdad (cambios optimistas e in-place). fetchOrders sólo se
