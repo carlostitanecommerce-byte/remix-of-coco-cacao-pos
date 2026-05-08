@@ -1185,6 +1185,10 @@ export type Database = {
         }
         Returns: Json
       }
+      anular_compra_insumo: {
+        Args: { p_compra_id: string; p_motivo: string }
+        Returns: Json
+      }
       aplicar_auditoria_inventario: { Args: { p_ajustes: Json }; Returns: Json }
       cancelar_sesion_coworking: {
         Args: {
@@ -1223,6 +1227,10 @@ export type Database = {
       next_kds_coworking_folio: { Args: never; Returns: number }
       reabrir_sesion_coworking: {
         Args: { p_session_id: string }
+        Returns: Json
+      }
+      recalcular_costo_producto: {
+        Args: { p_producto_id: string }
         Returns: Json
       }
       recalcular_costos_productos: {

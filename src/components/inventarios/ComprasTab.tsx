@@ -10,8 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { Plus, Search, Package } from 'lucide-react';
+import { Plus, Search, Package, Ban } from 'lucide-react';
 
 interface Insumo {
   id: string;
@@ -62,6 +66,30 @@ const ComprasTab = ({ isAdmin }: Props) => {
   const [costoPresentacion, setCostoPresentacion] = useState('');
   const [nota, setNota] = useState('');
   const [actualizarCosto, setActualizarCosto] = useState(false);
+
+  // M6: anular compra
+  const [anularTarget, setAnularTarget] = useState<CompraRow | null>(null);
+  const [motivoAnular, setMotivoAnular] = useState('');
+  const [anulando, setAnulando] = useState(false);
+
+  const handleAnular = async () => {
+    if (!anularTarget) return;
+    if (!motivoAnular.trim()) { toast.error('El motivo es obligatorio'); return; }
+    setAnulando(true);
+    const { error } = await supabase.rpc('anular_compra_insumo', {
+      p_compra_id: anularTarget.id,
+      p_motivo: motivoAnular.trim(),
+    });
+    setAnulando(false);
+    if (error) {
+      toast.error(error.message || 'No se pudo anular la compra');
+      return;
+    }
+    toast.success('Compra anulada');
+    setAnularTarget(null);
+    setMotivoAnular('');
+    fetchData();
+  };
 
   const selectedInsumo = useMemo(
     () => insumos.find((i) => i.id === selectedInsumoId),
@@ -287,6 +315,7 @@ const ComprasTab = ({ isAdmin }: Props) => {
                   <TableHead className="text-right">Costo Total</TableHead>
                   <TableHead>Nota</TableHead>
                   <TableHead>Registrado por</TableHead>
+                  {isAdmin && <TableHead className="text-right">Acciones</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -307,6 +336,19 @@ const ComprasTab = ({ isAdmin }: Props) => {
                     <TableCell className="text-right">{fmtMoney(c.costo_total)}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{c.nota || '—'}</TableCell>
                     <TableCell>{c.usuario_nombre}</TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive gap-1"
+                          onClick={() => { setAnularTarget(c); setMotivoAnular(''); }}
+                          title="Anular compra (revierte stock)"
+                        >
+                          <Ban className="h-3.5 w-3.5" /> Anular
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -440,6 +482,43 @@ const ComprasTab = ({ isAdmin }: Props) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* M6: AlertDialog para anular compra */}
+      <AlertDialog open={!!anularTarget} onOpenChange={(o) => { if (!o) { setAnularTarget(null); setMotivoAnular(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Anular compra</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Se descontarán <strong>{anularTarget?.cantidad_unidades}</strong> unidades de{' '}
+                  <strong>"{anularTarget?.insumo_nombre}"</strong> del stock actual y la compra se eliminará del historial.
+                  Si el insumo ya fue consumido, el sistema bloqueará la operación.
+                </p>
+                <div className="space-y-1">
+                  <Label className="text-xs">Motivo de la anulación *</Label>
+                  <Textarea
+                    rows={2}
+                    value={motivoAnular}
+                    onChange={(e) => setMotivoAnular(e.target.value)}
+                    placeholder="Ej. Captura duplicada, costo erróneo, devolución a proveedor…"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={anulando}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleAnular(); }}
+              disabled={anulando || !motivoAnular.trim()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {anulando ? 'Anulando…' : 'Anular compra'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

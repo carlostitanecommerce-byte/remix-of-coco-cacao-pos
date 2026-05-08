@@ -283,6 +283,12 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       metadata: { producto_id: productoId, ...payload, receta_insumos: receta.length },
     });
 
+    // M7: recalcular costo y margen en el servidor para cerrar race condition
+    // (el frontend pudo calcular contra costos de insumos desactualizados)
+    if (productoId) {
+      await supabase.rpc('recalcular_costo_producto', { p_producto_id: productoId });
+    }
+
     // M2: limpiar imágenes huérfanas en storage tras guardar correctamente
     if (imagenesPendientesEliminar.length > 0) {
       await eliminarImagenesStorage(imagenesPendientesEliminar);
