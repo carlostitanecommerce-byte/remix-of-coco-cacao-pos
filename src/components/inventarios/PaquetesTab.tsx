@@ -299,6 +299,12 @@ const PaquetesTab = ({ isAdmin }: Props) => {
       });
     }
 
+    // M3: limpiar imágenes huérfanas en storage tras guardar correctamente
+    if (imagenesPendientesEliminar.length > 0) {
+      await eliminarImagenesStorage(imagenesPendientesEliminar);
+      setImagenesPendientesEliminar([]);
+    }
+
     toast.success(`Paquete ${editingId ? 'actualizado' : 'creado'}`);
     setSaving(false);
     setDialogOpen(false);
