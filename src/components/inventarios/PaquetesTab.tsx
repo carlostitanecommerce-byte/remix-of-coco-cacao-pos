@@ -549,9 +549,55 @@ const PaquetesTab = ({ isAdmin }: Props) => {
                 <Input type="number" min={0} step={0.01} value={form.precio_venta}
                   onChange={e => setForm(f => ({ ...f, precio_venta: e.target.value }))} placeholder="0.00" />
               </div>
-              <div className="space-y-1.5">
-                <Label>URL de imagen (opcional)</Label>
-                <Input value={form.imagen_url} onChange={e => setForm(f => ({ ...f, imagen_url: e.target.value }))} placeholder="https://..." />
+              <div className="space-y-1.5 col-span-2">
+                <Label>Imagen del paquete (opcional)</Label>
+                <div className="flex items-center gap-3">
+                  <div className="h-20 w-20 shrink-0 rounded-md border bg-muted overflow-hidden flex items-center justify-center">
+                    {form.imagen_url ? (
+                      <img src={form.imagen_url} alt="Vista previa" className="h-full w-full object-cover" />
+                    ) : (
+                      <ImageIcon className="h-6 w-6 text-muted-foreground opacity-50" />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={handleImageUpload}
+                        disabled={uploadingImage}
+                      />
+                      <Button type="button" variant="outline" size="sm" disabled={uploadingImage} asChild>
+                        <span className="cursor-pointer">
+                          {uploadingImage ? (
+                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Subiendo…</>
+                          ) : (
+                            <><Upload className="h-4 w-4 mr-2" />{form.imagen_url ? 'Cambiar imagen' : 'Subir imagen'}</>
+                          )}
+                        </span>
+                      </Button>
+                    </label>
+                    {form.imagen_url && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const previa = form.imagen_url;
+                          if (previa && extraerPathProducto(previa)) {
+                            setImagenesPendientesEliminar(prev => [...prev, previa]);
+                          }
+                          setForm(f => ({ ...f, imagen_url: '' }));
+                        }}
+                        disabled={uploadingImage}
+                      >
+                        <X className="h-4 w-4 mr-2" />Quitar
+                      </Button>
+                    )}
+                    <p className="text-xs text-muted-foreground">PNG, JPG o WEBP · máx. 2 MB</p>
+                  </div>
+                </div>
               </div>
             </div>
 
