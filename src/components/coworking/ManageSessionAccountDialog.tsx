@@ -38,6 +38,7 @@ interface Producto {
   nombre: string;
   categoria: string;
   precio_venta: number;
+  requiere_preparacion: boolean;
 }
 
 interface SessionItem {
@@ -46,6 +47,8 @@ interface SessionItem {
   nombre: string;
   precio_especial: number;
   cantidad: number;
+  requiere_preparacion: boolean;
+  pendingCancelQty: number;
 }
 
 interface UpsellSnapshotEntry {
