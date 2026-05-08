@@ -171,7 +171,6 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
           });
         } else {
           detalles.push({
-            venta_id: venta.id,
             producto_id: item.tipo_concepto === 'coworking' ? null : (item.producto_id || null),
             cantidad: item.cantidad,
             precio_unitario: item.precio_unitario,
