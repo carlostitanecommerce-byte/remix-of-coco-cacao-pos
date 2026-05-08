@@ -61,7 +61,7 @@ export function CajaCheckoutPanel() {
 
   const handleCobrar = () => {
     if (items.length === 0) { toast.error('Agrega productos al ticket'); return; }
-    if (!mixtoValido) { toast.error(`Pagos mixtos suman $${sumaMixta.toFixed(2)} pero el subtotal es $${subtotal.toFixed(2)}`); return; }
+    if (!mixtoValido) { toast.error(`Pagos mixtos suman $${sumaMixta.toFixed(2)} pero el total es $${total.toFixed(2)}`); return; }
 
     const ventaSummary: VentaSummary = {
       items,
