@@ -235,7 +235,7 @@ export default function CocinaPage() {
     knownIds.current = new Set(mapped.map((o) => o.id));
     initialLoad.current = false;
     setOrders(mapped);
-  }, [playNewOrderSound, todayStartIso]);
+  }, [playNewOrderSound, fetchWindowIso]);
 
   // Carga puntual de un solo order (cuando llega un item realtime para un
   // order que aún no tenemos en memoria — evita un refetch global).
