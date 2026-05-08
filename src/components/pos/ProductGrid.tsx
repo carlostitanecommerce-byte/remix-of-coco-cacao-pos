@@ -2,23 +2,14 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Plus, Star, Gift } from 'lucide-react';
+import { Star, Gift, ImageIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 
 interface Producto {
   id: string;
@@ -28,6 +19,7 @@ interface Producto {
   precio_upsell_coworking: number | null;
   activo: boolean;
   tipo: 'simple' | 'paquete';
+  imagen_url: string | null;
 }
 
 interface Props {
@@ -38,16 +30,15 @@ interface Props {
 export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
   const { categorias: categoriasDB } = useCategorias();
-  const [filtro, setFiltro] = useState('');
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
-  
 
   useEffect(() => {
     const fetchProductos = async () => {
       const { data } = await supabase
         .from('productos')
-        .select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo')
-        .eq('activo', true);
+        .select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo, imagen_url')
+        .eq('activo', true)
+        .order('nombre');
       if (data) setProductos(data as Producto[]);
     };
     fetchProductos();
@@ -59,32 +50,17 @@ export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Only show categories that have at least one active product
   const categoriasConProductos = categoriasDB.filter(cat =>
     productos.some(p => p.categoria === cat)
   );
-
   const allTabs = ['Todos', ...categoriasConProductos];
 
-  const filtered = productos.filter(p => {
-    const matchCat = categoriaActiva === 'Todos' || p.categoria === categoriaActiva;
-    const matchSearch = p.nombre.toLowerCase().includes(filtro.toLowerCase());
-    return matchCat && matchSearch;
-  });
-
+  const filtered = productos.filter(p =>
+    categoriaActiva === 'Todos' || p.categoria === categoriaActiva
+  );
 
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Buscar producto..."
-          value={filtro}
-          onChange={e => setFiltro(e.target.value)}
-          className="pl-9"
-        />
-      </div>
-
       <div className="flex gap-2 flex-wrap">
         {allTabs.map(cat => (
           <Badge
@@ -98,89 +74,87 @@ export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
         ))}
       </div>
 
-      <div className="max-h-[60vh] overflow-y-auto rounded-md border border-border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Producto</TableHead>
-              <TableHead className="w-[100px]">Categoría</TableHead>
-              <TableHead className="w-[120px] text-right">Precio</TableHead>
-              <TableHead className="w-[90px]" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+      <div className="max-h-[75vh] overflow-y-auto pr-1">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {filtered.map(p => {
-              const isPaquete = p.tipo === 'paquete';
-              const hasSpecial = canUseSpecialPrice && !isPaquete;
-
-              return (
-                <TableRow key={p.id} className="h-[60px]">
-                  <TableCell className="font-medium py-2">
-                    <div className="flex items-center gap-1.5">
-                      {isPaquete && <Badge className="text-[10px] px-1.5 py-0 bg-primary/15 text-primary border-primary/30 hover:bg-primary/15">📦 Paquete</Badge>}
-                      <span className="line-clamp-2 leading-tight">{p.nombre}</span>
+            const isPaquete = p.tipo === 'paquete';
+            const hasSpecial = canUseSpecialPrice && !isPaquete;
+            return (
+              <div
+                key={p.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onAdd(p)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAdd(p); } }}
+                className="group relative flex flex-col rounded-lg border border-border bg-card overflow-hidden cursor-pointer transition hover:border-primary hover:shadow-md active:scale-[0.98]"
+              >
+                <div className="relative aspect-square w-full bg-muted">
+                  {p.imagen_url ? (
+                    <img
+                      src={p.imagen_url}
+                      alt={p.nombre}
+                      loading="lazy"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                      <ImageIcon className="h-8 w-8 opacity-40" />
                     </div>
-                  </TableCell>
-                  <TableCell className="py-2">
-                    <Badge variant="outline" className="text-xs whitespace-nowrap">{p.categoria}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right py-2">
-                    <span className="font-bold text-foreground">${p.precio_venta.toFixed(2)}</span>
-                  </TableCell>
-                  <TableCell className="py-2">
-                    <div className="flex items-center gap-1 justify-end">
-                      {hasSpecial && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-9 w-9 shrink-0 text-muted-foreground hover:text-yellow-500"
-                              title="Precio especial / Promoción"
-                            >
-                              <Star className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => onAdd(p, 'especial')}
-                              disabled={p.precio_upsell_coworking == null}
-                            >
-                              <Star className="h-4 w-4 mr-2 text-yellow-500" />
-                              {p.precio_upsell_coworking != null
-                                ? `Precio Especial ($${p.precio_upsell_coworking.toFixed(2)})`
-                                : 'Precio Especial (no configurado)'}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onAdd(p, 'promocion')}>
-                              <Gift className="h-4 w-4 mr-2 text-primary" />
-                              Promoción (Gratis)
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-9 w-9 shrink-0"
-                        onClick={() => onAdd(p)}
-                        title="Agregar al carrito"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
+                  )}
+                  {isPaquete && (
+                    <Badge className="absolute top-1.5 left-1.5 text-[10px] px-1.5 py-0 bg-primary/90 text-primary-foreground border-0">
+                      📦 Paquete
+                    </Badge>
+                  )}
+                  {hasSpecial && (
+                    <div onClick={e => e.stopPropagation()} className="absolute top-1 right-1">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            className="h-7 w-7 rounded-full shadow-sm"
+                            title="Precio especial / Promoción"
+                          >
+                            <Star className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => onAdd(p, 'especial')}
+                            disabled={p.precio_upsell_coworking == null}
+                          >
+                            <Star className="h-4 w-4 mr-2 text-yellow-500" />
+                            {p.precio_upsell_coworking != null
+                              ? `Precio Especial ($${p.precio_upsell_coworking.toFixed(2)})`
+                              : 'Precio Especial (no configurado)'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onAdd(p, 'promocion')}>
+                            <Gift className="h-4 w-4 mr-2 text-primary" />
+                            Promoción (Gratis)
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                  No se encontraron productos
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+                  )}
+                </div>
+                <div className="p-2 flex flex-col gap-1">
+                  <span className="text-sm font-medium leading-tight line-clamp-2 min-h-[2.5rem]">
+                    {p.nombre}
+                  </span>
+                  <span className="text-sm font-bold text-primary">
+                    ${p.precio_venta.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div className="col-span-full text-center text-muted-foreground py-12">
+              No hay productos en esta categoría
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
