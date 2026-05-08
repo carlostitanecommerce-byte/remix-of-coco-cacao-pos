@@ -836,6 +836,56 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Ban className="h-5 w-5 text-destructive" /> Solicitar cancelación a cocina
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Este ítem ya fue enviado a cocina. La cocina decidirá si se retorna a stock o se registra como merma.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {cancelTarget && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-md border bg-muted/30 p-2.5 text-sm">
+                <div className="font-medium">{cancelTarget.nombre}</div>
+                <div className="text-xs text-muted-foreground">
+                  En cuenta: ×{cancelTarget.cantidad}
+                  {cancelTarget.pendingCancelQty > 0 && ` · Pendiente: ${cancelTarget.pendingCancelQty}`}
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cancel-qty">Cantidad a cancelar</Label>
+                <Input
+                  id="cancel-qty"
+                  type="number"
+                  min={1}
+                  max={cancelTarget.cantidad - cancelTarget.pendingCancelQty}
+                  value={cancelQty}
+                  onChange={(e) => setCancelQty(parseInt(e.target.value, 10) || 1)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cancel-motivo">Motivo</Label>
+                <Textarea
+                  id="cancel-motivo"
+                  placeholder="Ej. Cliente cambió de opinión, error en la orden…"
+                  value={cancelMotivo}
+                  onChange={(e) => setCancelMotivo(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Volver</AlertDialogCancel>
+            <AlertDialogAction onClick={submitCancelRequest} disabled={busy} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Enviar solicitud
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
