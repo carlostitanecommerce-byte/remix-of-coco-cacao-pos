@@ -168,6 +168,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
 
   const openEdit = async (p: Paquete) => {
     setEditingId(p.id);
+    setImagenesPendientesEliminar([]);
     setForm({
       nombre: p.nombre,
       categoria: p.categoria,
