@@ -365,6 +365,40 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
           </Tabs>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!reservacionToCancel} onOpenChange={(v) => { if (!v && !cancelling) { setReservacionToCancel(null); setCancelMotivo(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar reservación?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {reservacionToCancel && (
+                <>Se cancelará la reservación de <span className="font-semibold">{reservacionToCancel.cliente_nombre}</span> para el {reservacionToCancel.fecha_reserva} a las {reservacionToCancel.hora_inicio.slice(0, 5)}. Esta acción no se puede deshacer.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="motivo-cancelacion">Motivo (opcional)</Label>
+            <Textarea
+              id="motivo-cancelacion"
+              value={cancelMotivo}
+              onChange={(e) => setCancelMotivo(e.target.value)}
+              placeholder="Ej: Cliente avisó que no podrá asistir"
+              maxLength={300}
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelling}>Volver</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cancelling}
+              onClick={(e) => { e.preventDefault(); confirmCancel(); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancelling ? 'Cancelando...' : 'Cancelar reservación'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
