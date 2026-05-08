@@ -86,7 +86,6 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       // Para paquetes: prorrateamos el precio del paquete entre componentes proporcional al costo
       // Para productos simples y coworking/amenity: una línea cada uno
       type DetalleRow = {
-        venta_id: string;
         producto_id: string | null;
         cantidad: number;
         precio_unitario: number;
