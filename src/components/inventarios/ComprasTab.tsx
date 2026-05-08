@@ -67,6 +67,30 @@ const ComprasTab = ({ isAdmin }: Props) => {
   const [nota, setNota] = useState('');
   const [actualizarCosto, setActualizarCosto] = useState(false);
 
+  // M6: anular compra
+  const [anularTarget, setAnularTarget] = useState<CompraRow | null>(null);
+  const [motivoAnular, setMotivoAnular] = useState('');
+  const [anulando, setAnulando] = useState(false);
+
+  const handleAnular = async () => {
+    if (!anularTarget) return;
+    if (!motivoAnular.trim()) { toast.error('El motivo es obligatorio'); return; }
+    setAnulando(true);
+    const { error } = await supabase.rpc('anular_compra_insumo', {
+      p_compra_id: anularTarget.id,
+      p_motivo: motivoAnular.trim(),
+    });
+    setAnulando(false);
+    if (error) {
+      toast.error(error.message || 'No se pudo anular la compra');
+      return;
+    }
+    toast.success('Compra anulada');
+    setAnularTarget(null);
+    setMotivoAnular('');
+    fetchData();
+  };
+
   const selectedInsumo = useMemo(
     () => insumos.find((i) => i.id === selectedInsumoId),
     [insumos, selectedInsumoId]
