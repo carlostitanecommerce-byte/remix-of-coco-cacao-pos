@@ -158,7 +158,6 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             const subtotalLinea = precios[idx];
             const precioUnitario = cantTotal > 0 ? +(subtotalLinea / cantTotal).toFixed(4) : 0;
             detalles.push({
-              venta_id: venta.id,
               producto_id: c.producto_id,
               cantidad: cantTotal,
               precio_unitario: precioUnitario,
