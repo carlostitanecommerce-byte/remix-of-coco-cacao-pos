@@ -52,7 +52,7 @@ export function CajaCheckoutPanel() {
   const total = +(subtotal + propina).toFixed(2);
 
   const sumaMixta = +(mixed.efectivo + mixed.tarjeta + mixed.transferencia).toFixed(2);
-  const mixtoValido = metodoPago !== 'mixto' || Math.abs(sumaMixta - subtotal) < 0.01;
+  const mixtoValido = metodoPago !== 'mixto' || Math.abs(sumaMixta - total) < 0.01;
 
   // Reset propina_en_digital when method changes
   useEffect(() => {
