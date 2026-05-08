@@ -14,20 +14,23 @@ import { MovimientosCajaPanel } from '@/components/pos/MovimientosCajaPanel';
 import { VentasTurnoPanel } from '@/components/pos/VentasTurnoPanel';
 import { SolicitudesCancelacionPanel } from '@/components/pos/SolicitudesCancelacionPanel';
 import { CoworkingSessionSelector } from '@/components/pos/CoworkingSessionSelector';
+import { CajaCheckoutPanel } from '@/components/pos/CajaCheckoutPanel';
+import { useCartStore } from '@/stores/cartStore';
 import type { CartItem } from '@/components/pos/types';
 
 const CajaPage = () => {
   const navigate = useNavigate();
   const { roles } = useAuth();
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja } = useCajaSession();
+  const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
+  const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
   const [cierreOpen, setCierreOpen] = useState(false);
 
   const isAdmin = roles.includes('administrador');
   const isSupervisor = roles.includes('supervisor');
 
   const handleImportSession = (items: CartItem[], sessionId: string, clienteNombre: string) => {
-    sessionStorage.setItem('pos_pending_import', JSON.stringify({ items, sessionId, clienteNombre }));
-    navigate('/pos');
+    importCoworkingSession(items, sessionId, clienteNombre);
   };
 
   if (loading) {
@@ -38,8 +41,8 @@ const CajaPage = () => {
     );
   }
 
-  return (
-    <div className="space-y-4 max-w-5xl mx-auto">
+  const leftColumn = (
+    <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center justify-between">
@@ -79,12 +82,32 @@ const CajaPage = () => {
       </Card>
 
       {cajaAbierta && (
-        <CoworkingSessionSelector onImportSession={handleImportSession} />
+        <CoworkingSessionSelector
+          onImportSession={handleImportSession}
+          importedSessionId={coworkingSessionId ?? undefined}
+        />
       )}
 
       {(isAdmin || isSupervisor) && <SolicitudesCancelacionPanel />}
 
       <VentasTurnoPanel isAdmin={isAdmin} />
+    </div>
+  );
+
+  return (
+    <>
+      {cajaAbierta ? (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3">{leftColumn}</div>
+          <div className="lg:col-span-2">
+            <div className="lg:sticky lg:top-4">
+              <CajaCheckoutPanel />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="max-w-5xl mx-auto">{leftColumn}</div>
+      )}
 
       <AperturaCajaDialog
         open={!cajaAbierta}
@@ -101,7 +124,7 @@ const CajaPage = () => {
           onCerrarCaja={cerrarCaja}
         />
       )}
-    </div>
+    </>
   );
 };
 
