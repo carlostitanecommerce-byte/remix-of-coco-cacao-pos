@@ -73,6 +73,50 @@ const PaquetesTab = ({ isAdmin }: Props) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedComponentes, setExpandedComponentes] = useState<Record<string, ComponenteLine[]>>({});
   const [saving, setSaving] = useState(false);
+  // M3: subida de imagen al bucket "productos" (mismo patrón que ProductosTab)
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imagenesPendientesEliminar, setImagenesPendientesEliminar] = useState<string[]>([]);
+
+  const extraerPathProducto = (url: string | null | undefined): string | null => {
+    if (!url) return null;
+    const marker = '/storage/v1/object/public/productos/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return url.substring(idx + marker.length).split('?')[0];
+  };
+
+  const eliminarImagenesStorage = async (urls: string[]) => {
+    const paths = urls.map(extraerPathProducto).filter((p): p is string => !!p);
+    if (paths.length === 0) return;
+    await supabase.storage.from('productos').remove(paths);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!validTypes.includes(file.type)) { toast.error('Formato no válido. Usa PNG, JPG o WEBP.'); return; }
+    if (file.size > 2 * 1024 * 1024) { toast.error('La imagen excede el límite de 2 MB.'); return; }
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `paquete-${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('productos').upload(path, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from('productos').getPublicUrl(path);
+      const previa = form.imagen_url;
+      if (previa && extraerPathProducto(previa)) {
+        setImagenesPendientesEliminar(prev => [...prev, previa]);
+      }
+      setForm(f => ({ ...f, imagen_url: data.publicUrl }));
+      toast.success('Imagen subida');
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir imagen');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const fetchPaquetes = useCallback(async () => {
     setLoading(true);
