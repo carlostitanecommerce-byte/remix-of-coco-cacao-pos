@@ -12,16 +12,14 @@ interface Props {
   onClose?: () => void;
 }
 
+const MAX_FONDO_FIJO = 10000;
+
 export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
   const [monto, setMonto] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmHigh, setConfirmHigh] = useState(false);
 
-  const handleSubmit = async () => {
-    const val = parseFloat(monto);
-    if (isNaN(val) || val < 0) {
-      toast.error('Ingresa un monto válido');
-      return;
-    }
+  const ejecutar = async (val: number) => {
     setSaving(true);
     const { error } = await onAbrirCaja(val);
     setSaving(false);
@@ -31,6 +29,19 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
       toast.success('Caja abierta exitosamente');
       setMonto('');
     }
+  };
+
+  const handleSubmit = async () => {
+    const val = parseFloat(monto);
+    if (isNaN(val) || val < 0) {
+      toast.error('Ingresa un monto válido');
+      return;
+    }
+    if (val > MAX_FONDO_FIJO) {
+      setConfirmHigh(true);
+      return;
+    }
+    await ejecutar(val);
   };
 
   return (
