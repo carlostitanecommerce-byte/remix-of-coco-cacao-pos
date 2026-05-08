@@ -9,6 +9,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
 import PosPage from "@/pages/PosPage";
+import CajaPage from "@/pages/CajaPage";
 import UsersPage from "@/pages/UsersPage";
 import ReportesPage from "@/pages/ReportesPage";
 import CoworkingPage from "@/pages/CoworkingPage";
@@ -61,6 +62,16 @@ const App = () => (
                 <ProtectedRoute allowedRoles={['administrador', 'supervisor', 'caja', 'recepcion']}>
                   <DashboardLayout>
                     <PosPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/caja"
+              element={
+                <ProtectedRoute allowedRoles={['administrador', 'supervisor', 'caja', 'recepcion']}>
+                  <DashboardLayout>
+                    <CajaPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }
