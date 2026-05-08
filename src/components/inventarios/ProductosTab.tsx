@@ -693,7 +693,14 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => setForm(f => ({ ...f, imagen_url: '' }))}
+                        onClick={() => {
+                          // M2: encolar la imagen actual para borrado al guardar
+                          const previa = form.imagen_url;
+                          if (previa && extraerPathProducto(previa)) {
+                            setImagenesPendientesEliminar(prev => [...prev, previa]);
+                          }
+                          setForm(f => ({ ...f, imagen_url: '' }));
+                        }}
                         disabled={uploadingImage}
                       >
                         <X className="h-4 w-4 mr-2" />Quitar
