@@ -65,40 +65,73 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
   const renderItem = (item: CartItem) => {
     const isPaquete = item.tipo_concepto === 'paquete';
     return (
-      <div key={item.producto_id} className="rounded-md border border-border p-1.5 bg-card">
-        <div className="flex items-center gap-1.5">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1">
-              {isPaquete && <Package className="h-3 w-3 text-primary shrink-0" />}
-              <p className="text-xs font-medium truncate">{item.nombre}</p>
-            </div>
-            <p className="text-[10px] text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
+      <div
+        key={item.producto_id}
+        className="rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-primary/30"
+      >
+        {/* Fila 1: Nombre + subtotal */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+            {isPaquete && <Package className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />}
+            <p className="text-sm font-medium leading-tight line-clamp-2">{item.nombre}</p>
           </div>
-          <div className="flex items-center gap-0.5">
-            <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => onUpdateQty(item.producto_id, -1)}>
-              <Minus className="h-3 w-3" />
-            </Button>
-            <span className="w-5 text-center text-xs font-medium">{item.cantidad}</span>
-            <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => onUpdateQty(item.producto_id, 1)}>
-              <Plus className="h-3 w-3" />
-            </Button>
-          </div>
-          <p className="text-xs font-bold w-14 text-right">${item.subtotal.toFixed(2)}</p>
-          {onUpdateNotas && (
-            <NotesPopover
-              value={item.notas ?? ''}
-              onChange={(v) => onUpdateNotas(item.producto_id, v)}
-            />
-          )}
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => onRemove(item.producto_id)}>
-            <Trash2 className="h-3 w-3" />
-          </Button>
+          <p className="text-sm font-bold text-primary shrink-0 tabular-nums">
+            ${item.subtotal.toFixed(2)}
+          </p>
         </div>
+
+        {/* Fila 2: precio unitario + stepper + acciones */}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            ${item.precio_unitario.toFixed(2)} c/u
+          </p>
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-0.5 rounded-md bg-muted/50 p-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 hover:bg-background"
+                onClick={() => onUpdateQty(item.producto_id, -1)}
+              >
+                <Minus className="h-3 w-3" />
+              </Button>
+              <span className="w-5 text-center text-xs font-semibold tabular-nums">
+                {item.cantidad}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 hover:bg-background"
+                onClick={() => onUpdateQty(item.producto_id, 1)}
+              >
+                <Plus className="h-3 w-3" />
+              </Button>
+            </div>
+            {onUpdateNotas && (
+              <NotesPopover
+                value={item.notas ?? ''}
+                onChange={(v) => onUpdateNotas(item.producto_id, v)}
+              />
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+              onClick={() => onRemove(item.producto_id)}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+
         {item.notas && (
-          <p className="mt-1 ml-5 text-[11px] text-primary italic">📝 {item.notas}</p>
+          <div className="mt-2 rounded-sm border-l-2 border-primary bg-primary/5 px-2 py-1">
+            <p className="text-[11px] text-primary italic">{item.notas}</p>
+          </div>
         )}
+
         {isPaquete && item.componentes && item.componentes.length > 0 && (
-          <ul className="mt-1.5 ml-5 space-y-0.5 border-l border-border pl-2">
+          <ul className="mt-2 ml-1 space-y-0.5 border-l border-border pl-2">
             {item.componentes.map((c, idx) => (
               <li key={idx} className="text-[11px] text-muted-foreground flex items-center gap-1">
                 <span className="font-mono">{c.cantidad * item.cantidad}x</span>
