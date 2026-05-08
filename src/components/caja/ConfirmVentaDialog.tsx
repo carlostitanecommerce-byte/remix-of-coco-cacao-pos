@@ -65,24 +65,13 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
-      // 0.5. Congelar sesión coworking antes de intentar cobrar
-      if (summary.coworking_session_id) {
-        await supabase.from('coworking_sessions').update({
-          estado: 'pendiente_pago' as any,
-          fecha_salida_real: nowCDMX(),
-        }).eq('id', summary.coworking_session_id);
-      }
-
-      // 1. Insert venta
-      // For tarjeta/transferencia: tip is included in the digital payment amount
-      // For mixto: depends on propina_en_digital flag
+      // 1. Calcular distribución de pagos (incluye propina)
       const propinaAmount = summary.propina || 0;
 
       let montoEfectivo = summary.mixed_payment?.efectivo ?? (summary.metodo_pago === 'efectivo' ? summary.subtotal : 0);
       let montoTarjeta = summary.mixed_payment?.tarjeta ?? (summary.metodo_pago === 'tarjeta' ? summary.subtotal : 0);
       let montoTransferencia = summary.mixed_payment?.transferencia ?? (summary.metodo_pago === 'transferencia' ? summary.subtotal : 0);
 
-      // Add tip to the correct payment channel
       if (summary.metodo_pago === 'tarjeta') {
         montoTarjeta += propinaAmount;
       } else if (summary.metodo_pago === 'transferencia') {
@@ -90,43 +79,13 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       } else if (summary.metodo_pago === 'efectivo') {
         montoEfectivo += propinaAmount;
       }
-      // For mixto: amounts already include tip distribution from user input
 
       const comisionAmount = summary.comision || 0;
-      const { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
-        usuario_id: user.id,
-        total_bruto: summary.subtotal,
-        iva: summary.iva,
-        comisiones_bancarias: comisionAmount,
-        monto_propina: propinaAmount,
-        total_neto: +(summary.subtotal - comisionAmount).toFixed(2),
-        metodo_pago: summary.metodo_pago as any,
-        tipo_consumo: summary.tipo_consumo as any,
-        estado: 'completada' as any,
-        fecha: nowCDMX(),
-        monto_efectivo: montoEfectivo,
-        monto_tarjeta: montoTarjeta,
-        monto_transferencia: montoTransferencia,
-        coworking_session_id: summary.coworking_session_id ?? null,
-        caja_id: summary.caja_id ?? null,
-      } as any).select('id, folio').single();
 
-      if (ventaErr || !venta) {
-        // Revertir sesión coworking si fue congelada
-        if (summary.coworking_session_id) {
-          await supabase.from('coworking_sessions').update({
-            estado: 'activo' as any,
-            fecha_salida_real: null,
-          }).eq('id', summary.coworking_session_id);
-        }
-        throw ventaErr || new Error('No se pudo crear la venta');
-      }
-
-      // 2. Build detalle_ventas — expanding packages into component lines
+      // 2. Construir detalle_ventas — expandiendo paquetes en componentes
       // Para paquetes: prorrateamos el precio del paquete entre componentes proporcional al costo
       // Para productos simples y coworking/amenity: una línea cada uno
       type DetalleRow = {
-        venta_id: string;
         producto_id: string | null;
         cantidad: number;
         precio_unitario: number;
@@ -199,7 +158,6 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             const subtotalLinea = precios[idx];
             const precioUnitario = cantTotal > 0 ? +(subtotalLinea / cantTotal).toFixed(4) : 0;
             detalles.push({
-              venta_id: venta.id,
               producto_id: c.producto_id,
               cantidad: cantTotal,
               precio_unitario: precioUnitario,
@@ -213,7 +171,6 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
           });
         } else {
           detalles.push({
-            venta_id: venta.id,
             producto_id: item.tipo_concepto === 'coworking' ? null : (item.producto_id || null),
             cantidad: item.cantidad,
             precio_unitario: item.precio_unitario,
@@ -234,35 +191,59 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         return d;
       });
 
-      const { error: detErr } = await supabase.from('detalle_ventas').insert(realDetalles as any);
-      if (detErr) {
-        // Rollback: cancel the orphan venta since detalle failed (e.g. insufficient stock)
-        await supabase.from('ventas').update({
-          estado: 'cancelada' as any,
-          motivo_cancelacion: `Venta cancelada automáticamente: ${detErr.message}`,
-        }).eq('id', venta.id);
-        throw detErr;
+      // 3. RPC atómica: crea venta + detalles + finaliza coworking + bitácora en una sola transacción
+      const numPaquetes = paqueteItems.length;
+      const ventaPayload = {
+        usuario_id: user.id,
+        total_bruto: summary.subtotal,
+        iva: summary.iva,
+        comisiones_bancarias: comisionAmount,
+        monto_propina: propinaAmount,
+        total_neto: +(summary.subtotal - comisionAmount).toFixed(2),
+        metodo_pago: summary.metodo_pago,
+        tipo_consumo: summary.tipo_consumo,
+        fecha: nowCDMX(),
+        monto_efectivo: montoEfectivo,
+        monto_tarjeta: montoTarjeta,
+        monto_transferencia: montoTransferencia,
+        coworking_session_id: summary.coworking_session_id ?? null,
+        caja_id: summary.caja_id ?? null,
+      };
+      const auditPayload = {
+        accion: numPaquetes > 0 ? 'venta_completada_con_paquetes' : 'venta_completada',
+        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${summary.coworking_session_id ? ' + Coworking' : ''}${numPaquetes > 0 ? ` + ${numPaquetes} paquete(s)` : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}`,
+        metadata: {
+          total: summary.total,
+          propina: propinaAmount,
+          items: summary.items.length,
+          paquetes: paqueteItems.map(p => ({ paquete_id: p.paquete_id ?? p.producto_id, nombre: p.nombre, cantidad: p.cantidad, componentes: p.componentes })),
+        },
+      };
+
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('crear_venta_completa', {
+        p_venta: ventaPayload as any,
+        p_detalles: realDetalles as any,
+        p_audit: auditPayload as any,
+      });
+
+      if (rpcErr || !rpcData) {
+        // Bitácora del rollback (best-effort)
+        await supabase.from('audit_logs').insert({
+          user_id: user.id,
+          accion: 'venta_fallida_rollback',
+          descripcion: `Venta rechazada: ${rpcErr?.message ?? 'sin detalle'} — Total intentado $${summary.total.toFixed(2)} (${summary.metodo_pago})`,
+          metadata: {
+            error: rpcErr?.message ?? null,
+            total: summary.total,
+            metodo_pago: summary.metodo_pago,
+            coworking_session_id: summary.coworking_session_id ?? null,
+            items_count: summary.items.length,
+          } as any,
+        });
+        throw rpcErr || new Error('No se pudo crear la venta');
       }
 
-      // 3. Finalize coworking session if linked
-      if (summary.coworking_session_id) {
-        try {
-          const coworkingTotal = summary.items
-            .filter(i => i.tipo_concepto === 'coworking')
-            .reduce((s, i) => s + i.subtotal, 0);
-
-          const { error: cwErr } = await supabase.from('coworking_sessions').update({
-            estado: 'finalizado' as any,
-            fecha_salida_real: nowCDMX(),
-            monto_acumulado: coworkingTotal,
-          }).eq('id', summary.coworking_session_id);
-
-          if (cwErr) throw cwErr;
-        } catch (cwError) {
-          console.error('Error finalizando sesión coworking:', cwError);
-          toast.error('Venta registrada, pero no se pudo cerrar la sesión de coworking. Ciérrala manualmente desde el panel de Coworking.');
-        }
-      }
+      const venta = rpcData as { id: string; folio: number };
 
       // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
       // - Excluir tiempo de servicio coworking (no preparable).
@@ -342,20 +323,8 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
-      // 5. Audit log
-      const numPaquetes = paqueteItems.length;
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion: numPaquetes > 0 ? 'venta_completada_con_paquetes' : 'venta_completada',
-        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${summary.coworking_session_id ? ' + Coworking' : ''}${numPaquetes > 0 ? ` + ${numPaquetes} paquete(s)` : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}`,
-        metadata: {
-          venta_id: venta.id,
-          total: summary.total,
-          propina: propinaAmount,
-          items: summary.items.length,
-          paquetes: paqueteItems.map(p => ({ paquete_id: p.paquete_id ?? p.producto_id, nombre: p.nombre, cantidad: p.cantidad, componentes: p.componentes })),
-        } as any,
-      });
+      // (La bitácora de la venta se inserta atómicamente dentro de crear_venta_completa)
+
 
       // Show ticket
       setTicket({
