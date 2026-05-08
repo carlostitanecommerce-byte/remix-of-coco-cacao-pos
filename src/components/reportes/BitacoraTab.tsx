@@ -88,7 +88,6 @@ const ACCION_LABELS: Record<string, string> = {
   aprobar_cancelacion_sesion: 'Aprobación cancelación de sesión',
   reabrir_sesion_coworking: 'Reapertura sesión coworking',
   registrar_merma: 'Registro de merma',
-  ajuste_inventario: 'Ajuste de inventario (auditoría)',
 };
 
 const ACCION_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
