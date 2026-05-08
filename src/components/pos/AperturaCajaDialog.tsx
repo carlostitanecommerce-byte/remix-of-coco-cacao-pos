@@ -9,9 +9,10 @@ import { toast } from 'sonner';
 interface Props {
   open: boolean;
   onAbrirCaja: (monto: number) => Promise<{ error: string | null }>;
+  onClose?: () => void;
 }
 
-export function AperturaCajaDialog({ open, onAbrirCaja }: Props) {
+export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
   const [monto, setMonto] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -33,8 +34,8 @@ export function AperturaCajaDialog({ open, onAbrirCaja }: Props) {
   };
 
   return (
-    <Dialog open={open}>
-      <DialogContent className="sm:max-w-md" onInteractOutside={e => e.preventDefault()}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v && !saving) onClose?.(); }}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Lock className="h-5 w-5 text-primary" />
@@ -61,8 +62,13 @@ export function AperturaCajaDialog({ open, onAbrirCaja }: Props) {
           </div>
         </div>
 
-        <DialogFooter>
-          <Button onClick={handleSubmit} disabled={saving} className="w-full">
+        <DialogFooter className="gap-2">
+          {onClose && (
+            <Button variant="outline" onClick={onClose} disabled={saving}>
+              Cancelar
+            </Button>
+          )}
+          <Button onClick={handleSubmit} disabled={saving} className="flex-1">
             {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
             Abrir Caja
           </Button>

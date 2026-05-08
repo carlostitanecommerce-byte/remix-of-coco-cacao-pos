@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { CartPanel } from '@/components/pos/CartPanel';
@@ -9,6 +9,22 @@ import type { CartItem } from '@/components/pos/types';
 const PosPage = () => {
   const [items, setItems] = useState<CartItem[]>([]);
   const [key, setKey] = useState(0);
+
+  // Importar sesión de coworking pendiente desde Caja
+  useEffect(() => {
+    const raw = sessionStorage.getItem('pos_pending_import');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as { items: CartItem[]; clienteNombre: string };
+      if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+        setItems(parsed.items);
+        toast.success(`Sesión importada: ${parsed.clienteNombre}`);
+      }
+    } catch {
+      // ignore
+    }
+    sessionStorage.removeItem('pos_pending_import');
+  }, []);
 
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; precio_upsell_coworking?: number | null; tipo?: 'simple' | 'paquete' }) => {
     if (p.tipo === 'paquete') {

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '@/hooks/useAuth';
@@ -12,14 +13,22 @@ import { CierreCajaDialog } from '@/components/pos/CierreCajaDialog';
 import { MovimientosCajaPanel } from '@/components/pos/MovimientosCajaPanel';
 import { VentasTurnoPanel } from '@/components/pos/VentasTurnoPanel';
 import { SolicitudesCancelacionPanel } from '@/components/pos/SolicitudesCancelacionPanel';
+import { CoworkingSessionSelector } from '@/components/pos/CoworkingSessionSelector';
+import type { CartItem } from '@/components/pos/types';
 
 const CajaPage = () => {
+  const navigate = useNavigate();
   const { roles } = useAuth();
   const { cajaAbierta, loading, movimientos, abrirCaja, registrarMovimiento, cerrarCaja } = useCajaSession();
   const [cierreOpen, setCierreOpen] = useState(false);
 
   const isAdmin = roles.includes('administrador');
   const isSupervisor = roles.includes('supervisor');
+
+  const handleImportSession = (items: CartItem[], sessionId: string, clienteNombre: string) => {
+    sessionStorage.setItem('pos_pending_import', JSON.stringify({ items, sessionId, clienteNombre }));
+    navigate('/pos');
+  };
 
   if (loading) {
     return (
@@ -69,11 +78,19 @@ const CajaPage = () => {
         </CardContent>
       </Card>
 
+      {cajaAbierta && (
+        <CoworkingSessionSelector onImportSession={handleImportSession} />
+      )}
+
       {(isAdmin || isSupervisor) && <SolicitudesCancelacionPanel />}
 
       <VentasTurnoPanel isAdmin={isAdmin} />
 
-      <AperturaCajaDialog open={!cajaAbierta} onAbrirCaja={abrirCaja} />
+      <AperturaCajaDialog
+        open={!cajaAbierta}
+        onAbrirCaja={abrirCaja}
+        onClose={() => navigate('/')}
+      />
 
       {cajaAbierta && (
         <CierreCajaDialog
