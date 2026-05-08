@@ -380,9 +380,21 @@ export default function CocinaPage() {
             playNewOrderSound();
           }
           knownIds.current.add(o.id);
-          // Si es coworking, hidratamos cliente/área de forma asíncrona
+          // Si es coworking, hidratamos cliente/área inmediatamente.
           if (o.coworking_session_id) {
             fetchSingleOrder(o.id);
+          } else {
+            // Para POS: si en 250ms no llegaron los items por realtime,
+            // los traemos puntualmente para evitar mostrar la tarjeta vacía.
+            setTimeout(() => {
+              setOrders((prev) => {
+                const target = prev.find((x) => x.id === o.id);
+                if (target && target.items.length === 0) {
+                  fetchSingleOrder(o.id);
+                }
+                return prev;
+              });
+            }, 250);
           }
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kds_orders' }, (payload: any) => {
