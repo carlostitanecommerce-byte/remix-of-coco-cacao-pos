@@ -18,6 +18,7 @@ export interface KdsOrderItem {
 export interface KdsItemCancelacion {
   id: string;
   kds_item_id: string;
+  kds_order_id: string | null;
   cantidad: number;
   motivo: string;
   nombre_producto: string;
