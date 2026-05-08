@@ -129,6 +129,8 @@ const InsumosTab = ({ isAdmin }: Props) => {
     };
 
     if (editingId) {
+      // M1: Snapshot previo para diff de cambios sensibles (stock y costo)
+      const previo = insumos.find(i => i.id === editingId);
       const { error } = await supabase.from('insumos').update(payload).eq('id', editingId);
       if (error) {
         if (error.code === '23505' || /unique/i.test(error.message)) {
@@ -139,12 +141,46 @@ const InsumosTab = ({ isAdmin }: Props) => {
       }
       else {
         toast.success('Insumo actualizado');
+        // Audit base
         await supabase.from('audit_logs').insert({
           user_id: user!.id,
           accion: 'actualizar_insumo',
           descripcion: `Insumo actualizado: ${payload.nombre}`,
           metadata: { insumo_id: editingId, ...payload },
         });
+        // M1: Audit explícito si cambió el stock manualmente (sin compra ni merma)
+        if (previo && previo.stock_actual !== payload.stock_actual) {
+          const delta = payload.stock_actual - previo.stock_actual;
+          await supabase.from('audit_logs').insert({
+            user_id: user!.id,
+            accion: 'ajuste_manual_stock_insumo',
+            descripcion: `Ajuste manual de stock: ${payload.nombre} de ${previo.stock_actual} a ${payload.stock_actual} ${payload.unidad_medida} (${delta > 0 ? '+' : ''}${delta})`,
+            metadata: {
+              insumo_id: editingId,
+              insumo_nombre: payload.nombre,
+              stock_anterior: previo.stock_actual,
+              stock_nuevo: payload.stock_actual,
+              diferencia: delta,
+              unidad: payload.unidad_medida,
+              transaccional: true,
+            },
+          });
+        }
+        // M1: Audit si cambió el costo unitario (afecta márgenes en cascada)
+        if (previo && previo.costo_unitario !== payload.costo_unitario) {
+          await supabase.from('audit_logs').insert({
+            user_id: user!.id,
+            accion: 'cambio_costo_insumo',
+            descripcion: `Costo unitario actualizado: ${payload.nombre} de $${previo.costo_unitario.toFixed(4)} a $${payload.costo_unitario.toFixed(4)}/${payload.unidad_medida}`,
+            metadata: {
+              insumo_id: editingId,
+              insumo_nombre: payload.nombre,
+              costo_anterior: previo.costo_unitario,
+              costo_nuevo: payload.costo_unitario,
+              transaccional: true,
+            },
+          });
+        }
       }
     } else {
       const { error } = await supabase.from('insumos').insert(payload);

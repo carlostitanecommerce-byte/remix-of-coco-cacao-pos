@@ -77,6 +77,23 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   const [expandedInstrucciones, setExpandedInstrucciones] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // M2: cola de imágenes a eliminar del storage al guardar (evita huérfanos)
+  const [imagenesPendientesEliminar, setImagenesPendientesEliminar] = useState<string[]>([]);
+
+  // Extrae el path interno del bucket "productos" desde una URL pública
+  const extraerPathProducto = (url: string | null | undefined): string | null => {
+    if (!url) return null;
+    const marker = '/storage/v1/object/public/productos/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return url.substring(idx + marker.length).split('?')[0];
+  };
+
+  const eliminarImagenesStorage = async (urls: string[]) => {
+    const paths = urls.map(extraerPathProducto).filter((p): p is string => !!p);
+    if (paths.length === 0) return;
+    await supabase.storage.from('productos').remove(paths);
+  };
 
   const fetchProductos = useCallback(async () => {
     setLoading(true);
@@ -105,11 +122,13 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     setForm(emptyForm);
     setReceta([]);
     setNewLine({ insumo_id: '', cantidad: '' });
+    setImagenesPendientesEliminar([]);
     setDialogOpen(true);
   };
 
   const openEdit = async (producto: Producto) => {
     setEditingId(producto.id);
+    setImagenesPendientesEliminar([]);
     setForm({
       nombre: producto.nombre,
       categoria: producto.categoria,
@@ -249,6 +268,12 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       metadata: { producto_id: productoId, ...payload, receta_insumos: receta.length },
     });
 
+    // M2: limpiar imágenes huérfanas en storage tras guardar correctamente
+    if (imagenesPendientesEliminar.length > 0) {
+      await eliminarImagenesStorage(imagenesPendientesEliminar);
+      setImagenesPendientesEliminar([]);
+    }
+
     toast.success(`Producto ${editingId ? 'actualizado' : 'creado'}`);
     setSaving(false);
     setDialogOpen(false);
@@ -279,6 +304,11 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
         .upload(path, file, { upsert: false, contentType: file.type });
       if (upErr) throw upErr;
       const { data } = supabase.storage.from('productos').getPublicUrl(path);
+      // M2: si había una imagen previa en el bucket, encolarla para borrado al guardar
+      const previa = form.imagen_url;
+      if (previa && extraerPathProducto(previa)) {
+        setImagenesPendientesEliminar(prev => [...prev, previa]);
+      }
       setForm(f => ({ ...f, imagen_url: data.publicUrl }));
       toast.success('Imagen subida');
     } catch (err: any) {
@@ -359,9 +389,14 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
 
   const confirmDelete = async () => {
     if (!deleteCandidate) return;
+    const imagenPrevia = deleteCandidate.imagen_url ?? null;
     const { error } = await supabase.from('productos').delete().eq('id', deleteCandidate.id);
     if (error) toast.error('Error al eliminar producto');
     else {
+      // M2: si tenía imagen propia en el bucket, eliminarla
+      if (imagenPrevia && extraerPathProducto(imagenPrevia)) {
+        await eliminarImagenesStorage([imagenPrevia]);
+      }
       toast.success('Producto eliminado');
       if (user) {
         await supabase.from('audit_logs').insert({
@@ -663,7 +698,14 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => setForm(f => ({ ...f, imagen_url: '' }))}
+                        onClick={() => {
+                          // M2: encolar la imagen actual para borrado al guardar
+                          const previa = form.imagen_url;
+                          if (previa && extraerPathProducto(previa)) {
+                            setImagenesPendientesEliminar(prev => [...prev, previa]);
+                          }
+                          setForm(f => ({ ...f, imagen_url: '' }));
+                        }}
                         disabled={uploadingImage}
                       >
                         <X className="h-4 w-4 mr-2" />Quitar
