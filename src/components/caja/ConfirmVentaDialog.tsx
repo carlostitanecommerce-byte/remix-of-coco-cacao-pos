@@ -6,7 +6,7 @@ import { Loader2, CheckCircle2, Printer } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
-import type { VentaSummary } from './types';
+import type { VentaSummary } from '@/components/pos/types';
 import { nowCDMX } from '@/lib/utils';
 
 interface Props {

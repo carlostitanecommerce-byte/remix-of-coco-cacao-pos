@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Search, Users, Clock, Plus, Ban } from 'lucide-react';
-import type { CartItem } from './types';
+import type { CartItem } from '@/components/pos/types';
 import { CancelSessionDialog } from '@/components/coworking/CancelSessionDialog';
 import type { CoworkingSession, TarifaSnapshot } from '@/components/coworking/types';
 import { useAuth } from '@/hooks/useAuth';

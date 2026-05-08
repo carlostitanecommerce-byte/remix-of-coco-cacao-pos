@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import type { VentaConfig } from './types';
+import type { VentaConfig } from '@/components/pos/types';
 
 export function useVentaConfig() {
   const [config, setConfig] = useState<VentaConfig>({ iva_porcentaje: 16, comision_bancaria_porcentaje: 3.5 });
