@@ -15,6 +15,7 @@ import { ReservacionesTab } from '@/components/coworking/ReservacionesTab';
 import { ConfiguracionTab } from '@/components/coworking/ConfiguracionTab';
 import type { CoworkingSession, CheckoutSummary } from '@/components/coworking/types';
 import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
+import { nowCDMX } from '@/lib/utils';
 
 const CoworkingPage = () => {
   const { roles } = useAuth();
@@ -39,7 +40,7 @@ const CoworkingPage = () => {
 
     // Freeze fecha_salida_real in DB if not already set
     if (!session.fecha_salida_real) {
-      const ahora = new Date().toISOString();
+      const ahora = nowCDMX();
       await supabase
         .from('coworking_sessions')
         .update({ fecha_salida_real: ahora })

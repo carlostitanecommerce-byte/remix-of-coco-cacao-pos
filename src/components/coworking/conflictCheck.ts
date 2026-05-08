@@ -1,5 +1,12 @@
 import { supabase } from '@/integrations/supabase/client';
 
+/** Build a Date anchored to CDMX (-06:00) from a YYYY-MM-DD + HH:mm string. */
+function cdmxDate(fecha: string, hora: string): Date {
+  // Normalize hora to HH:mm:ss
+  const h = hora.length === 5 ? `${hora}:00` : hora;
+  return new Date(`${fecha}T${h}-06:00`);
+}
+
 /**
  * Checks if a new/edited reservation conflicts with existing reservations or active sessions.
  * For private areas: any overlap = blocked.
@@ -17,7 +24,7 @@ export async function checkReservationConflict(params: {
 }): Promise<{ hasConflict: boolean; message: string }> {
   const { areaId, fechaReserva, horaInicio, duracionHoras, paxCount, esPrivado, capacidadPax, excludeReservacionId } = params;
 
-  const startDate = new Date(`${fechaReserva}T${horaInicio}`);
+  const startDate = cdmxDate(fechaReserva, horaInicio);
   const endDate = new Date(startDate.getTime() + duracionHoras * 3600000);
 
   // Check overlapping reservations
@@ -38,7 +45,7 @@ export async function checkReservationConflict(params: {
     if (esPrivado) {
       // Private: any overlap = blocked
       for (const r of existingRes) {
-        const rStart = new Date(`${fechaReserva}T${r.hora_inicio}`);
+        const rStart = cdmxDate(fechaReserva, r.hora_inicio);
         const rEnd = new Date(rStart.getTime() + r.duracion_horas * 3600000);
         if (startDate < rEnd && endDate > rStart) {
           return {
@@ -50,13 +57,13 @@ export async function checkReservationConflict(params: {
     } else {
       // Public: check if pax would exceed capacity during overlap
       for (const r of existingRes) {
-        const rStart = new Date(`${fechaReserva}T${r.hora_inicio}`);
+        const rStart = cdmxDate(fechaReserva, r.hora_inicio);
         const rEnd = new Date(rStart.getTime() + r.duracion_horas * 3600000);
         if (startDate < rEnd && endDate > rStart) {
           // Count all overlapping pax
           const overlappingPax = existingRes
             .filter(or => {
-              const oStart = new Date(`${fechaReserva}T${or.hora_inicio}`);
+              const oStart = cdmxDate(fechaReserva, or.hora_inicio);
               const oEnd = new Date(oStart.getTime() + or.duracion_horas * 3600000);
               return startDate < oEnd && endDate > oStart;
             })
@@ -74,9 +81,9 @@ export async function checkReservationConflict(params: {
     }
   }
 
-  // Check overlapping active sessions on the same date
-  const dayStart = new Date(`${fechaReserva}T00:00:00`).toISOString();
-  const dayEnd = new Date(`${fechaReserva}T23:59:59`).toISOString();
+  // Check overlapping active sessions on the same date (CDMX day bounds)
+  const dayStart = `${fechaReserva}T00:00:00-06:00`;
+  const dayEnd = `${fechaReserva}T23:59:59-06:00`;
 
   const { data: activeSessions } = await supabase
     .from('coworking_sessions')
@@ -114,5 +121,70 @@ export async function checkReservationConflict(params: {
     }
   }
 
+  return { hasConflict: false, message: '' };
+}
+
+/**
+ * Check if a walk-in check-in [now, now + horas] would collide with confirmed/pending
+ * reservations of TODAY for the area. Used to warn the cashier before creating
+ * a session that would block an upcoming reservation.
+ */
+export async function checkWalkInVsReservations(params: {
+  areaId: string;
+  horas: number;
+  paxCount: number;
+  esPrivado: boolean;
+  capacidadPax: number;
+  fechaInicio?: Date;
+}): Promise<{ hasConflict: boolean; message: string }> {
+  const { areaId, horas, paxCount, esPrivado, capacidadPax, fechaInicio } = params;
+  const start = fechaInicio ?? new Date();
+  const end = new Date(start.getTime() + horas * 3600000);
+
+  // Use CDMX local "today" string
+  const cdmxToday = new Date(start.getTime() - 6 * 3600000 + start.getTimezoneOffset() * 60000);
+  const fecha =
+    cdmxToday.getFullYear() +
+    '-' + String(cdmxToday.getMonth() + 1).padStart(2, '0') +
+    '-' + String(cdmxToday.getDate()).padStart(2, '0');
+
+  const { data: rsv } = await supabase
+    .from('coworking_reservaciones')
+    .select('id, cliente_nombre, hora_inicio, duracion_horas, pax_count')
+    .eq('area_id', areaId)
+    .eq('fecha_reserva', fecha)
+    .in('estado', ['pendiente', 'confirmada']);
+
+  if (!rsv || rsv.length === 0) return { hasConflict: false, message: '' };
+
+  if (esPrivado) {
+    for (const r of rsv) {
+      const rStart = cdmxDate(fecha, r.hora_inicio);
+      const rEnd = new Date(rStart.getTime() + r.duracion_horas * 3600000);
+      if (start < rEnd && end > rStart) {
+        return {
+          hasConflict: true,
+          message: `Hoy hay una reservación de ${r.cliente_nombre} a las ${r.hora_inicio.slice(0, 5)} en esta área privada que se traslapa con la estancia.`,
+        };
+      }
+    }
+    return { hasConflict: false, message: '' };
+  }
+
+  // Public area: sum overlapping reserved pax
+  const overlappingPax = rsv
+    .filter(r => {
+      const rStart = cdmxDate(fecha, r.hora_inicio);
+      const rEnd = new Date(rStart.getTime() + r.duracion_horas * 3600000);
+      return start < rEnd && end > rStart;
+    })
+    .reduce((sum, r) => sum + r.pax_count, 0);
+
+  if (overlappingPax + paxCount > capacidadPax) {
+    return {
+      hasConflict: true,
+      message: `Hay ${overlappingPax} pax reservado(s) hoy en este horario; agregar ${paxCount} excedería la capacidad de ${capacidadPax}.`,
+    };
+  }
   return { hasConflict: false, message: '' };
 }

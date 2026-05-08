@@ -13,6 +13,7 @@ import { verificarStock } from '@/hooks/useValidarStock';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
+import { checkWalkInVsReservations } from './conflictCheck';
 
 interface Tarifa {
   id: string;
@@ -179,6 +180,21 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       if (!selectedArea?.es_privado && pax > available) {
         toast({ variant: 'destructive', title: 'Capacidad excedida', description: `Solo hay ${available} lugar(es) disponible(s).` });
         return;
+      }
+
+      // B3: validar contra reservaciones de hoy en el horario solicitado
+      if (selectedArea) {
+        const rsvConflict = await checkWalkInVsReservations({
+          areaId: selectedAreaId,
+          horas: horasNum,
+          paxCount: pax,
+          esPrivado: selectedArea.es_privado,
+          capacidadPax: selectedArea.capacidad_pax,
+        });
+        if (rsvConflict.hasConflict) {
+          toast({ variant: 'destructive', title: 'Conflicto con reservación', description: rsvConflict.message });
+          return;
+        }
       }
 
       const fechaInicio = new Date();
