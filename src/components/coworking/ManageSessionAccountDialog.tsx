@@ -162,6 +162,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         nombre: amenity.nombre || 'Amenity',
         precio_especial: 0,
         cantidad: 1,
+        requiere_preparacion: prepCacheRef.current.get(amenity.producto_id) ?? true,
+        pendingCancelQty: 0,
       }]);
 
       // Enviar a cocina
