@@ -728,6 +728,9 @@ export default function CocinaPage() {
           onStart={handleStart}
           onMarkReady={handleMarkReady}
           onRevert={handleRevert}
+          cancelacionesPorOrden={cancelacionesPorOrden}
+          onResolveCancel={handleResolveCancel}
+          resolvingCancelId={resolvingCancelId}
           busyId={busyId}
         />
       </div>
