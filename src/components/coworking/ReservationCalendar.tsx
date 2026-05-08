@@ -41,7 +41,8 @@ export function ReservationCalendar({ areas, reservaciones, onDateClick, onEvent
     return filtered.map(r => {
       const area = areas.find(a => a.id === r.area_id);
       const colors = areaColorMap[r.area_id] ?? AREA_COLORS[0];
-      const startDate = new Date(`${r.fecha_reserva}T${r.hora_inicio}`);
+      const horaIso = r.hora_inicio.length === 5 ? `${r.hora_inicio}:00` : r.hora_inicio;
+      const startDate = new Date(`${r.fecha_reserva}T${horaIso}-06:00`);
       const endDate = new Date(startDate.getTime() + r.duracion_horas * 3600000);
 
       return {
