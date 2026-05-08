@@ -228,7 +228,38 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     fetchProductos();
   };
 
-  const [deleteCandidate, setDeleteCandidate] = useState<Producto | null>(null);
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Formato no válido. Usa PNG, JPG o WEBP.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('La imagen excede el límite de 2 MB.');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('productos')
+        .upload(path, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from('productos').getPublicUrl(path);
+      setForm(f => ({ ...f, imagen_url: data.publicUrl }));
+      toast.success('Imagen subida');
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir imagen');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
   const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
 
   const checkAndPromptDelete = async (p: Producto) => {
