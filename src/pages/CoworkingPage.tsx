@@ -14,9 +14,11 @@ import { ActiveSessionsTable } from '@/components/coworking/ActiveSessionsTable'
 import { ReservacionesTab } from '@/components/coworking/ReservacionesTab';
 import { ConfiguracionTab } from '@/components/coworking/ConfiguracionTab';
 import type { CoworkingSession, CheckoutSummary } from '@/components/coworking/types';
+import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
 
 const CoworkingPage = () => {
   const { roles } = useAuth();
+  useCancelacionItemsSesionToasts();
   const data = useCoworkingData();
   const [checkoutSummary, setCheckoutSummary] = useState<CheckoutSummary | null>(null);
   const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
