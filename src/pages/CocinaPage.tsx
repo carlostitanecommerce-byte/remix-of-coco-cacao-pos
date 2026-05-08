@@ -554,10 +554,13 @@ export default function CocinaPage() {
   // ------- Actions -------
   const updateEstado = async (orderId: string, estado: KdsEstado) => {
     setBusyId(orderId);
-    const { error } = await supabase
-      .from('kds_orders')
-      .update({ estado: estado as any, updated_at: new Date().toISOString() })
-      .eq('id', orderId);
+    // Vía RPC SECURITY DEFINER: valida rol y registra audit_log con
+    // estado_anterior/nuevo, folio y duración. Único punto de cambio de
+    // estado de cocina — garantiza trazabilidad por usuario.
+    const { error } = await supabase.rpc('actualizar_estado_kds_orden' as any, {
+      p_order_id: orderId,
+      p_nuevo_estado: estado as any,
+    });
     if (error) {
       toast.error('Error al actualizar orden');
       console.error(error);
