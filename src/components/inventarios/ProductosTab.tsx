@@ -304,6 +304,11 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
         .upload(path, file, { upsert: false, contentType: file.type });
       if (upErr) throw upErr;
       const { data } = supabase.storage.from('productos').getPublicUrl(path);
+      // M2: si había una imagen previa en el bucket, encolarla para borrado al guardar
+      const previa = form.imagen_url;
+      if (previa && extraerPathProducto(previa)) {
+        setImagenesPendientesEliminar(prev => [...prev, previa]);
+      }
       setForm(f => ({ ...f, imagen_url: data.publicUrl }));
       toast.success('Imagen subida');
     } catch (err: any) {
