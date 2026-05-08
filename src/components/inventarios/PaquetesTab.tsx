@@ -260,6 +260,49 @@ const PaquetesTab = ({ isAdmin }: Props) => {
   };
 
   const [deleteCandidate, setDeleteCandidate] = useState<Paquete | null>(null);
+  const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
+  const [hasSalesHistory, setHasSalesHistory] = useState(false);
+
+  const checkAndPromptDelete = async (p: Paquete) => {
+    setDeleteBlock(null);
+    setHasSalesHistory(false);
+
+    const ventasRes = await supabase
+      .from('detalle_ventas')
+      .select('id', { count: 'exact', head: true })
+      .eq('paquete_id', p.id);
+
+    const tieneVentas = (ventasRes.count ?? 0) > 0;
+
+    if (tieneVentas) {
+      setHasSalesHistory(true);
+      setDeleteBlock(
+        `"${p.nombre}" tiene historial transaccional (${ventasRes.count} venta(s)). Para preservar la trazabilidad de reportes, no se puede eliminar físicamente. Puedes desactivarlo: dejará de aparecer en POS, pero conservará su historial.`
+      );
+      setDeleteCandidate(p);
+      return;
+    }
+
+    setDeleteCandidate(p);
+  };
+
+  const handleSoftDelete = async (p: Paquete) => {
+    const { error } = await supabase.from('productos').update({ activo: false }).eq('id', p.id);
+    if (error) {
+      toast.error('Error al desactivar paquete');
+      return;
+    }
+    if (user) {
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        accion: 'desactivar_paquete',
+        descripcion: `Paquete desactivado (soft delete): ${p.nombre}`,
+        metadata: { paquete_id: p.id, paquete_nombre: p.nombre, motivo: 'tiene_historial_transaccional' },
+      });
+    }
+    toast.success('Paquete desactivado');
+    fetchPaquetes();
+  };
 
   const handleDelete = async (p: Paquete) => {
     await supabase.from('paquete_componentes').delete().eq('paquete_id', p.id);
