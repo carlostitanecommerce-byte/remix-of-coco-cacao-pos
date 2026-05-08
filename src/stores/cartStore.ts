@@ -96,6 +96,7 @@ export const useCartStore = create<CartState>()(
       removeItem: (productoId) =>
         set({ items: get().items.filter((i) => i.producto_id !== productoId) }),
       clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null }),
+      // ownerUserId no se borra en clear() — sólo cambia al cambiar de usuario via ensureOwner.
       importCoworkingSession: (items, sessionId, clienteNombre) =>
         set({ items, coworkingSessionId: sessionId, clienteNombre }),
     }),
