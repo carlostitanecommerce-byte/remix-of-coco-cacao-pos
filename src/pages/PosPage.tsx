@@ -30,11 +30,11 @@ const PosPage = () => {
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
     if (p.tipo === 'paquete') {
       const { data: validacionPaquete, error: rpcErr } = await supabase.rpc(
-        'validar_stock_paquete' as any,
+        'validar_stock_paquete',
         { p_paquete_id: p.id, p_cantidad: 1 }
       );
       if (rpcErr) { toast.error('Error al validar stock del paquete'); return; }
-      const resultado = validacionPaquete as { valido: boolean; error?: string };
+      const resultado = validacionPaquete as unknown as { valido: boolean; error?: string };
       if (!resultado?.valido) { toast.error(resultado?.error || 'Stock insuficiente para este paquete'); return; }
 
       const { data: comps } = await supabase
