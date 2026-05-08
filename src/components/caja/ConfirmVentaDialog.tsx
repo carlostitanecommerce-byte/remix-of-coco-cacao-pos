@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import type { VentaSummary } from '@/components/pos/types';
+import type { Json } from '@/integrations/supabase/types';
 import { nowCDMX } from '@/lib/utils';
 
 interface Props {
