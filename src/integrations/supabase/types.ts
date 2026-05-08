@@ -1178,6 +1178,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      actualizar_estado_kds_orden: {
+        Args: {
+          p_nuevo_estado: Database["public"]["Enums"]["kds_estado"]
+          p_order_id: string
+        }
+        Returns: Json
+      }
       aplicar_auditoria_inventario: { Args: { p_ajustes: Json }; Returns: Json }
       cancelar_sesion_coworking: {
         Args: {
