@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,16 +16,14 @@ interface Props {
   onClose?: () => void;
 }
 
+const MAX_FONDO_FIJO = 10000;
+
 export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
   const [monto, setMonto] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmHigh, setConfirmHigh] = useState(false);
 
-  const handleSubmit = async () => {
-    const val = parseFloat(monto);
-    if (isNaN(val) || val < 0) {
-      toast.error('Ingresa un monto válido');
-      return;
-    }
+  const ejecutar = async (val: number) => {
     setSaving(true);
     const { error } = await onAbrirCaja(val);
     setSaving(false);
@@ -31,6 +33,19 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
       toast.success('Caja abierta exitosamente');
       setMonto('');
     }
+  };
+
+  const handleSubmit = async () => {
+    const val = parseFloat(monto);
+    if (isNaN(val) || val < 0) {
+      toast.error('Ingresa un monto válido');
+      return;
+    }
+    if (val > MAX_FONDO_FIJO) {
+      setConfirmHigh(true);
+      return;
+    }
+    await ejecutar(val);
   };
 
   return (
@@ -74,6 +89,28 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={confirmHigh} onOpenChange={setConfirmHigh}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fondo fijo inusualmente alto</AlertDialogTitle>
+            <AlertDialogDescription>
+              Estás a punto de abrir caja con ${parseFloat(monto || '0').toFixed(2)},
+              que supera el umbral típico de ${MAX_FONDO_FIJO.toLocaleString('es-MX')}.
+              Verifica que el monto sea correcto antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Revisar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              onClick={() => { setConfirmHigh(false); void ejecutar(parseFloat(monto)); }}
+            >
+              Confirmar y abrir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
