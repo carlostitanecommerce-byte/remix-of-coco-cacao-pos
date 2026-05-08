@@ -315,6 +315,7 @@ const ComprasTab = ({ isAdmin }: Props) => {
                   <TableHead className="text-right">Costo Total</TableHead>
                   <TableHead>Nota</TableHead>
                   <TableHead>Registrado por</TableHead>
+                  {isAdmin && <TableHead className="text-right">Acciones</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -335,6 +336,19 @@ const ComprasTab = ({ isAdmin }: Props) => {
                     <TableCell className="text-right">{fmtMoney(c.costo_total)}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{c.nota || '—'}</TableCell>
                     <TableCell>{c.usuario_nombre}</TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive gap-1"
+                          onClick={() => { setAnularTarget(c); setMotivoAnular(''); }}
+                          title="Anular compra (revierte stock)"
+                        >
+                          <Ban className="h-3.5 w-3.5" /> Anular
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
