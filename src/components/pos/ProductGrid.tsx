@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { Badge } from '@/components/ui/badge';
-
-import { ImageIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ImageIcon, LayoutGrid, Rows3, Package } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Producto {
   id: string;
@@ -20,10 +21,22 @@ interface Props {
   onAdd: (producto: Producto) => void;
 }
 
+type Densidad = 'compacto' | 'comodo';
+
+const DENSITY_KEY = 'pos-grid-density';
+
 export function ProductGrid({ onAdd }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
   const { categorias: categoriasDB } = useCategorias();
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
+  const [densidad, setDensidad] = useState<Densidad>(() => {
+    if (typeof window === 'undefined') return 'compacto';
+    return (localStorage.getItem(DENSITY_KEY) as Densidad) || 'compacto';
+  });
+
+  useEffect(() => {
+    localStorage.setItem(DENSITY_KEY, densidad);
+  }, [densidad]);
 
   useEffect(() => {
     const fetchProductos = async () => {
@@ -52,23 +65,45 @@ export function ProductGrid({ onAdd }: Props) {
     categoriaActiva === 'Todos' || p.categoria === categoriaActiva
   );
 
+  const isCompacto = densidad === 'compacto';
+
+  const gridCols = isCompacto
+    ? 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7'
+    : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
+
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2 flex-wrap">
-        {allTabs.map(cat => (
-          <Badge
-            key={cat}
-            variant={categoriaActiva === cat ? 'default' : 'outline'}
-            className="cursor-pointer select-none"
-            onClick={() => setCategoriaActiva(cat)}
+    <div className="flex flex-col h-full">
+      {/* Barra sticky: categorías + toggle densidad */}
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm pb-2 -mt-1 pt-1">
+        <div className="flex items-center gap-2">
+          <div className="flex-1 overflow-x-auto scrollbar-thin">
+            <div className="flex gap-1.5 min-w-min">
+              {allTabs.map(cat => (
+                <Badge
+                  key={cat}
+                  variant={categoriaActiva === cat ? 'default' : 'outline'}
+                  className="cursor-pointer select-none whitespace-nowrap shrink-0"
+                  onClick={() => setCategoriaActiva(cat)}
+                >
+                  {cat}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            title={isCompacto ? 'Cambiar a vista cómoda' : 'Cambiar a vista compacta'}
+            onClick={() => setDensidad(isCompacto ? 'comodo' : 'compacto')}
           >
-            {cat}
-          </Badge>
-        ))}
+            {isCompacto ? <LayoutGrid className="h-3.5 w-3.5" /> : <Rows3 className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
       </div>
 
-      <div className="max-h-[75vh] overflow-y-auto pr-1">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+      <div className="flex-1 overflow-y-auto pr-1 mt-2">
+        <div className={cn('grid gap-2', gridCols)}>
           {filtered.map(p => {
             const isPaquete = p.tipo === 'paquete';
             return (
@@ -76,11 +111,12 @@ export function ProductGrid({ onAdd }: Props) {
                 key={p.id}
                 role="button"
                 tabIndex={0}
+                title={p.nombre}
                 onClick={() => onAdd(p)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAdd(p); } }}
-                className="group relative flex flex-col rounded-lg border border-border bg-card overflow-hidden cursor-pointer transition hover:border-primary hover:shadow-md active:scale-[0.98]"
+                className="group relative flex flex-col rounded-md border border-border bg-card overflow-hidden cursor-pointer transition hover:border-primary hover:shadow-md active:scale-[0.98]"
               >
-                <div className="relative aspect-square w-full bg-muted">
+                <div className={cn('relative w-full bg-muted', isCompacto ? 'h-16' : 'aspect-[4/3]')}>
                   {p.imagen_url ? (
                     <img
                       src={p.imagen_url}
@@ -90,20 +126,20 @@ export function ProductGrid({ onAdd }: Props) {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                      <ImageIcon className="h-8 w-8 opacity-40" />
+                      <ImageIcon className="h-6 w-6 opacity-40" />
                     </div>
                   )}
                   {isPaquete && (
-                    <Badge className="absolute top-1.5 left-1.5 text-[10px] px-1.5 py-0 bg-primary/90 text-primary-foreground border-0">
-                      📦 Paquete
+                    <Badge className="absolute top-1 left-1 text-[9px] px-1 py-0 h-4 bg-primary/90 text-primary-foreground border-0">
+                      <Package className="h-2.5 w-2.5" />
                     </Badge>
                   )}
                 </div>
-                <div className="p-2 flex flex-col gap-1">
-                  <span className="text-sm font-medium leading-tight line-clamp-2 min-h-[2.5rem]">
+                <div className="p-1.5 flex flex-col">
+                  <span className={cn('font-medium leading-tight truncate', isCompacto ? 'text-[11px]' : 'text-sm')}>
                     {p.nombre}
                   </span>
-                  <span className="text-sm font-bold text-primary">
+                  <span className={cn('font-bold text-primary', isCompacto ? 'text-xs' : 'text-sm')}>
                     ${p.precio_venta.toFixed(2)}
                   </span>
                 </div>
