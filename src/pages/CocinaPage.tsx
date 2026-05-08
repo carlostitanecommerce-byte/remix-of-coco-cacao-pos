@@ -7,6 +7,7 @@ import { StartShiftDialog } from '@/components/cocina/StartShiftDialog';
 import type { KdsOrder, KdsOrderItem, KdsEstado, KdsItemCancelacion } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
 import { ChefHat, Wifi, WifiOff, Timer } from 'lucide-react';
+import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
 
 const ACTIVE_STATES: KdsEstado[] = ['pendiente', 'en_preparacion', 'listo'];
 const POLL_FALLBACK_MS = 30000;
