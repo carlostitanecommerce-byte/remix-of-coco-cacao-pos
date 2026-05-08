@@ -694,12 +694,13 @@ export default function CocinaPage() {
   const handleResolveCancel = async (
     cancelId: string,
     decision: 'retornado_stock' | 'merma',
+    notas?: string | null,
   ) => {
     setResolvingCancelId(cancelId);
     const { error } = await supabase.rpc('resolver_cancelacion_item_sesion' as any, {
       p_cancelacion_id: cancelId,
       p_decision: decision,
-      p_notas: null,
+      p_notas: notas ?? null,
     });
     if (error) {
       toast.error('Error al resolver cancelación', { description: error.message });
