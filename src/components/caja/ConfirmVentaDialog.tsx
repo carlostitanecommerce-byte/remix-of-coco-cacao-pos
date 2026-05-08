@@ -92,13 +92,14 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       }
       // For mixto: amounts already include tip distribution from user input
 
+      const comisionAmount = summary.comision || 0;
       const { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
         usuario_id: user.id,
         total_bruto: summary.subtotal,
         iva: summary.iva,
-        comisiones_bancarias: 0,
+        comisiones_bancarias: comisionAmount,
         monto_propina: propinaAmount,
-        total_neto: summary.subtotal,
+        total_neto: +(summary.subtotal - comisionAmount).toFixed(2),
         metodo_pago: summary.metodo_pago as any,
         tipo_consumo: summary.tipo_consumo as any,
         estado: 'completada' as any,
@@ -107,7 +108,8 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         monto_tarjeta: montoTarjeta,
         monto_transferencia: montoTransferencia,
         coworking_session_id: summary.coworking_session_id ?? null,
-      }).select('id, folio').single();
+        caja_id: summary.caja_id ?? null,
+      } as any).select('id, folio').single();
 
       if (ventaErr || !venta) {
         // Revertir sesión coworking si fue congelada

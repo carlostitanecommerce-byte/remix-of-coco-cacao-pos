@@ -41,6 +41,7 @@ export interface VentaSummary {
   mixed_payment?: MixedPayment;
   propina_en_digital?: boolean;
   coworking_session_id?: string;
+  caja_id?: string;
   usuario_nombre?: string;
   fecha?: string;
   folio?: number;
