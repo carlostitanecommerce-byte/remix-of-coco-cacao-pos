@@ -423,7 +423,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setDeleteCandidate(p)} title="Eliminar">
+                          <Button variant="ghost" size="icon" onClick={() => checkAndPromptDelete(p)} title="Eliminar">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
