@@ -74,6 +74,8 @@ const ConsumoIcon = ({ tipo }: { tipo: string }) => {
 
 export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelaciones, onResolveCancel, resolvingCancelId, busy }: Props) {
   const [elapsed, setElapsed] = useState(0);
+  const [resolveDialog, setResolveDialog] = useState<{ cancelId: string; decision: 'retornado_stock' | 'merma'; nombre: string } | null>(null);
+  const [notas, setNotas] = useState('');
 
   useEffect(() => {
     const start = new Date(order.created_at).getTime();
