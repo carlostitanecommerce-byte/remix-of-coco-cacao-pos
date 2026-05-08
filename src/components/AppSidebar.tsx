@@ -20,11 +20,13 @@ import {
   LogOut,
   Coffee,
   ChefHat,
+  Wallet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const allMenuItems = [
   { title: 'POS', url: '/pos', icon: ShoppingCart, allowedRoles: ['administrador', 'supervisor', 'caja', 'recepcion'] },
+  { title: 'Caja', url: '/caja', icon: Wallet, allowedRoles: ['administrador', 'supervisor', 'caja', 'recepcion'] },
   { title: 'Cocina', url: '/cocina', icon: ChefHat, allowedRoles: ['administrador', 'supervisor', 'barista'] },
   { title: 'Coworking', url: '/coworking', icon: Building2, allowedRoles: ['administrador', 'supervisor', 'caja', 'recepcion'] },
   { title: 'Inventarios', url: '/inventarios', icon: Package, allowedRoles: ['administrador', 'supervisor'] },
