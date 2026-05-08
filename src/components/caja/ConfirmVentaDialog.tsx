@@ -65,24 +65,13 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
-      // 0.5. Congelar sesión coworking antes de intentar cobrar
-      if (summary.coworking_session_id) {
-        await supabase.from('coworking_sessions').update({
-          estado: 'pendiente_pago' as any,
-          fecha_salida_real: nowCDMX(),
-        }).eq('id', summary.coworking_session_id);
-      }
-
-      // 1. Insert venta
-      // For tarjeta/transferencia: tip is included in the digital payment amount
-      // For mixto: depends on propina_en_digital flag
+      // 1. Calcular distribución de pagos (incluye propina)
       const propinaAmount = summary.propina || 0;
 
       let montoEfectivo = summary.mixed_payment?.efectivo ?? (summary.metodo_pago === 'efectivo' ? summary.subtotal : 0);
       let montoTarjeta = summary.mixed_payment?.tarjeta ?? (summary.metodo_pago === 'tarjeta' ? summary.subtotal : 0);
       let montoTransferencia = summary.mixed_payment?.transferencia ?? (summary.metodo_pago === 'transferencia' ? summary.subtotal : 0);
 
-      // Add tip to the correct payment channel
       if (summary.metodo_pago === 'tarjeta') {
         montoTarjeta += propinaAmount;
       } else if (summary.metodo_pago === 'transferencia') {
@@ -90,39 +79,10 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       } else if (summary.metodo_pago === 'efectivo') {
         montoEfectivo += propinaAmount;
       }
-      // For mixto: amounts already include tip distribution from user input
 
       const comisionAmount = summary.comision || 0;
-      const { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
-        usuario_id: user.id,
-        total_bruto: summary.subtotal,
-        iva: summary.iva,
-        comisiones_bancarias: comisionAmount,
-        monto_propina: propinaAmount,
-        total_neto: +(summary.subtotal - comisionAmount).toFixed(2),
-        metodo_pago: summary.metodo_pago as any,
-        tipo_consumo: summary.tipo_consumo as any,
-        estado: 'completada' as any,
-        fecha: nowCDMX(),
-        monto_efectivo: montoEfectivo,
-        monto_tarjeta: montoTarjeta,
-        monto_transferencia: montoTransferencia,
-        coworking_session_id: summary.coworking_session_id ?? null,
-        caja_id: summary.caja_id ?? null,
-      } as any).select('id, folio').single();
 
-      if (ventaErr || !venta) {
-        // Revertir sesión coworking si fue congelada
-        if (summary.coworking_session_id) {
-          await supabase.from('coworking_sessions').update({
-            estado: 'activo' as any,
-            fecha_salida_real: null,
-          }).eq('id', summary.coworking_session_id);
-        }
-        throw ventaErr || new Error('No se pudo crear la venta');
-      }
-
-      // 2. Build detalle_ventas — expanding packages into component lines
+      // 2. Construir detalle_ventas — expandiendo paquetes en componentes
       // Para paquetes: prorrateamos el precio del paquete entre componentes proporcional al costo
       // Para productos simples y coworking/amenity: una línea cada uno
       type DetalleRow = {
