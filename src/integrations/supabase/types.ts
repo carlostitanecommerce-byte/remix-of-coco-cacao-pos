@@ -1129,6 +1129,10 @@ export type Database = {
         }
         Returns: Json
       }
+      crear_venta_completa: {
+        Args: { p_audit?: Json; p_detalles: Json; p_venta: Json }
+        Returns: Json
+      }
       encrypt_and_save_password: {
         Args: { p_password: string; p_user_id: string; p_username: string }
         Returns: undefined
