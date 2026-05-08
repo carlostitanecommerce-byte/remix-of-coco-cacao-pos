@@ -788,11 +788,11 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); } }}>
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); setHasSalesHistory(false); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {deleteBlock ? 'No se puede eliminar' : `¿Eliminar "${deleteCandidate?.nombre}"?`}
+              {hasSalesHistory ? `Desactivar "${deleteCandidate?.nombre}"` : (deleteBlock ? 'No se puede eliminar' : `¿Eliminar "${deleteCandidate?.nombre}"?`)}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteBlock ?? 'Esta acción no se puede deshacer. El producto y su receta serán eliminados permanentemente.'}
@@ -800,7 +800,11 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cerrar</AlertDialogCancel>
-            {!deleteBlock && (
+            {hasSalesHistory ? (
+              <AlertDialogAction onClick={handleSoftDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Desactivar producto
+              </AlertDialogAction>
+            ) : !deleteBlock && (
               <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                 Eliminar
               </AlertDialogAction>
