@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Package, Copy, Search, X, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Package, Copy, Search, X, AlertTriangle, Upload, Loader2, ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ProductoSimple {
