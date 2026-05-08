@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +11,11 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Plus, Pencil, Trash2, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -17,6 +23,8 @@ interface Categoria {
   id: string;
   nombre: string;
   descripcion: string | null;
+  uso_insumos?: number;
+  uso_productos?: number;
 }
 
 interface Props {
@@ -24,12 +32,14 @@ interface Props {
 }
 
 const CategoriasTab = ({ isAdmin }: Props) => {
+  const { user } = useAuth();
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ nombre: '', descripcion: '' });
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Categoria | null>(null);
 
   const fetchCategorias = async () => {
     setLoading(true);
@@ -37,7 +47,24 @@ const CategoriasTab = ({ isAdmin }: Props) => {
       .from('categorias_maestras')
       .select('id, nombre, descripcion')
       .order('nombre');
-    setCategorias((data as Categoria[]) ?? []);
+    const cats = (data as Categoria[]) ?? [];
+
+    // Conteo de uso por categoría
+    const [insumosRes, productosRes] = await Promise.all([
+      supabase.from('insumos').select('categoria'),
+      supabase.from('productos').select('categoria'),
+    ]);
+    const cuentaIns = new Map<string, number>();
+    const cuentaProd = new Map<string, number>();
+    (insumosRes.data ?? []).forEach((i: any) => cuentaIns.set(i.categoria, (cuentaIns.get(i.categoria) ?? 0) + 1));
+    (productosRes.data ?? []).forEach((p: any) => cuentaProd.set(p.categoria, (cuentaProd.get(p.categoria) ?? 0) + 1));
+
+    cats.forEach(c => {
+      c.uso_insumos = cuentaIns.get(c.nombre) ?? 0;
+      c.uso_productos = cuentaProd.get(c.nombre) ?? 0;
+    });
+
+    setCategorias(cats);
     setLoading(false);
   };
 
@@ -64,18 +91,35 @@ const CategoriasTab = ({ isAdmin }: Props) => {
     };
 
     if (editingId) {
+      const prev = categorias.find(c => c.id === editingId);
       const { error } = await supabase.from('categorias_maestras').update(payload).eq('id', editingId);
       if (error) {
         toast.error(error.message.includes('unique') ? 'Ya existe una categoría con ese nombre' : 'Error al actualizar');
       } else {
         toast.success('Categoría actualizada');
+        if (user) {
+          await supabase.from('audit_logs').insert({
+            user_id: user.id,
+            accion: 'actualizar_categoria',
+            descripcion: `Categoría actualizada: "${prev?.nombre ?? ''}" → "${payload.nombre}"`,
+            metadata: { categoria_id: editingId, nombre_anterior: prev?.nombre, ...payload },
+          });
+        }
       }
     } else {
-      const { error } = await supabase.from('categorias_maestras').insert(payload);
+      const { data, error } = await supabase.from('categorias_maestras').insert(payload).select('id').single();
       if (error) {
         toast.error(error.message.includes('unique') ? 'Ya existe una categoría con ese nombre' : 'Error al crear');
       } else {
         toast.success('Categoría creada');
+        if (user && data) {
+          await supabase.from('audit_logs').insert({
+            user_id: user.id,
+            accion: 'crear_categoria',
+            descripcion: `Categoría creada: ${payload.nombre}`,
+            metadata: { categoria_id: data.id, ...payload },
+          });
+        }
       }
     }
 
@@ -84,11 +128,29 @@ const CategoriasTab = ({ isAdmin }: Props) => {
     fetchCategorias();
   };
 
-  const handleDelete = async (cat: Categoria) => {
-    if (!confirm(`¿Eliminar la categoría "${cat.nombre}"? Los insumos y productos que la usen quedarán con su texto actual.`)) return;
-    const { error } = await supabase.from('categorias_maestras').delete().eq('id', cat.id);
-    if (error) toast.error('Error al eliminar categoría');
-    else { toast.success('Categoría eliminada'); fetchCategorias(); }
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const { error } = await supabase.from('categorias_maestras').delete().eq('id', deleteTarget.id);
+    if (error) {
+      toast.error('Error al eliminar categoría');
+    } else {
+      toast.success('Categoría eliminada');
+      if (user) {
+        await supabase.from('audit_logs').insert({
+          user_id: user.id,
+          accion: 'eliminar_categoria',
+          descripcion: `Categoría eliminada: ${deleteTarget.nombre}`,
+          metadata: {
+            categoria_id: deleteTarget.id,
+            nombre: deleteTarget.nombre,
+            uso_insumos: deleteTarget.uso_insumos ?? 0,
+            uso_productos: deleteTarget.uso_productos ?? 0,
+          },
+        });
+      }
+      fetchCategorias();
+    }
+    setDeleteTarget(null);
   };
 
   return (
@@ -109,43 +171,61 @@ const CategoriasTab = ({ isAdmin }: Props) => {
               <TableRow>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Descripción</TableHead>
+                <TableHead className="text-right">En uso</TableHead>
                 {isAdmin && <TableHead className="text-right">Acciones</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">Cargando...</TableCell>
+                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Cargando...</TableCell>
                 </TableRow>
               ) : categorias.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                     Sin categorías registradas. Crea la primera.
                   </TableCell>
                 </TableRow>
-              ) : categorias.map(cat => (
-                <TableRow key={cat.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <Tag className="h-4 w-4 text-muted-foreground" />
-                      {cat.nombre}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{cat.descripcion || '—'}</TableCell>
-                  {isAdmin && (
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(cat)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(cat)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+              ) : categorias.map(cat => {
+                const usoTotal = (cat.uso_insumos ?? 0) + (cat.uso_productos ?? 0);
+                return (
+                  <TableRow key={cat.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <Tag className="h-4 w-4 text-muted-foreground" />
+                        {cat.nombre}
                       </div>
                     </TableCell>
-                  )}
-                </TableRow>
-              ))}
+                    <TableCell className="text-muted-foreground">{cat.descripcion || '—'}</TableCell>
+                    <TableCell className="text-right">
+                      {usoTotal === 0 ? (
+                        <Badge variant="secondary" className="font-mono text-xs">0</Badge>
+                      ) : (
+                        <div className="flex justify-end gap-1">
+                          {(cat.uso_insumos ?? 0) > 0 && (
+                            <Badge variant="outline" className="font-mono text-xs">{cat.uso_insumos} ins.</Badge>
+                          )}
+                          {(cat.uso_productos ?? 0) > 0 && (
+                            <Badge variant="outline" className="font-mono text-xs">{cat.uso_productos} prod.</Badge>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(cat)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(cat)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
@@ -180,6 +260,33 @@ const CategoriasTab = ({ isAdmin }: Props) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar categoría</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget && ((deleteTarget.uso_insumos ?? 0) + (deleteTarget.uso_productos ?? 0)) > 0 ? (
+                <>
+                  La categoría <strong>"{deleteTarget.nombre}"</strong> está en uso por{' '}
+                  {(deleteTarget.uso_insumos ?? 0) > 0 && `${deleteTarget.uso_insumos} insumo(s)`}
+                  {(deleteTarget.uso_insumos ?? 0) > 0 && (deleteTarget.uso_productos ?? 0) > 0 && ' y '}
+                  {(deleteTarget.uso_productos ?? 0) > 0 && `${deleteTarget.uso_productos} producto(s)`}.
+                  Quedarán con el texto "{deleteTarget.nombre}" como categoría huérfana hasta reasignarse manualmente. ¿Continuar?
+                </>
+              ) : (
+                <>¿Eliminar la categoría "{deleteTarget?.nombre}"? Esta acción no se puede deshacer.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
