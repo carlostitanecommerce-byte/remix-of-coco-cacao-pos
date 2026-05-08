@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee, Building2 } from 'lucide-react';
+import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee, Building2, Ban, PackageCheck, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface KdsOrderItem {
@@ -10,6 +10,17 @@ export interface KdsOrderItem {
   nombre_producto: string;
   cantidad: number;
   notas: string | null;
+  cancel_requested?: boolean;
+  cancel_qty?: number;
+}
+
+/** Solicitud de cancelación pendiente asociada a un item KDS */
+export interface KdsItemCancelacion {
+  id: string;
+  kds_item_id: string;
+  cantidad: number;
+  motivo: string;
+  nombre_producto: string;
 }
 
 export type KdsEstado = 'pendiente' | 'en_preparacion' | 'listo';
