@@ -25,6 +25,17 @@ export const useCartStore = create<CartState>()(
       items: [],
       coworkingSessionId: null,
       clienteNombre: null,
+      ownerUserId: null,
+      ensureOwner: (userId) => {
+        const current = get().ownerUserId;
+        if (userId && current && current !== userId) {
+          set({ items: [], coworkingSessionId: null, clienteNombre: null, ownerUserId: userId });
+        } else if (userId && !current) {
+          set({ ownerUserId: userId });
+        } else if (!userId && current) {
+          set({ items: [], coworkingSessionId: null, clienteNombre: null, ownerUserId: null });
+        }
+      },
       setItems: (items) => set({ items }),
       addOrIncrementProduct: (item) => {
         const items = get().items;
