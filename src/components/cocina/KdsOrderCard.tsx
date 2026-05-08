@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee, Building2 } from 'lucide-react';
+import { Check, Clock as ClockIcon, UtensilsCrossed, Play, Undo2, Bike, ShoppingBag, Coffee, Building2, Ban, PackageCheck, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface KdsOrderItem {
@@ -10,6 +10,17 @@ export interface KdsOrderItem {
   nombre_producto: string;
   cantidad: number;
   notas: string | null;
+  cancel_requested?: boolean;
+  cancel_qty?: number;
+}
+
+/** Solicitud de cancelación pendiente asociada a un item KDS */
+export interface KdsItemCancelacion {
+  id: string;
+  kds_item_id: string;
+  cantidad: number;
+  motivo: string;
+  nombre_producto: string;
 }
 
 export type KdsEstado = 'pendiente' | 'en_preparacion' | 'listo';
@@ -34,6 +45,12 @@ interface Props {
   onStart?: (orderId: string) => void;
   onMarkReady?: (orderId: string) => void;
   onRevert?: (orderId: string) => void;
+  /** Cancelaciones pendientes asociadas a esta orden, indexadas por kds_item_id */
+  cancelaciones?: KdsItemCancelacion[];
+  /** Resolver una cancelación (cocina decide retorno o merma) */
+  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma') => void;
+  /** Indica si una resolución está en curso (deshabilita botones) */
+  resolvingCancelId?: string | null;
   busy?: boolean;
 }
 
@@ -49,7 +66,7 @@ const ConsumoIcon = ({ tipo }: { tipo: string }) => {
   return <Coffee className="h-3 w-3" />;
 };
 
-export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, busy }: Props) {
+export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelaciones, onResolveCancel, resolvingCancelId, busy }: Props) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -89,15 +106,20 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, busy }: Pr
       : urgencyStyles[urgency];
 
   const isCoworking = !!order.coworking_session_id;
+  const cancelList = cancelaciones ?? [];
+  const cancelByItem = new Map<string, KdsItemCancelacion>();
+  cancelList.forEach((c) => { if (c.kds_item_id) cancelByItem.set(c.kds_item_id, c); });
+  const hasCancel = cancelList.length > 0;
   const coworkingCardStyle = isCoworking && !isReady && !isInProgress
     ? 'border-amber-500/60 bg-amber-500/10 shadow-amber-500/20'
     : '';
+  const cancelCardStyle = hasCancel ? 'border-destructive/70 bg-destructive/5 animate-pulse' : '';
 
   return (
     <Card
       role="article"
       aria-label={`Orden #${String(order.folio).padStart(4, '0')}, ${tipoLabel[order.tipo_consumo] || order.tipo_consumo}, ${order.estado}, ${minutes} minutos ${seconds} segundos`}
-      className={cn('border-2 transition-all duration-300', cardStyle, coworkingCardStyle)}
+      className={cn('border-2 transition-all duration-300', cardStyle, coworkingCardStyle, cancelCardStyle)}
     >
       <CardHeader className="pb-2 pt-3 px-4">
         <div className="flex items-center justify-between gap-2">
@@ -147,23 +169,76 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, busy }: Pr
       </CardHeader>
 
       <CardContent className="px-4 pb-3 space-y-2">
+        {hasCancel && (
+          <div className="rounded-md border border-destructive/60 bg-destructive/10 p-2 text-xs text-destructive font-semibold uppercase tracking-wide flex items-center gap-1.5">
+            <Ban className="h-3.5 w-3.5" /> ¡Cancelación solicitada!
+          </div>
+        )}
         <div className="space-y-1.5">
-          {order.items.map((item) => (
-            <div key={item.id} className="flex items-start gap-2">
-              <span className="text-sm font-semibold text-foreground min-w-[24px]">
-                {item.cantidad}x
-              </span>
-              <div className="flex-1 min-w-0">
-                <span className="text-sm text-foreground">{item.nombre_producto}</span>
-                {item.notas && (
-                  <p className="text-xs text-accent-foreground italic mt-0.5 font-medium bg-accent/40 rounded px-1.5 py-0.5 inline-block">
-                    📝 {item.notas}
-                  </p>
-                )}
+          {order.items.map((item) => {
+            const cancel = cancelByItem.get(item.id);
+            const fullyCanceled = cancel && cancel.cantidad >= item.cantidad;
+            return (
+              <div key={item.id} className="flex items-start gap-2">
+                <span className={cn('text-sm font-semibold min-w-[24px]', fullyCanceled ? 'text-destructive line-through' : 'text-foreground')}>
+                  {item.cantidad}x
+                </span>
+                <div className="flex-1 min-w-0">
+                  <span className={cn('text-sm', fullyCanceled ? 'text-destructive line-through' : 'text-foreground')}>
+                    {item.nombre_producto}
+                  </span>
+                  {cancel && !fullyCanceled && (
+                    <span className="ml-2 text-[10px] uppercase tracking-wide text-destructive font-semibold">
+                      Cancelar ×{cancel.cantidad}
+                    </span>
+                  )}
+                  {item.notas && (
+                    <p className="text-xs text-accent-foreground italic mt-0.5 font-medium bg-accent/40 rounded px-1.5 py-0.5 inline-block">
+                      📝 {item.notas}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {hasCancel && onResolveCancel && (
+          <div className="space-y-2 mt-2 pt-2 border-t border-destructive/30">
+            {cancelList.map((c) => (
+              <div key={c.id} className="rounded-md bg-background/60 border border-border p-2 space-y-2">
+                <div className="text-xs">
+                  <div className="font-semibold text-destructive">{c.nombre_producto} ×{c.cantidad}</div>
+                  <div className="text-muted-foreground italic mt-0.5">"{c.motivo}"</div>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 text-xs font-semibold border-emerald-500/50 text-emerald-700 hover:bg-emerald-500/10"
+                    onClick={() => onResolveCancel(c.id, 'retornado_stock')}
+                    disabled={busy || resolvingCancelId === c.id}
+                    title="No se preparó: regresa los insumos al inventario"
+                  >
+                    <PackageCheck className="h-3.5 w-3.5 mr-1" />
+                    Retornar a stock
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 text-xs font-semibold border-amber-500/50 text-amber-700 hover:bg-amber-500/10"
+                    onClick={() => onResolveCancel(c.id, 'merma')}
+                    disabled={busy || resolvingCancelId === c.id}
+                    title="Ya se preparó: registra los insumos como merma"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Registrar merma
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {isPending && onStart && (
           <Button

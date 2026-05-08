@@ -1,5 +1,5 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { KdsOrderCard, type KdsOrder } from './KdsOrderCard';
+import { KdsOrderCard, type KdsOrder, type KdsItemCancelacion } from './KdsOrderCard';
 import { Clock, ChefHat, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -7,6 +7,9 @@ interface Props {
   onStart: (orderId: string) => void;
   onMarkReady: (orderId: string) => void;
   onRevert: (orderId: string) => void;
+  cancelacionesPorOrden?: Record<string, KdsItemCancelacion[]>;
+  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma') => void;
+  resolvingCancelId?: string | null;
   busyId: string | null;
 }
 
@@ -41,10 +44,12 @@ function Column({ title, icon, iconColor, orders, empty, children }: ColumnProps
   );
 }
 
-export function KdsBoard({ orders, onStart, onMarkReady, onRevert, busyId }: Props) {
+export function KdsBoard({ orders, onStart, onMarkReady, onRevert, cancelacionesPorOrden, onResolveCancel, resolvingCancelId, busyId }: Props) {
   const pendientes = orders.filter((o) => o.estado === 'pendiente');
   const enPrep = orders.filter((o) => o.estado === 'en_preparacion');
   const listos = orders.filter((o) => o.estado === 'listo');
+
+  const cancelsFor = (id: string) => cancelacionesPorOrden?.[id];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
@@ -60,6 +65,9 @@ export function KdsBoard({ orders, onStart, onMarkReady, onRevert, busyId }: Pro
             key={order.id}
             order={order}
             onStart={onStart}
+            cancelaciones={cancelsFor(order.id)}
+            onResolveCancel={onResolveCancel}
+            resolvingCancelId={resolvingCancelId}
             busy={busyId === order.id}
           />
         )}
@@ -77,6 +85,9 @@ export function KdsBoard({ orders, onStart, onMarkReady, onRevert, busyId }: Pro
             key={order.id}
             order={order}
             onMarkReady={onMarkReady}
+            cancelaciones={cancelsFor(order.id)}
+            onResolveCancel={onResolveCancel}
+            resolvingCancelId={resolvingCancelId}
             busy={busyId === order.id}
           />
         )}
@@ -94,6 +105,9 @@ export function KdsBoard({ orders, onStart, onMarkReady, onRevert, busyId }: Pro
             key={order.id}
             order={order}
             onRevert={onRevert}
+            cancelaciones={cancelsFor(order.id)}
+            onResolveCancel={onResolveCancel}
+            resolvingCancelId={resolvingCancelId}
             busy={busyId === order.id}
           />
         )}

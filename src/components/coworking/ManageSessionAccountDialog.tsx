@@ -16,7 +16,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X, Ban } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import type { Area, CoworkingSession } from './types';
 import { enviarASesionKDS } from './sendToKitchen';
 
@@ -36,6 +38,7 @@ interface Producto {
   nombre: string;
   categoria: string;
   precio_venta: number;
+  requiere_preparacion: boolean;
 }
 
 interface SessionItem {
@@ -44,6 +47,8 @@ interface SessionItem {
   nombre: string;
   precio_especial: number;
   cantidad: number;
+  requiere_preparacion: boolean;
+  pendingCancelQty: number;
 }
 
 interface UpsellSnapshotEntry {
@@ -67,10 +72,12 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const [isEditingPax, setIsEditingPax] = useState(false);
   const [tempPax, setTempPax] = useState('');
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
-  // Lock anti doble-clic: serializa todas las mutaciones del diálogo (agregar,
-  // quitar, ajustar cantidad, recalcular amenities, editar pax). Evita que un
-  // usuario impaciente envíe el mismo cambio dos veces y duplique items o
-  // comandas KDS.
+  // Diálogo de solicitud de cancelación (item ya enviado a cocina)
+  const [cancelTarget, setCancelTarget] = useState<SessionItem | null>(null);
+  const [cancelQty, setCancelQty] = useState(1);
+  const [cancelMotivo, setCancelMotivo] = useState('');
+  // Cache de requiere_preparacion por producto_id (para items que no estén en `productos`)
+  const prepCacheRef = useRef<Map<string, boolean>>(new Map());
   const mutationLockRef = useRef(false);
   const [busy, setBusy] = useState(false);
 
@@ -155,6 +162,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         nombre: amenity.nombre || 'Amenity',
         precio_especial: 0,
         cantidad: 1,
+        requiere_preparacion: prepCacheRef.current.get(amenity.producto_id) ?? true,
+        pendingCancelQty: 0,
       }]);
 
       // Enviar a cocina
@@ -174,38 +183,82 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     }
   };
 
+  // Construye un SessionItem usando el cache de requiere_preparacion
+  const buildItem = (u: any, prepFromJoin?: boolean): SessionItem => {
+    const requiere = prepFromJoin ?? prepCacheRef.current.get(u.producto_id) ?? true;
+    return {
+      id: u.id,
+      producto_id: u.producto_id,
+      nombre: u.productos?.nombre ?? u.nombre ?? 'Producto',
+      precio_especial: Number(u.precio_especial) || 0,
+      cantidad: u.cantidad,
+      requiere_preparacion: requiere,
+      pendingCancelQty: 0,
+    };
+  };
+
+  // Recarga items + cancelaciones pendientes (para refrescar pendingCancelQty)
+  const reloadItemsAndCancels = async () => {
+    if (!session) return;
+    const [itemsRes, cancelRes] = await Promise.all([
+      supabase
+        .from('coworking_session_upsells')
+        .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre, requiere_preparacion)')
+        .eq('session_id', session.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('cancelaciones_items_sesion')
+        .select('upsell_id, cantidad')
+        .eq('session_id', session.id)
+        .eq('estado', 'pendiente_decision'),
+    ]);
+    const pendingByUpsell = new Map<string, number>();
+    (cancelRes.data ?? []).forEach((c: any) => {
+      if (c.upsell_id) pendingByUpsell.set(c.upsell_id, (pendingByUpsell.get(c.upsell_id) ?? 0) + (c.cantidad || 0));
+    });
+    const mapped = (itemsRes.data ?? []).map((u: any) => {
+      const requiere = u.productos?.requiere_preparacion !== false;
+      prepCacheRef.current.set(u.producto_id, requiere);
+      const it = buildItem(u, requiere);
+      it.pendingCancelQty = pendingByUpsell.get(u.id) ?? 0;
+      return it;
+    });
+    setItems(mapped);
+  };
+
   useEffect(() => {
     if (!session) return;
     setSearch('');
     const fetchAll = async () => {
       setLoading(true);
-      const [prodRes, itemsRes] = await Promise.all([
-        supabase
-          .from('productos')
-          .select('id, nombre, categoria, precio_venta')
-          .eq('activo', true)
-          .eq('tipo', 'simple')
-          .order('nombre'),
-        supabase
-          .from('coworking_session_upsells')
-          .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-          .eq('session_id', session.id)
-          .order('created_at', { ascending: true }),
-      ]);
-      setProductos((prodRes.data as Producto[]) ?? []);
-      setItems(
-        (itemsRes.data ?? []).map((u: any) => ({
-          id: u.id,
-          producto_id: u.producto_id,
-          nombre: u.productos?.nombre ?? 'Producto',
-          precio_especial: Number(u.precio_especial) || 0,
-          cantidad: u.cantidad,
-        })),
-      );
+      const prodRes = await supabase
+        .from('productos')
+        .select('id, nombre, categoria, precio_venta, requiere_preparacion')
+        .eq('activo', true)
+        .eq('tipo', 'simple')
+        .order('nombre');
+      const prods = (prodRes.data as Producto[]) ?? [];
+      setProductos(prods);
+      prods.forEach(p => prepCacheRef.current.set(p.id, p.requiere_preparacion !== false));
+      await reloadItemsAndCancels();
       setLoading(false);
     };
     fetchAll();
   }, [session]);
+
+  // Realtime: refrescar al cambiar cancelaciones (decisión de cocina)
+  useEffect(() => {
+    if (!session) return;
+    const ch = supabase
+      .channel(`cancel-items-session-${session.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cancelaciones_items_sesion', filter: `session_id=eq.${session.id}` },
+        () => { reloadItemsAndCancels(); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [session?.id]);
 
   const resolvePrice = (productoId: string, precioVenta: number) => {
     if (upsellsMap.has(productoId)) {
@@ -247,6 +300,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         nombre: producto.nombre,
         precio_especial: precio,
         cantidad: 1,
+        requiere_preparacion: prepCacheRef.current.get(producto.id) ?? producto.requiere_preparacion ?? true,
+        pendingCancelQty: 0,
       },
     ]);
 
@@ -282,6 +337,39 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     setItems(prev => prev.filter(i => i.id !== item.id));
     toast({ title: 'Eliminado' });
   };
+
+  const openCancelDialog = (item: SessionItem) => {
+    const maxQty = item.cantidad - item.pendingCancelQty;
+    setCancelTarget(item);
+    setCancelQty(Math.min(1, maxQty) || 1);
+    setCancelMotivo('');
+  };
+
+  const submitCancelRequest = () => withLock(async () => {
+    if (!cancelTarget) return;
+    const motivo = cancelMotivo.trim();
+    if (!motivo) {
+      toast({ variant: 'destructive', title: 'Motivo requerido' });
+      return;
+    }
+    const maxQty = cancelTarget.cantidad - cancelTarget.pendingCancelQty;
+    if (cancelQty < 1 || cancelQty > maxQty) {
+      toast({ variant: 'destructive', title: 'Cantidad inválida', description: `Máximo ${maxQty}.` });
+      return;
+    }
+    const { error } = await supabase.rpc('solicitar_cancelacion_item_sesion' as any, {
+      p_upsell_id: cancelTarget.id,
+      p_cantidad: cancelQty,
+      p_motivo: motivo,
+    });
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      return;
+    }
+    toast({ title: 'Solicitud enviada a cocina', description: `${cancelTarget.nombre} ×${cancelQty}` });
+    setCancelTarget(null);
+    await reloadItemsAndCancels();
+  });
 
   const handleUpdateQuantity = (item: SessionItem, delta: number) => withLock(() => doUpdateQuantity(item, delta));
   const doUpdateQuantity = async (item: SessionItem, delta: number) => {
@@ -458,20 +546,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
     setPendingAmenityUpdate(null);
 
-    const { data: itemsRes } = await supabase
-      .from('coworking_session_upsells')
-      .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-      .eq('session_id', session.id)
-      .order('created_at', { ascending: true });
-    setItems(
-      (itemsRes ?? []).map((u: any) => ({
-        id: u.id,
-        producto_id: u.producto_id,
-        nombre: u.productos?.nombre ?? 'Producto',
-        precio_especial: Number(u.precio_especial) || 0,
-        cantidad: u.cantidad,
-      })),
-    );
+    await reloadItemsAndCancels();
     await onSuccess?.();
   });
 
@@ -563,10 +638,14 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               <div className="space-y-1.5">
                 {items.map(item => {
                   const isAmenity = item.precio_especial === 0;
+                  const requiereCancelacion = item.requiere_preparacion;
+                  const hasPending = item.pendingCancelQty > 0;
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between rounded-md border border-border/60 bg-muted/30 p-2.5 text-sm"
+                      className={`flex items-center justify-between rounded-md border p-2.5 text-sm ${
+                        hasPending ? 'border-destructive/50 bg-destructive/5' : 'border-border/60 bg-muted/30'
+                      }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         {isAmenity ? (
@@ -578,6 +657,11 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                           <span className="font-medium truncate">{item.nombre}</span>
                           {item.cantidad > 1 && (
                             <span className="text-muted-foreground ml-1">×{item.cantidad}</span>
+                          )}
+                          {hasPending && (
+                            <span className="ml-2 text-[10px] uppercase tracking-wide text-destructive font-semibold">
+                              Cancelación pendiente ({item.pendingCancelQty})
+                            </span>
                           )}
                         </div>
                       </div>
@@ -595,8 +679,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => handleUpdateQuantity(item, -1)}
-                            disabled={busy}
-                            title="Disminuir"
+                            disabled={busy || requiereCancelacion}
+                            title={requiereCancelacion ? 'Usa "Solicitar cancelación" (ya enviado a cocina)' : 'Disminuir'}
                           >
                             <Minus className="h-3 w-3" />
                           </Button>
@@ -612,16 +696,29 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             <Plus className="h-3 w-3" />
                           </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                          onClick={() => handleRemove(item)}
-                          disabled={busy}
-                          title="Eliminar"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {requiereCancelacion ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            onClick={() => openCancelDialog(item)}
+                            disabled={busy || hasPending}
+                            title={hasPending ? 'Cancelación ya solicitada' : 'Solicitar cancelación a cocina'}
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            onClick={() => handleRemove(item)}
+                            disabled={busy}
+                            title="Eliminar"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
@@ -736,6 +833,56 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           <AlertDialogFooter>
             <AlertDialogCancel>No, dejar como está</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Sí, actualizar amenities</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Ban className="h-5 w-5 text-destructive" /> Solicitar cancelación a cocina
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Este ítem ya fue enviado a cocina. La cocina decidirá si se retorna a stock o se registra como merma.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {cancelTarget && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-md border bg-muted/30 p-2.5 text-sm">
+                <div className="font-medium">{cancelTarget.nombre}</div>
+                <div className="text-xs text-muted-foreground">
+                  En cuenta: ×{cancelTarget.cantidad}
+                  {cancelTarget.pendingCancelQty > 0 && ` · Pendiente: ${cancelTarget.pendingCancelQty}`}
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cancel-qty">Cantidad a cancelar</Label>
+                <Input
+                  id="cancel-qty"
+                  type="number"
+                  min={1}
+                  max={cancelTarget.cantidad - cancelTarget.pendingCancelQty}
+                  value={cancelQty}
+                  onChange={(e) => setCancelQty(parseInt(e.target.value, 10) || 1)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cancel-motivo">Motivo</Label>
+                <Textarea
+                  id="cancel-motivo"
+                  placeholder="Ej. Cliente cambió de opinión, error en la orden…"
+                  value={cancelMotivo}
+                  onChange={(e) => setCancelMotivo(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Volver</AlertDialogCancel>
+            <AlertDialogAction onClick={submitCancelRequest} disabled={busy} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Enviar solicitud
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { KdsBoard } from '@/components/cocina/KdsBoard';
 import { Clock as KdsClock } from '@/components/cocina/Clock';
 import { StartShiftDialog } from '@/components/cocina/StartShiftDialog';
-import type { KdsOrder, KdsOrderItem, KdsEstado } from '@/components/cocina/KdsOrderCard';
+import type { KdsOrder, KdsOrderItem, KdsEstado, KdsItemCancelacion } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
 import { ChefHat, Wifi, WifiOff, Timer } from 'lucide-react';
 
@@ -25,6 +25,8 @@ export default function CocinaPage() {
     !roles.some((r) => ['administrador', 'supervisor'].includes(r));
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [cancelaciones, setCancelaciones] = useState<KdsItemCancelacion[]>([]);
+  const [resolvingCancelId, setResolvingCancelId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
   const [avgPrepMin, setAvgPrepMin] = useState<number | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
@@ -187,6 +189,8 @@ export default function CocinaPage() {
         nombre_producto: item.nombre_producto,
         cantidad: item.cantidad,
         notas: item.notas,
+        cancel_requested: item.cancel_requested ?? false,
+        cancel_qty: item.cancel_qty ?? 0,
       });
     });
 
@@ -263,6 +267,8 @@ export default function CocinaPage() {
       nombre_producto: it.nombre_producto,
       cantidad: it.cantidad,
       notas: it.notas,
+      cancel_requested: it.cancel_requested ?? false,
+      cancel_qty: it.cancel_qty ?? 0,
     }));
 
     // Enriquecer con datos de coworking si aplica
@@ -428,6 +434,8 @@ export default function CocinaPage() {
                     nombre_producto: it.nombre_producto,
                     cantidad: it.cantidad,
                     notas: it.notas,
+                    cancel_requested: it.cancel_requested ?? false,
+                    cancel_qty: it.cancel_qty ?? 0,
                   },
                 ],
               };
@@ -595,6 +603,73 @@ export default function CocinaPage() {
   const handleMarkReady = (orderId: string) => updateEstado(orderId, 'listo');
   const handleRevert = (orderId: string) => updateEstado(orderId, 'en_preparacion');
 
+  // ------- Cancelaciones de items de sesión coworking -------
+  const fetchCancelaciones = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('cancelaciones_items_sesion')
+      .select('id, kds_item_id, kds_order_id, cantidad, motivo, nombre_producto, estado')
+      .eq('estado', 'pendiente_decision');
+    if (error) {
+      console.error('Error fetching cancelaciones', error);
+      return;
+    }
+    setCancelaciones(
+      (data ?? []).map((c: any) => ({
+        id: c.id,
+        kds_item_id: c.kds_item_id,
+        cantidad: c.cantidad,
+        motivo: c.motivo,
+        nombre_producto: c.nombre_producto,
+        // attach order id via property for indexing below
+        ...(c.kds_order_id ? { kds_order_id: c.kds_order_id } : {}),
+      })) as any,
+    );
+  }, []);
+
+  useEffect(() => {
+    fetchCancelaciones();
+    const ch = supabase
+      .channel('cancelaciones-cocina')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cancelaciones_items_sesion' },
+        () => { fetchCancelaciones(); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [fetchCancelaciones]);
+
+  const cancelacionesPorOrden = useMemo(() => {
+    const map: Record<string, KdsItemCancelacion[]> = {};
+    (cancelaciones as any[]).forEach((c) => {
+      const oid = c.kds_order_id;
+      if (!oid) return;
+      if (!map[oid]) map[oid] = [];
+      map[oid].push(c);
+    });
+    return map;
+  }, [cancelaciones]);
+
+  const handleResolveCancel = async (
+    cancelId: string,
+    decision: 'retornado_stock' | 'merma',
+  ) => {
+    setResolvingCancelId(cancelId);
+    const { error } = await supabase.rpc('resolver_cancelacion_item_sesion' as any, {
+      p_cancelacion_id: cancelId,
+      p_decision: decision,
+      p_notas: null,
+    });
+    if (error) {
+      toast.error('Error al resolver cancelación', { description: error.message });
+    } else {
+      toast.success(decision === 'retornado_stock' ? 'Insumos retornados a stock' : 'Merma registrada');
+      // Optimistic remove
+      setCancelaciones((prev) => prev.filter((c) => c.id !== cancelId));
+    }
+    setResolvingCancelId(null);
+  };
+
   const activeCount = orders.filter((o) => o.estado !== 'listo').length;
 
   return (
@@ -653,6 +728,9 @@ export default function CocinaPage() {
           onStart={handleStart}
           onMarkReady={handleMarkReady}
           onRevert={handleRevert}
+          cancelacionesPorOrden={cancelacionesPorOrden}
+          onResolveCancel={handleResolveCancel}
+          resolvingCancelId={resolvingCancelId}
           busyId={busyId}
         />
       </div>
