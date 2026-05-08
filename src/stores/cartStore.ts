@@ -6,6 +6,8 @@ interface CartState {
   items: CartItem[];
   coworkingSessionId: string | null;
   clienteNombre: string | null;
+  ownerUserId: string | null;
+  ensureOwner: (userId: string | null) => void;
   setItems: (items: CartItem[]) => void;
   addOrIncrementProduct: (item: CartItem) => void;
   addOrIncrementPaquete: (item: CartItem) => void;
@@ -23,6 +25,17 @@ export const useCartStore = create<CartState>()(
       items: [],
       coworkingSessionId: null,
       clienteNombre: null,
+      ownerUserId: null,
+      ensureOwner: (userId) => {
+        const current = get().ownerUserId;
+        if (userId && current && current !== userId) {
+          set({ items: [], coworkingSessionId: null, clienteNombre: null, ownerUserId: userId });
+        } else if (userId && !current) {
+          set({ ownerUserId: userId });
+        } else if (!userId && current) {
+          set({ items: [], coworkingSessionId: null, clienteNombre: null, ownerUserId: null });
+        }
+      },
       setItems: (items) => set({ items }),
       addOrIncrementProduct: (item) => {
         const items = get().items;
@@ -83,6 +96,7 @@ export const useCartStore = create<CartState>()(
       removeItem: (productoId) =>
         set({ items: get().items.filter((i) => i.producto_id !== productoId) }),
       clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null }),
+      // ownerUserId no se borra en clear() — sólo cambia al cambiar de usuario via ensureOwner.
       importCoworkingSession: (items, sessionId, clienteNombre) =>
         set({ items, coworkingSessionId: sessionId, clienteNombre }),
     }),

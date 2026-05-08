@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductGrid } from '@/components/pos/ProductGrid';
@@ -8,10 +8,13 @@ import { ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
 import { useCartStore } from '@/stores/cartStore';
+import { useAuth } from '@/hooks/useAuth';
 
 const PosPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const items = useCartStore((s) => s.items);
+  const ensureOwner = useCartStore((s) => s.ensureOwner);
   const addOrIncrementProduct = useCartStore((s) => s.addOrIncrementProduct);
   const addOrIncrementPaquete = useCartStore((s) => s.addOrIncrementPaquete);
   const updateQty = useCartStore((s) => s.updateQty);
@@ -19,14 +22,19 @@ const PosPage = () => {
   const removeItem = useCartStore((s) => s.removeItem);
   const clear = useCartStore((s) => s.clear);
 
+  // Si cambia el usuario logueado en la misma pestaña, limpia el carrito del anterior.
+  useEffect(() => {
+    ensureOwner(user?.id ?? null);
+  }, [user?.id, ensureOwner]);
+
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
     if (p.tipo === 'paquete') {
       const { data: validacionPaquete, error: rpcErr } = await supabase.rpc(
-        'validar_stock_paquete' as any,
+        'validar_stock_paquete',
         { p_paquete_id: p.id, p_cantidad: 1 }
       );
       if (rpcErr) { toast.error('Error al validar stock del paquete'); return; }
-      const resultado = validacionPaquete as { valido: boolean; error?: string };
+      const resultado = validacionPaquete as unknown as { valido: boolean; error?: string };
       if (!resultado?.valido) { toast.error(resultado?.error || 'Stock insuficiente para este paquete'); return; }
 
       const { data: comps } = await supabase
