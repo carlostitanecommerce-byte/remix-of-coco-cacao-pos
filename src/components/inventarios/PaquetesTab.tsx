@@ -591,25 +591,41 @@ const PaquetesTab = ({ isAdmin }: Props) => {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => !o && setDeleteCandidate(null)}>
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); setHasSalesHistory(false); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Eliminar paquete</AlertDialogTitle>
+            <AlertDialogTitle>
+              {hasSalesHistory ? `Desactivar "${deleteCandidate?.nombre}"` : 'Eliminar paquete'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Eliminar el paquete "{deleteCandidate?.nombre}"? Esta acción no se puede deshacer.
+              {deleteBlock ?? `¿Eliminar el paquete "${deleteCandidate?.nombre}"? Esta acción no se puede deshacer.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={async () => {
-                if (deleteCandidate) await handleDelete(deleteCandidate);
-                setDeleteCandidate(null);
-              }}
-            >
-              Eliminar
-            </AlertDialogAction>
+            {hasSalesHistory ? (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={async () => {
+                  if (deleteCandidate) await handleSoftDelete(deleteCandidate);
+                  setDeleteCandidate(null);
+                  setDeleteBlock(null);
+                  setHasSalesHistory(false);
+                }}
+              >
+                Desactivar paquete
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={async () => {
+                  if (deleteCandidate) await handleDelete(deleteCandidate);
+                  setDeleteCandidate(null);
+                }}
+              >
+                Eliminar
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
