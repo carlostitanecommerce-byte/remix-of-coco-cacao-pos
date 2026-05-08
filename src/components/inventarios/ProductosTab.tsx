@@ -606,7 +606,6 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                   </div>
                 </div>
               </div>
-              </div>
               <div className="col-span-2 space-y-1">
                 <Label>Modo de Preparación Exacto</Label>
                 <Textarea
