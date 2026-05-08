@@ -286,6 +286,41 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
           </Button>
         )}
       </CardContent>
+
+      <AlertDialog open={!!resolveDialog} onOpenChange={(o) => { if (!o) setResolveDialog(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {resolveDialog?.decision === 'retornado_stock' ? 'Retornar a stock' : 'Registrar merma'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resolveDialog?.decision === 'retornado_stock'
+                ? `Los insumos de "${resolveDialog?.nombre}" se reintegrarán al inventario.`
+                : `Se mantendrá el descuento de inventario y se registrará "${resolveDialog?.nombre}" como merma.`}
+              {' '}Puedes agregar una nota visible para el solicitante.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+            placeholder="Notas opcionales para cocina/solicitante…"
+            className="min-h-[80px]"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (resolveDialog && onResolveCancel) {
+                  onResolveCancel(resolveDialog.cancelId, resolveDialog.decision, notas.trim() || null);
+                }
+                setResolveDialog(null);
+              }}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
