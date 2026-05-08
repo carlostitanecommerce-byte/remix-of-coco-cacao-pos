@@ -126,19 +126,8 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
   const totalSalidas = movimientos.filter(m => m.tipo === 'salida').reduce((s, m) => s + m.monto, 0);
   const contado = parseFloat(montoContado) || 0;
 
-  const handleSubmit = async () => {
-    if (!montoContado || isNaN(parseFloat(montoContado))) {
-      toast.error('Ingresa el monto contado');
-      return;
-    }
-    if (sesionesActivas.length > 0) {
-      const ok = window.confirm(
-        `Hay ${sesionesActivas.length} sesión(es) de coworking sin cobrar:\n\n` +
-        sesionesActivas.map(s => `• ${s.cliente_nombre}`).join('\n') +
-        `\n\n¿Cerrar la caja de todas formas? Estas sesiones quedarán pendientes para el siguiente turno.`
-      );
-      if (!ok) return;
-    }
+  const ejecutarCierre = async () => {
+    setConfirmCierreOpen(false);
     setSaving(true);
     const result = await onCerrarCaja(contado, notasCierre.trim() || undefined);
     setSaving(false);
@@ -150,6 +139,18 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
       setSubmitted(true);
       toast.success('Caja cerrada exitosamente');
     }
+  };
+
+  const handleSubmit = () => {
+    if (!montoContado || isNaN(parseFloat(montoContado))) {
+      toast.error('Ingresa el monto contado');
+      return;
+    }
+    if (sesionesActivas.length > 0) {
+      setConfirmCierreOpen(true);
+      return;
+    }
+    void ejecutarCierre();
   };
 
   // Post-submit result view
