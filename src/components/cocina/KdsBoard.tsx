@@ -1,5 +1,5 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { KdsOrderCard, type KdsOrder } from './KdsOrderCard';
+import { KdsOrderCard, type KdsOrder, type KdsItemCancelacion } from './KdsOrderCard';
 import { Clock, ChefHat, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -7,6 +7,9 @@ interface Props {
   onStart: (orderId: string) => void;
   onMarkReady: (orderId: string) => void;
   onRevert: (orderId: string) => void;
+  cancelacionesPorOrden?: Record<string, KdsItemCancelacion[]>;
+  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma') => void;
+  resolvingCancelId?: string | null;
   busyId: string | null;
 }
 
