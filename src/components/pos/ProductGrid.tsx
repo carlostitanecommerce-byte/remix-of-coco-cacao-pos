@@ -27,6 +27,7 @@ const DENSITY_KEY = 'pos-grid-density';
 
 export function ProductGrid({ onAdd }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [loading, setLoading] = useState(true);
   const { categorias: categoriasDB } = useCategorias();
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
   const [densidad, setDensidad] = useState<Densidad>(() => {
@@ -39,13 +40,16 @@ export function ProductGrid({ onAdd }: Props) {
   }, [densidad]);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchProductos = async () => {
       const { data } = await supabase
         .from('productos')
         .select('id, nombre, categoria, precio_venta, precio_upsell_coworking, activo, tipo, imagen_url')
         .eq('activo', true)
         .order('nombre');
+      if (cancelled) return;
       if (data) setProductos(data as Producto[]);
+      setLoading(false);
     };
     fetchProductos();
 
@@ -53,13 +57,20 @@ export function ProductGrid({ onAdd }: Props) {
       .channel('pos-productos-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => fetchProductos())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { cancelled = true; supabase.removeChannel(channel); };
   }, []);
 
   const categoriasConProductos = categoriasDB.filter(cat =>
     productos.some(p => p.categoria === cat)
   );
   const allTabs = ['Todos', ...categoriasConProductos];
+
+  // Si la categoría seleccionada desaparece (admin la borró), regresa a "Todos".
+  useEffect(() => {
+    if (!loading && !allTabs.includes(categoriaActiva)) {
+      setCategoriaActiva('Todos');
+    }
+  }, [allTabs, categoriaActiva, loading]);
 
   const filtered = productos.filter(p =>
     categoriaActiva === 'Todos' || p.categoria === categoriaActiva
