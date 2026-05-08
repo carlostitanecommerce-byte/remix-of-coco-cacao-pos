@@ -603,6 +603,73 @@ export default function CocinaPage() {
   const handleMarkReady = (orderId: string) => updateEstado(orderId, 'listo');
   const handleRevert = (orderId: string) => updateEstado(orderId, 'en_preparacion');
 
+  // ------- Cancelaciones de items de sesión coworking -------
+  const fetchCancelaciones = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('cancelaciones_items_sesion')
+      .select('id, kds_item_id, kds_order_id, cantidad, motivo, nombre_producto, estado')
+      .eq('estado', 'pendiente_decision');
+    if (error) {
+      console.error('Error fetching cancelaciones', error);
+      return;
+    }
+    setCancelaciones(
+      (data ?? []).map((c: any) => ({
+        id: c.id,
+        kds_item_id: c.kds_item_id,
+        cantidad: c.cantidad,
+        motivo: c.motivo,
+        nombre_producto: c.nombre_producto,
+        // attach order id via property for indexing below
+        ...(c.kds_order_id ? { kds_order_id: c.kds_order_id } : {}),
+      })) as any,
+    );
+  }, []);
+
+  useEffect(() => {
+    fetchCancelaciones();
+    const ch = supabase
+      .channel('cancelaciones-cocina')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cancelaciones_items_sesion' },
+        () => { fetchCancelaciones(); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [fetchCancelaciones]);
+
+  const cancelacionesPorOrden = useMemo(() => {
+    const map: Record<string, KdsItemCancelacion[]> = {};
+    (cancelaciones as any[]).forEach((c) => {
+      const oid = c.kds_order_id;
+      if (!oid) return;
+      if (!map[oid]) map[oid] = [];
+      map[oid].push(c);
+    });
+    return map;
+  }, [cancelaciones]);
+
+  const handleResolveCancel = async (
+    cancelId: string,
+    decision: 'retornado_stock' | 'merma',
+  ) => {
+    setResolvingCancelId(cancelId);
+    const { error } = await supabase.rpc('resolver_cancelacion_item_sesion' as any, {
+      p_cancelacion_id: cancelId,
+      p_decision: decision,
+      p_notas: null,
+    });
+    if (error) {
+      toast.error('Error al resolver cancelación', { description: error.message });
+    } else {
+      toast.success(decision === 'retornado_stock' ? 'Insumos retornados a stock' : 'Merma registrada');
+      // Optimistic remove
+      setCancelaciones((prev) => prev.filter((c) => c.id !== cancelId));
+    }
+    setResolvingCancelId(null);
+  };
+
   const activeCount = orders.filter((o) => o.estado !== 'listo').length;
 
   return (
