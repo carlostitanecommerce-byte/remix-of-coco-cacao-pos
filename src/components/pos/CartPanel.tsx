@@ -65,32 +65,32 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
   const renderItem = (item: CartItem) => {
     const isPaquete = item.tipo_concepto === 'paquete';
     return (
-      <div key={item.producto_id} className="rounded-md border border-border p-2 bg-card">
-        <div className="flex items-center gap-2">
+      <div key={item.producto_id} className="rounded-md border border-border p-1.5 bg-card">
+        <div className="flex items-center gap-1.5">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
               {isPaquete && <Package className="h-3 w-3 text-primary shrink-0" />}
-              <p className="text-sm font-medium truncate">{item.nombre}</p>
+              <p className="text-xs font-medium truncate">{item.nombre}</p>
             </div>
-            <p className="text-xs text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
+            <p className="text-[10px] text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
           </div>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onUpdateQty(item.producto_id, -1)}>
+          <div className="flex items-center gap-0.5">
+            <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => onUpdateQty(item.producto_id, -1)}>
               <Minus className="h-3 w-3" />
             </Button>
-            <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>
-            <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onUpdateQty(item.producto_id, 1)}>
+            <span className="w-5 text-center text-xs font-medium">{item.cantidad}</span>
+            <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => onUpdateQty(item.producto_id, 1)}>
               <Plus className="h-3 w-3" />
             </Button>
           </div>
-          <p className="text-sm font-bold w-16 text-right">${item.subtotal.toFixed(2)}</p>
+          <p className="text-xs font-bold w-14 text-right">${item.subtotal.toFixed(2)}</p>
           {onUpdateNotas && (
             <NotesPopover
               value={item.notas ?? ''}
               onChange={(v) => onUpdateNotas(item.producto_id, v)}
             />
           )}
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(item.producto_id)}>
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => onRemove(item.producto_id)}>
             <Trash2 className="h-3 w-3" />
           </Button>
         </div>
@@ -113,9 +113,9 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-heading font-bold text-lg flex items-center gap-2">
-          <ShoppingCart className="h-5 w-5" /> Ticket
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="font-heading font-bold text-base flex items-center gap-2">
+          <ShoppingCart className="h-4 w-4" /> Ticket
         </h2>
         {items.length > 0 && (
           <Button variant="ghost" size="sm" onClick={onClear} className="text-destructive hover:text-destructive">

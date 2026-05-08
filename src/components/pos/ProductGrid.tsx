@@ -75,20 +75,18 @@ export function ProductGrid({ onAdd }: Props) {
     <div className="flex flex-col h-full">
       {/* Barra sticky: categorías + toggle densidad */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm pb-2 -mt-1 pt-1">
-        <div className="flex items-center gap-2">
-          <div className="flex-1 overflow-x-auto scrollbar-thin">
-            <div className="flex gap-1.5 min-w-min">
-              {allTabs.map(cat => (
-                <Badge
-                  key={cat}
-                  variant={categoriaActiva === cat ? 'default' : 'outline'}
-                  className="cursor-pointer select-none whitespace-nowrap shrink-0"
-                  onClick={() => setCategoriaActiva(cat)}
-                >
-                  {cat}
-                </Badge>
-              ))}
-            </div>
+        <div className="flex items-start gap-2">
+          <div className="flex-1 flex flex-wrap gap-1.5">
+            {allTabs.map(cat => (
+              <Badge
+                key={cat}
+                variant={categoriaActiva === cat ? 'default' : 'outline'}
+                className="cursor-pointer select-none text-xs px-2 py-0.5"
+                onClick={() => setCategoriaActiva(cat)}
+              >
+                {cat}
+              </Badge>
+            ))}
           </div>
           <Button
             variant="outline"
@@ -135,12 +133,9 @@ export function ProductGrid({ onAdd }: Props) {
                     </Badge>
                   )}
                 </div>
-                <div className="p-1.5 flex flex-col">
-                  <span className={cn('font-medium leading-tight truncate', isCompacto ? 'text-[11px]' : 'text-sm')}>
+                <div className="p-1.5">
+                  <span className={cn('block font-medium leading-tight truncate', isCompacto ? 'text-[11px]' : 'text-sm')}>
                     {p.nombre}
-                  </span>
-                  <span className={cn('font-bold text-primary', isCompacto ? 'text-xs' : 'text-sm')}>
-                    ${p.precio_venta.toFixed(2)}
                   </span>
                 </div>
               </div>
