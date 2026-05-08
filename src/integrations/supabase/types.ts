@@ -116,6 +116,60 @@ export type Database = {
         }
         Relationships: []
       }
+      cancelaciones_items_sesion: {
+        Row: {
+          cantidad: number
+          created_at: string
+          decided_at: string | null
+          decidido_por: string | null
+          estado: Database["public"]["Enums"]["cancelacion_item_estado"]
+          id: string
+          kds_item_id: string | null
+          kds_order_id: string | null
+          motivo: string
+          nombre_producto: string
+          notas_cocina: string | null
+          producto_id: string
+          session_id: string
+          solicitante_id: string
+          upsell_id: string | null
+        }
+        Insert: {
+          cantidad: number
+          created_at?: string
+          decided_at?: string | null
+          decidido_por?: string | null
+          estado?: Database["public"]["Enums"]["cancelacion_item_estado"]
+          id?: string
+          kds_item_id?: string | null
+          kds_order_id?: string | null
+          motivo: string
+          nombre_producto: string
+          notas_cocina?: string | null
+          producto_id: string
+          session_id: string
+          solicitante_id: string
+          upsell_id?: string | null
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string
+          decided_at?: string | null
+          decidido_por?: string | null
+          estado?: Database["public"]["Enums"]["cancelacion_item_estado"]
+          id?: string
+          kds_item_id?: string | null
+          kds_order_id?: string | null
+          motivo?: string
+          nombre_producto?: string
+          notas_cocina?: string | null
+          producto_id?: string
+          session_id?: string
+          solicitante_id?: string
+          upsell_id?: string | null
+        }
+        Relationships: []
+      }
       categorias_maestras: {
         Row: {
           created_at: string
@@ -496,6 +550,8 @@ export type Database = {
       }
       kds_order_items: {
         Row: {
+          cancel_qty: number
+          cancel_requested: boolean
           cantidad: number
           created_at: string
           id: string
@@ -505,6 +561,8 @@ export type Database = {
           producto_id: string | null
         }
         Insert: {
+          cancel_qty?: number
+          cancel_requested?: boolean
           cantidad?: number
           created_at?: string
           id?: string
@@ -514,6 +572,8 @@ export type Database = {
           producto_id?: string | null
         }
         Update: {
+          cancel_qty?: number
+          cancel_requested?: boolean
           cantidad?: number
           created_at?: string
           id?: string
@@ -1158,6 +1218,14 @@ export type Database = {
         Args: { p_cantidad: number; p_insumo_id: string; p_motivo: string }
         Returns: Json
       }
+      resolver_cancelacion_item_sesion: {
+        Args: { p_cancelacion_id: string; p_decision: string; p_notas?: string }
+        Returns: Json
+      }
+      solicitar_cancelacion_item_sesion: {
+        Args: { p_cantidad: number; p_motivo: string; p_upsell_id: string }
+        Returns: Json
+      }
       validar_stock_carrito: { Args: { p_items: Json }; Returns: Json }
       validar_stock_disponible: {
         Args: { p_cantidad: number; p_producto_id: string }
@@ -1176,6 +1244,11 @@ export type Database = {
         | "barista"
         | "recepcion"
       caja_estado: "abierta" | "cerrada"
+      cancelacion_item_estado:
+        | "pendiente_decision"
+        | "retornado_stock"
+        | "merma"
+        | "rechazado"
       coworking_estado: "activo" | "finalizado" | "cancelado" | "pendiente_pago"
       kds_estado: "pendiente" | "en_preparacion" | "listo" | "expirada"
       metodo_pago: "efectivo" | "tarjeta" | "transferencia" | "mixto"
@@ -1322,6 +1395,12 @@ export const Constants = {
     Enums: {
       app_role: ["administrador", "supervisor", "caja", "barista", "recepcion"],
       caja_estado: ["abierta", "cerrada"],
+      cancelacion_item_estado: [
+        "pendiente_decision",
+        "retornado_stock",
+        "merma",
+        "rechazado",
+      ],
       coworking_estado: ["activo", "finalizado", "cancelado", "pendiente_pago"],
       kds_estado: ["pendiente", "en_preparacion", "listo", "expirada"],
       metodo_pago: ["efectivo", "tarjeta", "transferencia", "mixto"],
