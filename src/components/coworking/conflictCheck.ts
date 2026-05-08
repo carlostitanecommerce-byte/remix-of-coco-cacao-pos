@@ -1,5 +1,12 @@
 import { supabase } from '@/integrations/supabase/client';
 
+/** Build a Date anchored to CDMX (-06:00) from a YYYY-MM-DD + HH:mm string. */
+function cdmxDate(fecha: string, hora: string): Date {
+  // Normalize hora to HH:mm:ss
+  const h = hora.length === 5 ? `${hora}:00` : hora;
+  return new Date(`${fecha}T${h}-06:00`);
+}
+
 /**
  * Checks if a new/edited reservation conflicts with existing reservations or active sessions.
  * For private areas: any overlap = blocked.
@@ -17,7 +24,7 @@ export async function checkReservationConflict(params: {
 }): Promise<{ hasConflict: boolean; message: string }> {
   const { areaId, fechaReserva, horaInicio, duracionHoras, paxCount, esPrivado, capacidadPax, excludeReservacionId } = params;
 
-  const startDate = new Date(`${fechaReserva}T${horaInicio}`);
+  const startDate = cdmxDate(fechaReserva, horaInicio);
   const endDate = new Date(startDate.getTime() + duracionHoras * 3600000);
 
   // Check overlapping reservations
