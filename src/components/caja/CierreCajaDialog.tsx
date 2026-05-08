@@ -36,6 +36,7 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
   const [submitted, setSubmitted] = useState(false);
   const [resultEsperado, setResultEsperado] = useState<number | null>(null);
   const [resultDiferencia, setResultDiferencia] = useState<number | null>(null);
+  const [confirmCierreOpen, setConfirmCierreOpen] = useState(false);
 
   const [ventasEfectivo, setVentasEfectivo] = useState(0);
   const [ventasTarjeta, setVentasTarjeta] = useState(0);
