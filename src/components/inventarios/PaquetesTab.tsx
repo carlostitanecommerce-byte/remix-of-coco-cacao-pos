@@ -357,11 +357,16 @@ const PaquetesTab = ({ isAdmin }: Props) => {
   };
 
   const handleDelete = async (p: Paquete) => {
+    const imagenPrevia = p.imagen_url ?? null;
     await supabase.from('paquete_componentes').delete().eq('paquete_id', p.id);
     const { error } = await supabase.from('productos').delete().eq('id', p.id);
     if (error) {
       toast.error('Error al eliminar paquete');
       return;
+    }
+    // M3: si tenía imagen propia en el bucket, eliminarla
+    if (imagenPrevia && extraerPathProducto(imagenPrevia)) {
+      await eliminarImagenesStorage([imagenPrevia]);
     }
     if (user) {
       await supabase.from('audit_logs').insert({
