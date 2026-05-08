@@ -389,9 +389,14 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
 
   const confirmDelete = async () => {
     if (!deleteCandidate) return;
+    const imagenPrevia = deleteCandidate.imagen_url ?? null;
     const { error } = await supabase.from('productos').delete().eq('id', deleteCandidate.id);
     if (error) toast.error('Error al eliminar producto');
     else {
+      // M2: si tenía imagen propia en el bucket, eliminarla
+      if (imagenPrevia && extraerPathProducto(imagenPrevia)) {
+        await eliminarImagenesStorage([imagenPrevia]);
+      }
       toast.success('Producto eliminado');
       if (user) {
         await supabase.from('audit_logs').insert({
