@@ -13,6 +13,7 @@ import { verificarStock } from '@/hooks/useValidarStock';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
+import { checkWalkInVsReservations } from './conflictCheck';
 
 interface Tarifa {
   id: string;
