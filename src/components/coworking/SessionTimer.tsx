@@ -27,7 +27,7 @@ function formatRemainingMin(min: number) {
 
 export function SessionTimer({ fechaInicio, fechaFinEstimada, fechaSalidaReal, variant = 'inline' }: Props) {
   const frozen = !!fechaSalidaReal;
-  const now = useNow(1000, !frozen);
+  const now = useNow(!frozen);
   const ref = frozen ? new Date(fechaSalidaReal!).getTime() : now;
   const inicio = new Date(fechaInicio).getTime();
   const fin = new Date(fechaFinEstimada).getTime();
