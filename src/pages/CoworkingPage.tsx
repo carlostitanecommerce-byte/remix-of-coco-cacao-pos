@@ -15,7 +15,7 @@ import { ReservacionesTab } from '@/components/coworking/ReservacionesTab';
 import { ConfiguracionTab } from '@/components/coworking/ConfiguracionTab';
 import type { CoworkingSession, CheckoutSummary } from '@/components/coworking/types';
 import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
-import { nowCDMX } from '@/lib/utils';
+
 
 const CoworkingPage = () => {
   const { roles } = useAuth();
@@ -38,14 +38,18 @@ const CoworkingPage = () => {
     const area = data.areas.find(a => a.id === session.area_id);
     if (!area) return;
 
-    // Freeze fecha_salida_real in DB if not already set
+    // Atomic freeze: ensures concurrent tabs/devices share the same fecha_salida_real
     if (!session.fecha_salida_real) {
-      const ahora = nowCDMX();
-      await supabase
-        .from('coworking_sessions')
-        .update({ fecha_salida_real: ahora })
-        .eq('id', session.id);
-      session = { ...session, fecha_salida_real: ahora };
+      const { data: freezeData, error: freezeErr } = await supabase
+        .rpc('freeze_checkout_coworking' as any, { p_session_id: session.id });
+      if (freezeErr) {
+        console.error('freeze_checkout_coworking failed', freezeErr);
+        return;
+      }
+      const row = Array.isArray(freezeData) ? freezeData[0] : freezeData;
+      const frozen = (row as any)?.fecha_salida_real;
+      if (!frozen) return;
+      session = { ...session, fecha_salida_real: frozen as string };
     }
 
     const inicio = new Date(session.fecha_inicio);

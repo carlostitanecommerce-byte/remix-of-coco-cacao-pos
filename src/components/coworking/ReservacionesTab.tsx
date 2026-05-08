@@ -5,8 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -42,6 +47,9 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
   const [horaInicio, setHoraInicio] = useState('09:00');
   const [duracion, setDuracion] = useState('1');
   const [saving, setSaving] = useState(false);
+  const [reservacionToCancel, setReservacionToCancel] = useState<Reservacion | null>(null);
+  const [cancelMotivo, setCancelMotivo] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   // Scroll to selected row when switching to list tab
   useEffect(() => {
@@ -163,22 +171,34 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
     setSaving(false);
   };
 
-  const handleCancel = async (r: Reservacion) => {
-    if (!user) return;
+  const requestCancel = (r: Reservacion) => {
+    setReservacionToCancel(r);
+    setCancelMotivo('');
+  };
+
+  const confirmCancel = async () => {
+    const r = reservacionToCancel;
+    if (!r || !user) return;
+    setCancelling(true);
     const { error } = await supabase.from('coworking_reservaciones')
       .update({ estado: 'cancelada' }).eq('id', r.id);
     if (error) {
       toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } else {
-      await supabase.from('audit_logs').insert({
-        user_id: user.id, accion: 'cancelar_reservacion',
-        descripcion: `Cancelada reservación de ${r.cliente_nombre}`,
-        metadata: { reservacion_id: r.id },
-      });
-      toast({ title: 'Reservación cancelada' });
-      if (selectedReservacionId === r.id) setSelectedReservacionId(null);
-      await onSuccess?.();
+      setCancelling(false);
+      return;
     }
+    const motivoTxt = cancelMotivo.trim();
+    await supabase.from('audit_logs').insert({
+      user_id: user.id, accion: 'cancelar_reservacion',
+      descripcion: `Cancelada reservación de ${r.cliente_nombre}${motivoTxt ? ` — Motivo: ${motivoTxt}` : ''}`,
+      metadata: { reservacion_id: r.id, motivo: motivoTxt || null },
+    });
+    toast({ title: 'Reservación cancelada' });
+    if (selectedReservacionId === r.id) setSelectedReservacionId(null);
+    await onSuccess?.();
+    setReservacionToCancel(null);
+    setCancelMotivo('');
+    setCancelling(false);
   };
 
   const estadoBadge = (estado: string) => {
@@ -329,7 +349,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
                                 <Button variant="ghost" size="sm" onClick={() => openEdit(r)} title="Reagendar">
                                   <Edit className="h-3 w-3" />
                                 </Button>
-                                <Button variant="ghost" size="sm" onClick={() => handleCancel(r)} title="Cancelar" className="text-destructive">
+                                <Button variant="ghost" size="sm" onClick={() => requestCancel(r)} title="Cancelar" className="text-destructive">
                                   <X className="h-3 w-3" />
                                 </Button>
                               </div>
@@ -345,6 +365,40 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
           </Tabs>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!reservacionToCancel} onOpenChange={(v) => { if (!v && !cancelling) { setReservacionToCancel(null); setCancelMotivo(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar reservación?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {reservacionToCancel && (
+                <>Se cancelará la reservación de <span className="font-semibold">{reservacionToCancel.cliente_nombre}</span> para el {reservacionToCancel.fecha_reserva} a las {reservacionToCancel.hora_inicio.slice(0, 5)}. Esta acción no se puede deshacer.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="motivo-cancelacion">Motivo (opcional)</Label>
+            <Textarea
+              id="motivo-cancelacion"
+              value={cancelMotivo}
+              onChange={(e) => setCancelMotivo(e.target.value)}
+              placeholder="Ej: Cliente avisó que no podrá asistir"
+              maxLength={300}
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelling}>Volver</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cancelling}
+              onClick={(e) => { e.preventDefault(); confirmCancel(); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancelling ? 'Cancelando...' : 'Cancelar reservación'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

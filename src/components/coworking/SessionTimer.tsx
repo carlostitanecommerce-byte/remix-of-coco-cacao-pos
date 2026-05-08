@@ -1,22 +1,12 @@
-import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Clock, AlertTriangle } from 'lucide-react';
+import { useNow } from '@/hooks/useNow';
 
 interface Props {
   fechaInicio: string;
   fechaFinEstimada: string;
   fechaSalidaReal?: string | null;
   variant?: 'inline' | 'compact';
-}
-
-function useNow(intervalMs = 1000, enabled = true) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!enabled) return;
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs, enabled]);
-  return now;
 }
 
 function formatHMS(totalSec: number) {
@@ -37,7 +27,7 @@ function formatRemainingMin(min: number) {
 
 export function SessionTimer({ fechaInicio, fechaFinEstimada, fechaSalidaReal, variant = 'inline' }: Props) {
   const frozen = !!fechaSalidaReal;
-  const now = useNow(1000, !frozen);
+  const now = useNow(!frozen);
   const ref = frozen ? new Date(fechaSalidaReal!).getTime() : now;
   const inicio = new Date(fechaInicio).getTime();
   const fin = new Date(fechaFinEstimada).getTime();
