@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { KdsBoard } from '@/components/cocina/KdsBoard';
 import { Clock as KdsClock } from '@/components/cocina/Clock';
 import { StartShiftDialog } from '@/components/cocina/StartShiftDialog';
-import type { KdsOrder, KdsOrderItem, KdsEstado } from '@/components/cocina/KdsOrderCard';
+import type { KdsOrder, KdsOrderItem, KdsEstado, KdsItemCancelacion } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
 import { ChefHat, Wifi, WifiOff, Timer } from 'lucide-react';
 
