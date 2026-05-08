@@ -2,14 +2,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Star, Gift, ImageIcon } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu';
+
+import { ImageIcon } from 'lucide-react';
 
 interface Producto {
   id: string;
@@ -23,11 +17,10 @@ interface Producto {
 }
 
 interface Props {
-  onAdd: (producto: Producto, tipoPrecio?: 'especial' | 'promocion') => void;
-  canUseSpecialPrice?: boolean;
+  onAdd: (producto: Producto) => void;
 }
 
-export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
+export function ProductGrid({ onAdd }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
   const { categorias: categoriasDB } = useCategorias();
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
@@ -78,7 +71,6 @@ export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {filtered.map(p => {
             const isPaquete = p.tipo === 'paquete';
-            const hasSpecial = canUseSpecialPrice && !isPaquete;
             return (
               <div
                 key={p.id}
@@ -105,37 +97,6 @@ export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
                     <Badge className="absolute top-1.5 left-1.5 text-[10px] px-1.5 py-0 bg-primary/90 text-primary-foreground border-0">
                       📦 Paquete
                     </Badge>
-                  )}
-                  {hasSpecial && (
-                    <div onClick={e => e.stopPropagation()} className="absolute top-1 right-1">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="secondary"
-                            size="icon"
-                            className="h-7 w-7 rounded-full shadow-sm"
-                            title="Precio especial / Promoción"
-                          >
-                            <Star className="h-3.5 w-3.5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => onAdd(p, 'especial')}
-                            disabled={p.precio_upsell_coworking == null}
-                          >
-                            <Star className="h-4 w-4 mr-2 text-yellow-500" />
-                            {p.precio_upsell_coworking != null
-                              ? `Precio Especial ($${p.precio_upsell_coworking.toFixed(2)})`
-                              : 'Precio Especial (no configurado)'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onAdd(p, 'promocion')}>
-                            <Gift className="h-4 w-4 mr-2 text-primary" />
-                            Promoción (Gratis)
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
                   )}
                 </div>
                 <div className="p-2 flex flex-col gap-1">
