@@ -323,20 +323,8 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
-      // 5. Audit log
-      const numPaquetes = paqueteItems.length;
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        accion: numPaquetes > 0 ? 'venta_completada_con_paquetes' : 'venta_completada',
-        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${summary.coworking_session_id ? ' + Coworking' : ''}${numPaquetes > 0 ? ` + ${numPaquetes} paquete(s)` : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}`,
-        metadata: {
-          venta_id: venta.id,
-          total: summary.total,
-          propina: propinaAmount,
-          items: summary.items.length,
-          paquetes: paqueteItems.map(p => ({ paquete_id: p.paquete_id ?? p.producto_id, nombre: p.nombre, cantidad: p.cantidad, componentes: p.componentes })),
-        } as any,
-      });
+      // (La bitácora de la venta se inserta atómicamente dentro de crear_venta_completa)
+
 
       // Show ticket
       setTicket({
