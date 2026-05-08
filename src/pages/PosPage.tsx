@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductGrid } from '@/components/pos/ProductGrid';
@@ -8,16 +8,24 @@ import { ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
 import { useCartStore } from '@/stores/cartStore';
+import { useAuth } from '@/hooks/useAuth';
 
 const PosPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const items = useCartStore((s) => s.items);
+  const ensureOwner = useCartStore((s) => s.ensureOwner);
   const addOrIncrementProduct = useCartStore((s) => s.addOrIncrementProduct);
   const addOrIncrementPaquete = useCartStore((s) => s.addOrIncrementPaquete);
   const updateQty = useCartStore((s) => s.updateQty);
   const updateNotas = useCartStore((s) => s.updateNotas);
   const removeItem = useCartStore((s) => s.removeItem);
   const clear = useCartStore((s) => s.clear);
+
+  // Si cambia el usuario logueado en la misma pestaña, limpia el carrito del anterior.
+  useEffect(() => {
+    ensureOwner(user?.id ?? null);
+  }, [user?.id, ensureOwner]);
 
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
     if (p.tipo === 'paquete') {
