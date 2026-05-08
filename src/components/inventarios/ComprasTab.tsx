@@ -85,10 +85,10 @@ const ComprasTab = ({ isAdmin }: Props) => {
       .range(from, to);
 
     if (fechaDesde) {
-      comprasQuery = comprasQuery.gte('fecha', `${fechaDesde}T00:00:00`);
+      comprasQuery = comprasQuery.gte('fecha', `${fechaDesde}T00:00:00-06:00`);
     }
     if (fechaHasta) {
-      comprasQuery = comprasQuery.lte('fecha', `${fechaHasta}T23:59:59`);
+      comprasQuery = comprasQuery.lte('fecha', `${fechaHasta}T23:59:59-06:00`);
     }
 
     const [insumosRes, comprasRes] = await Promise.all([
