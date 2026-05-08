@@ -454,7 +454,6 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
     toast({ title: `Pax actualizado a ${pax}` });
     setIsEditingPax(false);
-    session.pax_count = pax;
     await onSuccess?.();
 
     const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
