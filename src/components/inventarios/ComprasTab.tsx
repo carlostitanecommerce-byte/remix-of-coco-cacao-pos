@@ -482,6 +482,43 @@ const ComprasTab = ({ isAdmin }: Props) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* M6: AlertDialog para anular compra */}
+      <AlertDialog open={!!anularTarget} onOpenChange={(o) => { if (!o) { setAnularTarget(null); setMotivoAnular(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Anular compra</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Se descontarán <strong>{anularTarget?.cantidad_unidades}</strong> unidades de{' '}
+                  <strong>"{anularTarget?.insumo_nombre}"</strong> del stock actual y la compra se eliminará del historial.
+                  Si el insumo ya fue consumido, el sistema bloqueará la operación.
+                </p>
+                <div className="space-y-1">
+                  <Label className="text-xs">Motivo de la anulación *</Label>
+                  <Textarea
+                    rows={2}
+                    value={motivoAnular}
+                    onChange={(e) => setMotivoAnular(e.target.value)}
+                    placeholder="Ej. Captura duplicada, costo erróneo, devolución a proveedor…"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={anulando}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleAnular(); }}
+              disabled={anulando || !motivoAnular.trim()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {anulando ? 'Anulando…' : 'Anular compra'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
