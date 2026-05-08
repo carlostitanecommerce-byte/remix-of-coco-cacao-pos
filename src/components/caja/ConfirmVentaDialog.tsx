@@ -221,9 +221,9 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       };
 
       const { data: rpcData, error: rpcErr } = await supabase.rpc('crear_venta_completa', {
-        p_venta: ventaPayload as any,
-        p_detalles: realDetalles as any,
-        p_audit: auditPayload as any,
+        p_venta: ventaPayload as unknown as Json,
+        p_detalles: realDetalles as unknown as Json,
+        p_audit: auditPayload as unknown as Json,
       });
 
       if (rpcErr || !rpcData) {
@@ -238,12 +238,12 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
             metodo_pago: summary.metodo_pago,
             coworking_session_id: summary.coworking_session_id ?? null,
             items_count: summary.items.length,
-          } as any,
+          },
         });
         throw rpcErr || new Error('No se pudo crear la venta');
       }
 
-      const venta = rpcData as { id: string; folio: number };
+      const venta = rpcData as unknown as { id: string; folio: number };
 
       // 4. Create KDS order for kitchen (productos simples + componentes de paquetes)
       // - Excluir tiempo de servicio coworking (no preparable).
