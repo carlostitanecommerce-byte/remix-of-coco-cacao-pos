@@ -25,6 +25,8 @@ export default function CocinaPage() {
     !roles.some((r) => ['administrador', 'supervisor'].includes(r));
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [cancelaciones, setCancelaciones] = useState<KdsItemCancelacion[]>([]);
+  const [resolvingCancelId, setResolvingCancelId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<'live' | 'reconnecting'>('reconnecting');
   const [avgPrepMin, setAvgPrepMin] = useState<number | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
