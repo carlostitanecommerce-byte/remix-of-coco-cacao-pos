@@ -513,20 +513,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
     setPendingAmenityUpdate(null);
 
-    const { data: itemsRes } = await supabase
-      .from('coworking_session_upsells')
-      .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-      .eq('session_id', session.id)
-      .order('created_at', { ascending: true });
-    setItems(
-      (itemsRes ?? []).map((u: any) => ({
-        id: u.id,
-        producto_id: u.producto_id,
-        nombre: u.productos?.nombre ?? 'Producto',
-        precio_especial: Number(u.precio_especial) || 0,
-        cantidad: u.cantidad,
-      })),
-    );
+    await reloadItemsAndCancels();
     await onSuccess?.();
   });
 
