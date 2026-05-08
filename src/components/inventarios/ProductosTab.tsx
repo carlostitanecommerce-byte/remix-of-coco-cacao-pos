@@ -289,12 +289,14 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   };
   const [deleteCandidate, setDeleteCandidate] = useState<Producto | null>(null);
   const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
+  const [hasSalesHistory, setHasSalesHistory] = useState(false);
 
   const checkAndPromptDelete = async (p: Producto) => {
     setDeleteBlock(null);
+    setHasSalesHistory(false);
 
-    // Bloqueos por dependencias
-    const [paqRes, upsellRes, amenityRes, sesionRes] = await Promise.all([
+    // Bloqueos por dependencias activas
+    const [paqRes, upsellRes, amenityRes, sesionRes, ventasRes, kdsRes] = await Promise.all([
       supabase.from('paquete_componentes').select('paquete_id').eq('producto_id', p.id),
       supabase.from('tarifa_upsells').select('tarifa_id').eq('producto_id', p.id),
       supabase.from('tarifa_amenities_incluidos').select('tarifa_id').eq('producto_id', p.id),
@@ -302,6 +304,8 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
         .select('session_id, coworking_sessions!inner(estado)')
         .eq('producto_id', p.id)
         .eq('coworking_sessions.estado', 'activo'),
+      supabase.from('detalle_ventas').select('id', { count: 'exact', head: true }).eq('producto_id', p.id),
+      supabase.from('kds_order_items').select('id', { count: 'exact', head: true }).eq('producto_id', p.id),
     ]);
 
     const bloqueos: string[] = [];
@@ -310,12 +314,47 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     if (amenityRes.data && amenityRes.data.length > 0) bloqueos.push(`es amenity incluido en ${amenityRes.data.length} tarifa(s)`);
     if (sesionRes.data && sesionRes.data.length > 0) bloqueos.push(`está consumido en ${sesionRes.data.length} sesión(es) activa(s) de coworking`);
 
+    const tieneVentas = (ventasRes.count ?? 0) > 0 || (kdsRes.count ?? 0) > 0;
+
     if (bloqueos.length > 0) {
       setDeleteBlock(`No se puede eliminar "${p.nombre}" porque ${bloqueos.join(', ')}.`);
       setDeleteCandidate(p);
       return;
     }
+
+    if (tieneVentas) {
+      setHasSalesHistory(true);
+      setDeleteBlock(
+        `"${p.nombre}" tiene historial transaccional (${ventasRes.count ?? 0} venta(s), ${kdsRes.count ?? 0} item(s) en cocina). ` +
+        `Para preservar la trazabilidad de reportes, no se puede eliminar físicamente. Puedes desactivarlo: dejará de aparecer en POS y catálogos, pero conservará su historial.`
+      );
+      setDeleteCandidate(p);
+      return;
+    }
+
     setDeleteCandidate(p);
+  };
+
+  const handleSoftDelete = async () => {
+    if (!deleteCandidate) return;
+    const { error } = await supabase.from('productos').update({ activo: false }).eq('id', deleteCandidate.id);
+    if (error) {
+      toast.error('Error al desactivar producto');
+    } else {
+      toast.success('Producto desactivado');
+      if (user) {
+        await supabase.from('audit_logs').insert({
+          user_id: user.id,
+          accion: 'desactivar_producto',
+          descripcion: `Producto desactivado (soft delete): ${deleteCandidate.nombre}`,
+          metadata: { producto_id: deleteCandidate.id, producto_nombre: deleteCandidate.nombre, motivo: 'tiene_historial_transaccional' },
+        });
+      }
+      fetchProductos();
+    }
+    setDeleteCandidate(null);
+    setDeleteBlock(null);
+    setHasSalesHistory(false);
   };
 
   const confirmDelete = async () => {
@@ -336,6 +375,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     }
     setDeleteCandidate(null);
     setDeleteBlock(null);
+    setHasSalesHistory(false);
   };
 
   const toggleReceta = async (productoId: string) => {
