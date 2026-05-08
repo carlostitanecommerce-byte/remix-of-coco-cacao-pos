@@ -181,7 +181,7 @@ export function CajaCheckoutPanel() {
 
           {metodoPago === 'mixto' && (
             <div className="space-y-2 p-2 rounded-md bg-muted/30 border border-border">
-              <Label className="text-xs">Distribución (debe sumar ${subtotal.toFixed(2)})</Label>
+              <Label className="text-xs">Distribución (debe sumar ${total.toFixed(2)})</Label>
               <div className="grid grid-cols-3 gap-2">
                 {(['efectivo', 'tarjeta', 'transferencia'] as const).map((k) => (
                   <div key={k}>
