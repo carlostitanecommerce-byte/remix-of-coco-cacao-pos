@@ -643,7 +643,7 @@ export default function CocinaPage() {
 
   const cancelacionesPorOrden = useMemo(() => {
     const map: Record<string, KdsItemCancelacion[]> = {};
-    (cancelaciones as any[]).forEach((c) => {
+    cancelaciones.forEach((c) => {
       const oid = c.kds_order_id;
       if (!oid) return;
       if (!map[oid]) map[oid] = [];
