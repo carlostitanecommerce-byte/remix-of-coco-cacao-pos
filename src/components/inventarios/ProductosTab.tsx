@@ -122,11 +122,13 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     setForm(emptyForm);
     setReceta([]);
     setNewLine({ insumo_id: '', cantidad: '' });
+    setImagenesPendientesEliminar([]);
     setDialogOpen(true);
   };
 
   const openEdit = async (producto: Producto) => {
     setEditingId(producto.id);
+    setImagenesPendientesEliminar([]);
     setForm({
       nombre: producto.nombre,
       categoria: producto.categoria,
