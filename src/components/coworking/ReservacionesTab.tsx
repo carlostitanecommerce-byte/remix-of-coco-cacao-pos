@@ -171,22 +171,34 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
     setSaving(false);
   };
 
-  const handleCancel = async (r: Reservacion) => {
-    if (!user) return;
+  const requestCancel = (r: Reservacion) => {
+    setReservacionToCancel(r);
+    setCancelMotivo('');
+  };
+
+  const confirmCancel = async () => {
+    const r = reservacionToCancel;
+    if (!r || !user) return;
+    setCancelling(true);
     const { error } = await supabase.from('coworking_reservaciones')
       .update({ estado: 'cancelada' }).eq('id', r.id);
     if (error) {
       toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } else {
-      await supabase.from('audit_logs').insert({
-        user_id: user.id, accion: 'cancelar_reservacion',
-        descripcion: `Cancelada reservación de ${r.cliente_nombre}`,
-        metadata: { reservacion_id: r.id },
-      });
-      toast({ title: 'Reservación cancelada' });
-      if (selectedReservacionId === r.id) setSelectedReservacionId(null);
-      await onSuccess?.();
+      setCancelling(false);
+      return;
     }
+    const motivoTxt = cancelMotivo.trim();
+    await supabase.from('audit_logs').insert({
+      user_id: user.id, accion: 'cancelar_reservacion',
+      descripcion: `Cancelada reservación de ${r.cliente_nombre}${motivoTxt ? ` — Motivo: ${motivoTxt}` : ''}`,
+      metadata: { reservacion_id: r.id, motivo: motivoTxt || null },
+    });
+    toast({ title: 'Reservación cancelada' });
+    if (selectedReservacionId === r.id) setSelectedReservacionId(null);
+    await onSuccess?.();
+    setReservacionToCancel(null);
+    setCancelMotivo('');
+    setCancelling(false);
   };
 
   const estadoBadge = (estado: string) => {
