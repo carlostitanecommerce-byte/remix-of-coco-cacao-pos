@@ -45,6 +45,12 @@ interface Props {
   onStart?: (orderId: string) => void;
   onMarkReady?: (orderId: string) => void;
   onRevert?: (orderId: string) => void;
+  /** Cancelaciones pendientes asociadas a esta orden, indexadas por kds_item_id */
+  cancelaciones?: KdsItemCancelacion[];
+  /** Resolver una cancelación (cocina decide retorno o merma) */
+  onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma') => void;
+  /** Indica si una resolución está en curso (deshabilita botones) */
+  resolvingCancelId?: string | null;
   busy?: boolean;
 }
 
