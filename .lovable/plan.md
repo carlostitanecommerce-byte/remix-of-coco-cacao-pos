@@ -1,58 +1,33 @@
 
-# Plan: Grid denso de productos en POS
+# Plan: Categorías siempre visibles + ticket compacto + sin precio en tarjetas
 
-## Objetivo
-Que en la vista del POS se muestre la mayor cantidad de productos posible por categoría sin necesidad de hacer scroll, manteniendo claridad visual y la experiencia de "dos clics" (categoría → producto).
-
-## Diagnóstico actual
+## 1. Categorías sin scroll horizontal
 Archivo: `src/components/pos/ProductGrid.tsx`
 
-Problemas que limitan la densidad:
-1. **Imagen cuadrada grande** (`aspect-square`) ocupa la mayor parte de cada tarjeta.
-2. **Nombre con `min-h-[2.5rem]`** reserva 2 líneas aunque el producto tenga 1.
-3. **Columnas conservadoras**: en el ancho actual del panel POS (~600px en viewport 1032), solo entran 3 columnas (`md:grid-cols-4` requiere ≥768px del *viewport*, no del contenedor).
-4. **`max-h-[75vh]` + scroll**: confirma que la vista está pensada para hacer scroll.
-5. **Barra de categorías** como `Badge` con wrap, ocupa altura variable.
-6. **Padding interno** de cada card (`p-2` + gap-3) suma espacio muerto.
+- Quitar `overflow-x-auto` y volver a `flex-wrap` para que todas las categorías sean visibles siempre.
+- Mantener la barra `sticky top-0` con `backdrop-blur`.
+- Reducir tamaño de los badges (`text-xs px-2 py-0.5`) para que quepan más por fila.
+- Resultado: un solo clic cambia de categoría, sin scroll lateral.
 
-Resultado: en una categoría con 12+ productos, el usuario tiene que scrollear.
+## 2. Ticket más compacto
+Archivo: `src/pages/PosPage.tsx`
 
-## Propuesta de diseño
+- Cambiar el grid de `lg:grid-cols-5` (3+2) a `lg:grid-cols-7` con **5 columnas para productos y 2 para el ticket** (~28% del ancho).
+- Reducir `p-4` → `p-3` en el panel del ticket.
 
-### A. Tarjeta compacta (modo por defecto)
-- Reducir imagen: de `aspect-square` a `aspect-[4/3]` o `h-20` fija, con `object-cover`.
-- Quitar `min-h-[2.5rem]` del nombre; permitir 1 línea con `truncate` y tooltip nativo (`title={p.nombre}`) para nombres largos.
-- Tipografía: `text-xs` para nombre, `text-sm font-bold` para precio.
-- Padding: `p-1.5`, `gap-2` en el grid.
-- Badge "📦 Paquete" más pequeño y sin texto (solo ícono) en modo denso.
+Archivo: `src/components/pos/CartPanel.tsx`
+- Header "Ticket" de `text-lg` a `text-base`.
+- Padding interno de cada item `p-2` → `p-1.5`, botones +/− `h-6 w-6`.
 
-### B. Más columnas, basadas en el contenedor
-Cambiar a breakpoints por contenedor (Tailwind `@container`) o ajustar breakpoints fijos para que con el ancho real del panel POS quepan más columnas:
-- Base: `grid-cols-3`
-- `sm:grid-cols-4`
-- `md:grid-cols-5`
-- `lg:grid-cols-6`
-- `xl:grid-cols-7`
+## 3. Quitar precio de las tarjetas de producto
+Archivo: `src/components/pos/ProductGrid.tsx`
 
-Esto duplica aproximadamente la cantidad de productos visibles.
-
-### C. Toggle de densidad (opcional pero recomendado)
-Botón pequeño junto a las categorías: **"Compacto / Cómodo"** (persistido en `localStorage`).
-- **Compacto** (default): tarjeta sin imagen o con imagen mini (h-12 redonda a la izquierda) tipo lista-grid, 6–8 columnas.
-- **Cómodo**: similar al actual pero con la mejora B aplicada.
-
-### D. Barra de categorías sticky y compacta
-- `sticky top-0` con fondo `bg-background/95 backdrop-blur` para que no consuma scroll.
-- Categorías en una sola fila con scroll horizontal (`overflow-x-auto`) en vez de wrap, evitando que la barra crezca a 2–3 líneas y robe espacio al grid.
-
-### E. Quitar el `max-h-[75vh]` y dejar que el grid use toda la altura disponible
-El layout padre (`PosPage`) ya divide en columnas; el grid debería ocupar 100% de la altura del panel y solo scrollear si realmente sobran productos. Con la densidad mejorada, el scroll será raro.
-
-## Archivos a modificar
-- `src/components/pos/ProductGrid.tsx` — rediseño del grid, tarjeta compacta, barra sticky, toggle de densidad.
-- `src/pages/PosPage.tsx` — ajuste menor de alturas para que el grid ocupe el alto del viewport (ej. `h-[calc(100vh-X)]`).
-
-No se tocan datos, lógica de carrito, ni Caja.
+- Eliminar el `<span>` que muestra `${p.precio_venta.toFixed(2)}` en cada tarjeta.
+- El nombre del producto queda como única información visible (más el badge de paquete cuando aplique).
+- Esto permite reducir aún más la altura de cada card y ajustar el área de imagen para mostrar más productos por pantalla.
+- El precio se sigue viendo en el ticket al agregar el producto, que es donde realmente importa.
 
 ## Resultado esperado
-En el viewport actual (~1032px) deberían verse aproximadamente **20–30 productos sin scroll** en modo compacto (vs ~6–8 actuales), manteniendo legibilidad del nombre y precio, y conservando el flujo de 2 clics.
+- Categorías siempre visibles, un clic para cambiar.
+- Ticket más estrecho y compacto pero legible.
+- Tarjetas de producto sin precio, más bajas → más filas visibles sin scroll.
