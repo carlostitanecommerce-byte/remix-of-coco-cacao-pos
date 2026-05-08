@@ -7,6 +7,7 @@ import { StartShiftDialog } from '@/components/cocina/StartShiftDialog';
 import type { KdsOrder, KdsOrderItem, KdsEstado, KdsItemCancelacion } from '@/components/cocina/KdsOrderCard';
 import { toast } from 'sonner';
 import { ChefHat, Wifi, WifiOff, Timer } from 'lucide-react';
+import { useCancelacionItemsSesionToasts } from '@/hooks/useCancelacionItemsSesionToasts';
 
 const ACTIVE_STATES: KdsEstado[] = ['pendiente', 'en_preparacion', 'listo'];
 const POLL_FALLBACK_MS = 30000;
@@ -17,6 +18,7 @@ const URGENT_REPEAT_MS = 30000; // re-toca timbre cada 30s mientras haya urgente
 
 export default function CocinaPage() {
   const { user, roles } = useAuth();
+  useCancelacionItemsSesionToasts();
   // El diálogo de "Iniciar turno" y las alertas sonoras solo aplican al
   // barista. Admin/supervisor entran a Cocina únicamente a observar, sin
   // necesidad de gesto de audio ni notificaciones acústicas.

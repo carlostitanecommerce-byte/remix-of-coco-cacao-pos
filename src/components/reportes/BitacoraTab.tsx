@@ -83,6 +83,11 @@ const ACCION_LABELS: Record<string, string> = {
   cancelar_reservacion: 'Cancelación de reservación',
   reagendar_reservacion: 'Reagendado de reservación',
   checkin_desde_reservacion: 'Check-in desde reservación',
+  solicitar_cancelacion_item_sesion: 'Solicitud cancelación ítem (coworking)',
+  resolver_cancelacion_item_sesion: 'Resolución cancelación ítem (coworking)',
+  aprobar_cancelacion_sesion: 'Aprobación cancelación de sesión',
+  reabrir_sesion_coworking: 'Reapertura sesión coworking',
+  registrar_merma: 'Registro de merma',
 };
 
 const ACCION_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -120,6 +125,7 @@ const CANCEL_ACTIONS = [
   'eliminacion_usuario',
   'eliminar_paquete',
   'descuento_inventario_cancelacion_sesion',
+  'resolver_cancelacion_item_sesion',
 ];
 
 const BitacoraTab = () => {
