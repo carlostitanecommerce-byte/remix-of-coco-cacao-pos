@@ -9,8 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCartStore } from '@/stores/cartStore';
-import { useVentaConfig } from '@/components/pos/useVentaConfig';
-import { ConfirmVentaDialog } from '@/components/pos/ConfirmVentaDialog';
+import { useVentaConfig } from '@/components/caja/useVentaConfig';
+import { ConfirmVentaDialog } from '@/components/caja/ConfirmVentaDialog';
 import type { VentaSummary, MixedPayment } from '@/components/pos/types';
 
 type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'mixto';
