@@ -327,6 +327,32 @@ export function CierreCajaDialog({ open, onClose, caja, movimientos, onCerrarCaj
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={confirmCierreOpen} onOpenChange={setConfirmCierreOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sesiones de coworking sin cobrar</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>Hay {sesionesActivas.length} sesión(es) sin cobrar:</p>
+                <ul className="list-disc list-inside text-muted-foreground max-h-40 overflow-y-auto">
+                  {sesionesActivas.slice(0, 10).map(s => (
+                    <li key={s.id}>{s.cliente_nombre}</li>
+                  ))}
+                  {sesionesActivas.length > 10 && <li>…y {sesionesActivas.length - 10} más</li>}
+                </ul>
+                <p>Si cierras ahora, estas sesiones quedarán pendientes para el siguiente turno.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={ejecutarCierre} disabled={saving}>
+              Cerrar caja de todas formas
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
