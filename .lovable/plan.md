@@ -1,36 +1,29 @@
-## Plan: Nueva sección "Caja"
+## Plan: Ajustes en sección Caja
 
-Mover toda la lógica de caja (apertura, cierre, movimientos, historial de ventas del turno) a una página propia accesible desde el sidebar, debajo de POS. El POS queda intacto como ticket-builder puro.
+### 1. Diálogo de apertura de caja: permitir cerrar
+`src/components/pos/AperturaCajaDialog.tsx`
+- Añadir prop opcional `onClose?: () => void`.
+- Cambiar `<Dialog open={open}>` por `<Dialog open={open} onOpenChange={(v)=>{ if(!v && !saving) onClose?.(); }}>`.
+- Quitar `onInteractOutside={e => e.preventDefault()}` para permitir cerrar al hacer clic fuera o con ESC.
+- Agregar botón "Cancelar" en `DialogFooter` que invoque `onClose` (junto al botón "Abrir Caja").
 
-### 1. Nueva página `src/pages/CajaPage.tsx`
-Componente que reúne:
-- `useCajaSession()` (ya existe — sin cambios)
-- `AperturaCajaDialog` — bloqueante si no hay caja abierta
-- Header con estado de caja (abierta/cerrada, hora apertura, fondo fijo, usuario)
-- Botón "Cerrar Caja" → `CierreCajaDialog`
-- `MovimientosCajaPanel` (entradas/salidas)
-- `VentasTurnoPanel` (historial de ventas del turno con cancelar/cambiar pago/reimprimir, según rol)
-- `SolicitudesCancelacionPanel` (solicitudes pendientes de cancelación de ventas) — solo admin/supervisor
+`src/pages/CajaPage.tsx`
+- Pasar `onClose={() => navigate(-1)}` (usar `useNavigate` de react-router-dom). Si no hay historial, navegar a `/`. Esto deja salir al usuario hacia POS u otra sección sin estar bloqueado.
 
-Layout limpio en una sola columna con tarjetas, sin grid POS.
+### 2. Sesiones pendientes de cobro de coworking en Caja
+`src/pages/CajaPage.tsx`
+- Importar `CoworkingSessionSelector` y agregarlo dentro de la página (visible solo si `cajaAbierta`, debajo del header de control de caja, antes de Solicitudes/Historial).
+- Implementar handler `onImportSession(items, sessionId, clienteNombre)` que navegue a `/pos?session=<sessionId>` para que el flujo siga siendo el mismo (POS reconstruye el carrito al recibir el query param).
 
-### 2. Sidebar `src/components/AppSidebar.tsx`
-Agregar item "Caja" justo debajo de "POS":
-```ts
-{ title: 'Caja', url: '/caja', icon: Wallet, allowedRoles: ['administrador','supervisor','caja','recepcion'] }
-```
-(import `Wallet` de lucide-react).
+`src/pages/PosPage.tsx`
+- Agregar `useSearchParams` para detectar `?session=<id>`.
+- Si llega ese parámetro y aún no se ha importado, llamar a la lógica de importación de sesión: cargar la sesión (reusando misma lógica de `CoworkingSessionSelector.handleSelect` extraída a util `src/lib/coworkingCart.ts`) y pre-cargar `items` en el carrito.
+- Limpiar el query param tras importar para no re-importar al recargar.
 
-### 3. Ruteo `src/App.tsx`
-Nueva ruta protegida `/caja` con los mismos roles que POS, envuelta en `DashboardLayout`.
-
-### 4. Sin cambios en
-- `PosPage.tsx`, `CartPanel.tsx`, `ProductGrid.tsx` (siguen siendo ticket-only)
-- Hook `useCajaSession.ts` (ya es compartido y reactivo)
-- Diálogos existentes (`AperturaCajaDialog`, `CierreCajaDialog`, `MovimientosCajaPanel`, `VentasTurnoPanel`, `SolicitudesCancelacionPanel`, `CancelVentaDialog`, `CambiarMetodoPagoDialog`, `TicketReimprimirDialog`) — se reutilizan tal cual.
-- Base de datos — sin migraciones.
+### 3. Refactor menor (extraer lógica reutilizable)
+- Crear `src/lib/coworkingCart.ts` con función `buildCartItemsFromSession(sessionId): Promise<{items: CartItem[], clienteNombre: string} | { error: string }>` que contenga la matemática de tiempo/tarifa/upsells (idéntica a `handleSelect` actual).
+- `CoworkingSessionSelector` y `PosPage` usan esta util — mantiene una sola fuente de verdad.
 
 ### Resultado
-- `/pos` → solo construir ticket.
-- `/caja` → control de caja completo (abrir, movimientos, cerrar, historial de ventas, solicitudes).
-- Visible para administrador, supervisor, caja, recepción.
+- El diálogo de apertura ya no atrapa al usuario: puede cerrarlo con ESC, clic fuera o botón Cancelar.
+- En `/caja` (con caja abierta) aparece de nuevo el panel de "Sesiones Pendientes de Pago"; al hacer clic en "Cobrar" se redirige a `/pos?session=…` y el ticket se llena automáticamente para procesar el cobro como antes.
