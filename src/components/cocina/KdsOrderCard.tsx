@@ -252,17 +252,6 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
             Iniciar
           </Button>
         )}
-          <Button
-            size="lg"
-            variant="outline"
-            className="w-full mt-2 h-11 text-base font-semibold border-primary/40 text-primary hover:bg-primary/10"
-            onClick={() => onStart(order.id)}
-            disabled={busy}
-          >
-            <Play className="h-4 w-4 mr-2" />
-            Iniciar
-          </Button>
-        )}
 
         {isInProgress && onMarkReady && (
           <Button
