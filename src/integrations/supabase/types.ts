@@ -1204,6 +1204,14 @@ export type Database = {
         Args: { p_password: string; p_user_id: string; p_username: string }
         Returns: undefined
       }
+      freeze_checkout_coworking: {
+        Args: { p_session_id: string }
+        Returns: {
+          fecha_salida_real: string
+          id: string
+          was_frozen_now: boolean
+        }[]
+      }
       get_decrypted_password: { Args: { p_user_id: string }; Returns: string }
       has_role: {
         Args: {
