@@ -45,7 +45,7 @@ export async function checkReservationConflict(params: {
     if (esPrivado) {
       // Private: any overlap = blocked
       for (const r of existingRes) {
-        const rStart = new Date(`${fechaReserva}T${r.hora_inicio}`);
+        const rStart = cdmxDate(fechaReserva, r.hora_inicio);
         const rEnd = new Date(rStart.getTime() + r.duracion_horas * 3600000);
         if (startDate < rEnd && endDate > rStart) {
           return {
@@ -57,13 +57,13 @@ export async function checkReservationConflict(params: {
     } else {
       // Public: check if pax would exceed capacity during overlap
       for (const r of existingRes) {
-        const rStart = new Date(`${fechaReserva}T${r.hora_inicio}`);
+        const rStart = cdmxDate(fechaReserva, r.hora_inicio);
         const rEnd = new Date(rStart.getTime() + r.duracion_horas * 3600000);
         if (startDate < rEnd && endDate > rStart) {
           // Count all overlapping pax
           const overlappingPax = existingRes
             .filter(or => {
-              const oStart = new Date(`${fechaReserva}T${or.hora_inicio}`);
+              const oStart = cdmxDate(fechaReserva, or.hora_inicio);
               const oEnd = new Date(oStart.getTime() + or.duracion_horas * 3600000);
               return startDate < oEnd && endDate > oStart;
             })
@@ -81,9 +81,9 @@ export async function checkReservationConflict(params: {
     }
   }
 
-  // Check overlapping active sessions on the same date
-  const dayStart = new Date(`${fechaReserva}T00:00:00`).toISOString();
-  const dayEnd = new Date(`${fechaReserva}T23:59:59`).toISOString();
+  // Check overlapping active sessions on the same date (CDMX day bounds)
+  const dayStart = `${fechaReserva}T00:00:00-06:00`;
+  const dayEnd = `${fechaReserva}T23:59:59-06:00`;
 
   const { data: activeSessions } = await supabase
     .from('coworking_sessions')
