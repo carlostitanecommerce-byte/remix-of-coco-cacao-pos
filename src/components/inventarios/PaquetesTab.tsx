@@ -260,6 +260,49 @@ const PaquetesTab = ({ isAdmin }: Props) => {
   };
 
   const [deleteCandidate, setDeleteCandidate] = useState<Paquete | null>(null);
+  const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
+  const [hasSalesHistory, setHasSalesHistory] = useState(false);
+
+  const checkAndPromptDelete = async (p: Paquete) => {
+    setDeleteBlock(null);
+    setHasSalesHistory(false);
+
+    const ventasRes = await supabase
+      .from('detalle_ventas')
+      .select('id', { count: 'exact', head: true })
+      .eq('paquete_id', p.id);
+
+    const tieneVentas = (ventasRes.count ?? 0) > 0;
+
+    if (tieneVentas) {
+      setHasSalesHistory(true);
+      setDeleteBlock(
+        `"${p.nombre}" tiene historial transaccional (${ventasRes.count} venta(s)). Para preservar la trazabilidad de reportes, no se puede eliminar físicamente. Puedes desactivarlo: dejará de aparecer en POS, pero conservará su historial.`
+      );
+      setDeleteCandidate(p);
+      return;
+    }
+
+    setDeleteCandidate(p);
+  };
+
+  const handleSoftDelete = async (p: Paquete) => {
+    const { error } = await supabase.from('productos').update({ activo: false }).eq('id', p.id);
+    if (error) {
+      toast.error('Error al desactivar paquete');
+      return;
+    }
+    if (user) {
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        accion: 'desactivar_paquete',
+        descripcion: `Paquete desactivado (soft delete): ${p.nombre}`,
+        metadata: { paquete_id: p.id, paquete_nombre: p.nombre, motivo: 'tiene_historial_transaccional' },
+      });
+    }
+    toast.success('Paquete desactivado');
+    fetchPaquetes();
+  };
 
   const handleDelete = async (p: Paquete) => {
     await supabase.from('paquete_componentes').delete().eq('paquete_id', p.id);
@@ -380,7 +423,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setDeleteCandidate(p)} title="Eliminar">
+                          <Button variant="ghost" size="icon" onClick={() => checkAndPromptDelete(p)} title="Eliminar">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
@@ -548,25 +591,41 @@ const PaquetesTab = ({ isAdmin }: Props) => {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => !o && setDeleteCandidate(null)}>
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); setHasSalesHistory(false); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Eliminar paquete</AlertDialogTitle>
+            <AlertDialogTitle>
+              {hasSalesHistory ? `Desactivar "${deleteCandidate?.nombre}"` : 'Eliminar paquete'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Eliminar el paquete "{deleteCandidate?.nombre}"? Esta acción no se puede deshacer.
+              {deleteBlock ?? `¿Eliminar el paquete "${deleteCandidate?.nombre}"? Esta acción no se puede deshacer.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={async () => {
-                if (deleteCandidate) await handleDelete(deleteCandidate);
-                setDeleteCandidate(null);
-              }}
-            >
-              Eliminar
-            </AlertDialogAction>
+            {hasSalesHistory ? (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={async () => {
+                  if (deleteCandidate) await handleSoftDelete(deleteCandidate);
+                  setDeleteCandidate(null);
+                  setDeleteBlock(null);
+                  setHasSalesHistory(false);
+                }}
+              >
+                Desactivar paquete
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={async () => {
+                  if (deleteCandidate) await handleDelete(deleteCandidate);
+                  setDeleteCandidate(null);
+                }}
+              >
+                Eliminar
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

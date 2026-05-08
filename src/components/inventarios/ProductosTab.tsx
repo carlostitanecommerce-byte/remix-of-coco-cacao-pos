@@ -198,8 +198,16 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     };
 
     let productoId = editingId;
+    let recetasPrevias: { insumo_id: string; cantidad_necesaria: number }[] = [];
 
     if (editingId) {
+      // Snapshot de recetas previas para posible rollback
+      const { data: prevRecetas } = await supabase
+        .from('recetas')
+        .select('insumo_id, cantidad_necesaria')
+        .eq('producto_id', editingId);
+      recetasPrevias = (prevRecetas ?? []) as any;
+
       const { error } = await supabase.from('productos').update(payload).eq('id', editingId);
       if (error) { toast.error('Error al actualizar producto'); setSaving(false); return; }
     } else {
@@ -208,11 +216,30 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       productoId = data.id;
     }
 
-    await supabase.from('recetas').delete().eq('producto_id', productoId!);
+    const { error: delErr } = await supabase.from('recetas').delete().eq('producto_id', productoId!);
+    if (delErr) {
+      toast.error('Error al actualizar la receta');
+      if (!editingId && productoId) await supabase.from('productos').delete().eq('id', productoId);
+      setSaving(false);
+      return;
+    }
     if (receta.length > 0) {
-      await supabase.from('recetas').insert(
+      const { error: insErr } = await supabase.from('recetas').insert(
         receta.map(l => ({ producto_id: productoId!, insumo_id: l.insumo_id, cantidad_necesaria: l.cantidad_necesaria }))
       );
+      if (insErr) {
+        toast.error('Error al guardar la receta. Revirtiendo cambios…');
+        // Rollback
+        if (!editingId && productoId) {
+          await supabase.from('productos').delete().eq('id', productoId);
+        } else if (editingId && recetasPrevias.length > 0) {
+          await supabase.from('recetas').insert(
+            recetasPrevias.map(r => ({ producto_id: editingId, insumo_id: r.insumo_id, cantidad_necesaria: r.cantidad_necesaria }))
+          );
+        }
+        setSaving(false);
+        return;
+      }
     }
 
     await supabase.from('audit_logs').insert({
@@ -262,12 +289,14 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   };
   const [deleteCandidate, setDeleteCandidate] = useState<Producto | null>(null);
   const [deleteBlock, setDeleteBlock] = useState<string | null>(null);
+  const [hasSalesHistory, setHasSalesHistory] = useState(false);
 
   const checkAndPromptDelete = async (p: Producto) => {
     setDeleteBlock(null);
+    setHasSalesHistory(false);
 
-    // Bloqueos por dependencias
-    const [paqRes, upsellRes, amenityRes, sesionRes] = await Promise.all([
+    // Bloqueos por dependencias activas
+    const [paqRes, upsellRes, amenityRes, sesionRes, ventasRes, kdsRes] = await Promise.all([
       supabase.from('paquete_componentes').select('paquete_id').eq('producto_id', p.id),
       supabase.from('tarifa_upsells').select('tarifa_id').eq('producto_id', p.id),
       supabase.from('tarifa_amenities_incluidos').select('tarifa_id').eq('producto_id', p.id),
@@ -275,6 +304,8 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
         .select('session_id, coworking_sessions!inner(estado)')
         .eq('producto_id', p.id)
         .eq('coworking_sessions.estado', 'activo'),
+      supabase.from('detalle_ventas').select('id', { count: 'exact', head: true }).eq('producto_id', p.id),
+      supabase.from('kds_order_items').select('id', { count: 'exact', head: true }).eq('producto_id', p.id),
     ]);
 
     const bloqueos: string[] = [];
@@ -283,12 +314,47 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     if (amenityRes.data && amenityRes.data.length > 0) bloqueos.push(`es amenity incluido en ${amenityRes.data.length} tarifa(s)`);
     if (sesionRes.data && sesionRes.data.length > 0) bloqueos.push(`está consumido en ${sesionRes.data.length} sesión(es) activa(s) de coworking`);
 
+    const tieneVentas = (ventasRes.count ?? 0) > 0 || (kdsRes.count ?? 0) > 0;
+
     if (bloqueos.length > 0) {
       setDeleteBlock(`No se puede eliminar "${p.nombre}" porque ${bloqueos.join(', ')}.`);
       setDeleteCandidate(p);
       return;
     }
+
+    if (tieneVentas) {
+      setHasSalesHistory(true);
+      setDeleteBlock(
+        `"${p.nombre}" tiene historial transaccional (${ventasRes.count ?? 0} venta(s), ${kdsRes.count ?? 0} item(s) en cocina). ` +
+        `Para preservar la trazabilidad de reportes, no se puede eliminar físicamente. Puedes desactivarlo: dejará de aparecer en POS y catálogos, pero conservará su historial.`
+      );
+      setDeleteCandidate(p);
+      return;
+    }
+
     setDeleteCandidate(p);
+  };
+
+  const handleSoftDelete = async () => {
+    if (!deleteCandidate) return;
+    const { error } = await supabase.from('productos').update({ activo: false }).eq('id', deleteCandidate.id);
+    if (error) {
+      toast.error('Error al desactivar producto');
+    } else {
+      toast.success('Producto desactivado');
+      if (user) {
+        await supabase.from('audit_logs').insert({
+          user_id: user.id,
+          accion: 'desactivar_producto',
+          descripcion: `Producto desactivado (soft delete): ${deleteCandidate.nombre}`,
+          metadata: { producto_id: deleteCandidate.id, producto_nombre: deleteCandidate.nombre, motivo: 'tiene_historial_transaccional' },
+        });
+      }
+      fetchProductos();
+    }
+    setDeleteCandidate(null);
+    setDeleteBlock(null);
+    setHasSalesHistory(false);
   };
 
   const confirmDelete = async () => {
@@ -309,6 +375,7 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
     }
     setDeleteCandidate(null);
     setDeleteBlock(null);
+    setHasSalesHistory(false);
   };
 
   const toggleReceta = async (productoId: string) => {
@@ -721,11 +788,11 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); } }}>
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(o) => { if (!o) { setDeleteCandidate(null); setDeleteBlock(null); setHasSalesHistory(false); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {deleteBlock ? 'No se puede eliminar' : `¿Eliminar "${deleteCandidate?.nombre}"?`}
+              {hasSalesHistory ? `Desactivar "${deleteCandidate?.nombre}"` : (deleteBlock ? 'No se puede eliminar' : `¿Eliminar "${deleteCandidate?.nombre}"?`)}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteBlock ?? 'Esta acción no se puede deshacer. El producto y su receta serán eliminados permanentemente.'}
@@ -733,7 +800,11 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cerrar</AlertDialogCancel>
-            {!deleteBlock && (
+            {hasSalesHistory ? (
+              <AlertDialogAction onClick={handleSoftDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Desactivar producto
+              </AlertDialogAction>
+            ) : !deleteBlock && (
               <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                 Eliminar
               </AlertDialogAction>
