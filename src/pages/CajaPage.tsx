@@ -32,6 +32,8 @@ const CajaPage = () => {
   const isAdmin = roles.includes('administrador');
   const isSupervisor = roles.includes('supervisor');
 
+  useSolicitudCancelacionToasts();
+
   const handleImportSession = (items: CartItem[], sessionId: string, clienteNombre: string) => {
     importCoworkingSession(items, sessionId, clienteNombre);
   };
