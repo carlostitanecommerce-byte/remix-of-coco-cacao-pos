@@ -300,6 +300,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         nombre: producto.nombre,
         precio_especial: precio,
         cantidad: 1,
+        requiere_preparacion: prepCacheRef.current.get(producto.id) ?? producto.requiere_preparacion ?? true,
+        pendingCancelQty: 0,
       },
     ]);
 
