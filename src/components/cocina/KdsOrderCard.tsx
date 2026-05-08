@@ -66,7 +66,7 @@ const ConsumoIcon = ({ tipo }: { tipo: string }) => {
   return <Coffee className="h-3 w-3" />;
 };
 
-export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, busy }: Props) {
+export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelaciones, onResolveCancel, resolvingCancelId, busy }: Props) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
