@@ -113,49 +113,65 @@ export function ProductGrid({ onAdd }: Props) {
 
       <div className="flex-1 overflow-y-auto pr-1 mt-2">
         <div className={cn('grid gap-2', gridCols)}>
-          {filtered.map(p => {
-            const isPaquete = p.tipo === 'paquete';
-            return (
+          {loading ? (
+            Array.from({ length: isCompacto ? 12 : 8 }).map((_, idx) => (
               <div
-                key={p.id}
-                role="button"
-                tabIndex={0}
-                title={p.nombre}
-                onClick={() => onAdd(p)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAdd(p); } }}
-                className="group relative flex flex-col rounded-md border border-border bg-card overflow-hidden cursor-pointer transition hover:border-primary hover:shadow-md active:scale-[0.98]"
+                key={`sk-${idx}`}
+                className="flex flex-col rounded-md border border-border bg-card overflow-hidden animate-pulse"
               >
-                <div className={cn('relative w-full bg-muted', isCompacto ? 'h-16' : 'aspect-[4/3]')}>
-                  {p.imagen_url ? (
-                    <img
-                      src={p.imagen_url}
-                      alt={p.nombre}
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                      <ImageIcon className="h-6 w-6 opacity-40" />
-                    </div>
-                  )}
-                  {isPaquete && (
-                    <Badge className="absolute top-1 left-1 text-[9px] px-1 py-0 h-4 bg-primary/90 text-primary-foreground border-0">
-                      <Package className="h-2.5 w-2.5" />
-                    </Badge>
-                  )}
-                </div>
+                <div className={cn('w-full bg-muted', isCompacto ? 'h-16' : 'aspect-[4/3]')} />
                 <div className="p-1.5">
-                  <span className={cn('block font-medium leading-tight truncate', isCompacto ? 'text-[11px]' : 'text-sm')}>
-                    {p.nombre}
-                  </span>
+                  <div className="h-3 w-3/4 bg-muted rounded" />
                 </div>
               </div>
-            );
-          })}
-          {filtered.length === 0 && (
-            <div className="col-span-full text-center text-muted-foreground py-12">
-              No hay productos en esta categoría
-            </div>
+            ))
+          ) : (
+            <>
+              {filtered.map(p => {
+                const isPaquete = p.tipo === 'paquete';
+                return (
+                  <div
+                    key={p.id}
+                    role="button"
+                    tabIndex={0}
+                    title={p.nombre}
+                    onClick={() => onAdd(p)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAdd(p); } }}
+                    className="group relative flex flex-col rounded-md border border-border bg-card overflow-hidden cursor-pointer transition hover:border-primary hover:shadow-md active:scale-[0.98]"
+                  >
+                    <div className={cn('relative w-full bg-muted', isCompacto ? 'h-16' : 'aspect-[4/3]')}>
+                      {p.imagen_url ? (
+                        <img
+                          src={p.imagen_url}
+                          alt={p.nombre}
+                          loading="lazy"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                          <ImageIcon className="h-6 w-6 opacity-40" />
+                        </div>
+                      )}
+                      {isPaquete && (
+                        <Badge className="absolute top-1 left-1 text-[9px] px-1 py-0 h-4 bg-primary/90 text-primary-foreground border-0">
+                          <Package className="h-2.5 w-2.5" />
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="p-1.5">
+                      <span className={cn('block font-medium leading-tight truncate', isCompacto ? 'text-[11px]' : 'text-sm')}>
+                        {p.nombre}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              {filtered.length === 0 && (
+                <div className="col-span-full text-center text-muted-foreground py-12">
+                  No hay productos en esta categoría
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
