@@ -83,6 +83,17 @@ const InsumosTab = ({ isAdmin }: Props) => {
 
   useEffect(() => { fetchInsumos(); }, []);
 
+  // M5: Realtime — refresca al detectar cambios externos (compras, mermas, ediciones de otros usuarios)
+  useEffect(() => {
+    const channel = supabase
+      .channel('inv-insumos-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insumos' }, () => {
+        fetchInsumos();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   const calcCostoUnitario = (costoPres: string, cantPres: string) => {
     const c = parseFloat(costoPres) || 0;
     const q = parseFloat(cantPres) || 0;

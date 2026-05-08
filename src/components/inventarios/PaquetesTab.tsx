@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Package, Copy, Search, X, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Package, Copy, Search, X, AlertTriangle, Upload, Loader2, ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ProductoSimple {
@@ -73,6 +73,50 @@ const PaquetesTab = ({ isAdmin }: Props) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedComponentes, setExpandedComponentes] = useState<Record<string, ComponenteLine[]>>({});
   const [saving, setSaving] = useState(false);
+  // M3: subida de imagen al bucket "productos" (mismo patrón que ProductosTab)
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imagenesPendientesEliminar, setImagenesPendientesEliminar] = useState<string[]>([]);
+
+  const extraerPathProducto = (url: string | null | undefined): string | null => {
+    if (!url) return null;
+    const marker = '/storage/v1/object/public/productos/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return url.substring(idx + marker.length).split('?')[0];
+  };
+
+  const eliminarImagenesStorage = async (urls: string[]) => {
+    const paths = urls.map(extraerPathProducto).filter((p): p is string => !!p);
+    if (paths.length === 0) return;
+    await supabase.storage.from('productos').remove(paths);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!validTypes.includes(file.type)) { toast.error('Formato no válido. Usa PNG, JPG o WEBP.'); return; }
+    if (file.size > 2 * 1024 * 1024) { toast.error('La imagen excede el límite de 2 MB.'); return; }
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `paquete-${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('productos').upload(path, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from('productos').getPublicUrl(path);
+      const previa = form.imagen_url;
+      if (previa && extraerPathProducto(previa)) {
+        setImagenesPendientesEliminar(prev => [...prev, previa]);
+      }
+      setForm(f => ({ ...f, imagen_url: data.publicUrl }));
+      toast.success('Imagen subida');
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir imagen');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const fetchPaquetes = useCallback(async () => {
     setLoading(true);
@@ -105,6 +149,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
     setForm(emptyForm);
     setComponentes([]);
     setNewLine({ producto_id: '', cantidad: '1' });
+    setImagenesPendientesEliminar([]);
     setDialogOpen(true);
   };
 
@@ -123,6 +168,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
 
   const openEdit = async (p: Paquete) => {
     setEditingId(p.id);
+    setImagenesPendientesEliminar([]);
     setForm({
       nombre: p.nombre,
       categoria: p.categoria,
@@ -253,6 +299,12 @@ const PaquetesTab = ({ isAdmin }: Props) => {
       });
     }
 
+    // M3: limpiar imágenes huérfanas en storage tras guardar correctamente
+    if (imagenesPendientesEliminar.length > 0) {
+      await eliminarImagenesStorage(imagenesPendientesEliminar);
+      setImagenesPendientesEliminar([]);
+    }
+
     toast.success(`Paquete ${editingId ? 'actualizado' : 'creado'}`);
     setSaving(false);
     setDialogOpen(false);
@@ -305,11 +357,16 @@ const PaquetesTab = ({ isAdmin }: Props) => {
   };
 
   const handleDelete = async (p: Paquete) => {
+    const imagenPrevia = p.imagen_url ?? null;
     await supabase.from('paquete_componentes').delete().eq('paquete_id', p.id);
     const { error } = await supabase.from('productos').delete().eq('id', p.id);
     if (error) {
       toast.error('Error al eliminar paquete');
       return;
+    }
+    // M3: si tenía imagen propia en el bucket, eliminarla
+    if (imagenPrevia && extraerPathProducto(imagenPrevia)) {
+      await eliminarImagenesStorage([imagenPrevia]);
     }
     if (user) {
       await supabase.from('audit_logs').insert({
@@ -492,9 +549,55 @@ const PaquetesTab = ({ isAdmin }: Props) => {
                 <Input type="number" min={0} step={0.01} value={form.precio_venta}
                   onChange={e => setForm(f => ({ ...f, precio_venta: e.target.value }))} placeholder="0.00" />
               </div>
-              <div className="space-y-1.5">
-                <Label>URL de imagen (opcional)</Label>
-                <Input value={form.imagen_url} onChange={e => setForm(f => ({ ...f, imagen_url: e.target.value }))} placeholder="https://..." />
+              <div className="space-y-1.5 col-span-2">
+                <Label>Imagen del paquete (opcional)</Label>
+                <div className="flex items-center gap-3">
+                  <div className="h-20 w-20 shrink-0 rounded-md border bg-muted overflow-hidden flex items-center justify-center">
+                    {form.imagen_url ? (
+                      <img src={form.imagen_url} alt="Vista previa" className="h-full w-full object-cover" />
+                    ) : (
+                      <ImageIcon className="h-6 w-6 text-muted-foreground opacity-50" />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={handleImageUpload}
+                        disabled={uploadingImage}
+                      />
+                      <Button type="button" variant="outline" size="sm" disabled={uploadingImage} asChild>
+                        <span className="cursor-pointer">
+                          {uploadingImage ? (
+                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Subiendo…</>
+                          ) : (
+                            <><Upload className="h-4 w-4 mr-2" />{form.imagen_url ? 'Cambiar imagen' : 'Subir imagen'}</>
+                          )}
+                        </span>
+                      </Button>
+                    </label>
+                    {form.imagen_url && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const previa = form.imagen_url;
+                          if (previa && extraerPathProducto(previa)) {
+                            setImagenesPendientesEliminar(prev => [...prev, previa]);
+                          }
+                          setForm(f => ({ ...f, imagen_url: '' }));
+                        }}
+                        disabled={uploadingImage}
+                      >
+                        <X className="h-4 w-4 mr-2" />Quitar
+                      </Button>
+                    )}
+                    <p className="text-xs text-muted-foreground">PNG, JPG o WEBP · máx. 2 MB</p>
+                  </div>
+                </div>
               </div>
             </div>
 

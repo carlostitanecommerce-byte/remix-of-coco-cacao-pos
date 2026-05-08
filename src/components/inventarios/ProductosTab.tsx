@@ -108,6 +108,21 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       .then(({ data }) => setInsumos((data as Insumo[]) ?? []));
   }, [fetchProductos]);
 
+  // M5: Realtime — productos (cambios de costo/margen vía trigger), recetas e insumos
+  useEffect(() => {
+    const refetchInsumos = async () => {
+      const { data } = await supabase.from('insumos').select('id, nombre, unidad_medida, costo_unitario').order('nombre');
+      setInsumos((data as Insumo[]) ?? []);
+    };
+    const channel = supabase
+      .channel('inv-productos-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => fetchProductos())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recetas' }, () => fetchProductos())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'insumos' }, () => { refetchInsumos(); fetchProductos(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchProductos]);
+
   const calcCosto = (lines: RecetaLine[]) =>
     lines.reduce((sum, l) => {
       const ins = insumos.find(i => i.id === l.insumo_id);
