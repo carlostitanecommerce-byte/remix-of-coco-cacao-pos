@@ -349,7 +349,7 @@ export function ReservacionesTab({ areas, reservaciones, getOccupancy, getAvaila
                                 <Button variant="ghost" size="sm" onClick={() => openEdit(r)} title="Reagendar">
                                   <Edit className="h-3 w-3" />
                                 </Button>
-                                <Button variant="ghost" size="sm" onClick={() => handleCancel(r)} title="Cancelar" className="text-destructive">
+                                <Button variant="ghost" size="sm" onClick={() => requestCancel(r)} title="Cancelar" className="text-destructive">
                                   <X className="h-3 w-3" />
                                 </Button>
                               </div>
