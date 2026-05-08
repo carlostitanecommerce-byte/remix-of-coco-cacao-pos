@@ -149,6 +149,7 @@ const PaquetesTab = ({ isAdmin }: Props) => {
     setForm(emptyForm);
     setComponentes([]);
     setNewLine({ producto_id: '', cantidad: '1' });
+    setImagenesPendientesEliminar([]);
     setDialogOpen(true);
   };
 
