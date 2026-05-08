@@ -605,10 +605,14 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               <div className="space-y-1.5">
                 {items.map(item => {
                   const isAmenity = item.precio_especial === 0;
+                  const requiereCancelacion = item.requiere_preparacion;
+                  const hasPending = item.pendingCancelQty > 0;
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between rounded-md border border-border/60 bg-muted/30 p-2.5 text-sm"
+                      className={`flex items-center justify-between rounded-md border p-2.5 text-sm ${
+                        hasPending ? 'border-destructive/50 bg-destructive/5' : 'border-border/60 bg-muted/30'
+                      }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         {isAmenity ? (
@@ -620,6 +624,11 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                           <span className="font-medium truncate">{item.nombre}</span>
                           {item.cantidad > 1 && (
                             <span className="text-muted-foreground ml-1">×{item.cantidad}</span>
+                          )}
+                          {hasPending && (
+                            <span className="ml-2 text-[10px] uppercase tracking-wide text-destructive font-semibold">
+                              Cancelación pendiente ({item.pendingCancelQty})
+                            </span>
                           )}
                         </div>
                       </div>
@@ -637,8 +646,8 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => handleUpdateQuantity(item, -1)}
-                            disabled={busy}
-                            title="Disminuir"
+                            disabled={busy || requiereCancelacion}
+                            title={requiereCancelacion ? 'Usa "Solicitar cancelación" (ya enviado a cocina)' : 'Disminuir'}
                           >
                             <Minus className="h-3 w-3" />
                           </Button>
@@ -654,16 +663,29 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                             <Plus className="h-3 w-3" />
                           </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                          onClick={() => handleRemove(item)}
-                          disabled={busy}
-                          title="Eliminar"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {requiereCancelacion ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            onClick={() => openCancelDialog(item)}
+                            disabled={busy || hasPending}
+                            title={hasPending ? 'Cancelación ya solicitada' : 'Solicitar cancelación a cocina'}
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            onClick={() => handleRemove(item)}
+                            disabled={busy}
+                            title="Eliminar"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
