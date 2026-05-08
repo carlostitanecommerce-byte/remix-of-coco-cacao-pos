@@ -54,7 +54,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
           producto_id,
           cantidad,
         }));
-        const { data: validacion, error: valErr } = await supabase.rpc('validar_stock_carrito' as any, {
+        const { data: validacion, error: valErr } = await supabase.rpc('validar_stock_carrito', {
           p_items: cartItems as any,
         });
         if (valErr) throw valErr;
