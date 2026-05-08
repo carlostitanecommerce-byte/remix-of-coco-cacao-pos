@@ -3,13 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Star, Gift, ImageIcon } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu';
+import { ImageIcon } from 'lucide-react';
 
 interface Producto {
   id: string;
@@ -23,11 +17,10 @@ interface Producto {
 }
 
 interface Props {
-  onAdd: (producto: Producto, tipoPrecio?: 'especial' | 'promocion') => void;
-  canUseSpecialPrice?: boolean;
+  onAdd: (producto: Producto) => void;
 }
 
-export function ProductGrid({ onAdd, canUseSpecialPrice = false }: Props) {
+export function ProductGrid({ onAdd }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
   const { categorias: categoriasDB } = useCategorias();
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
