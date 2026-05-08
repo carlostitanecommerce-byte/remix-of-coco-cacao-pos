@@ -1,33 +1,42 @@
+## Problema detectado
 
-# Plan: Categorías siempre visibles + ticket compacto + sin precio en tarjetas
+En la imagen se ve un item del ticket con el nombre truncado a "Ca..." porque todos los elementos (nombre, precio unitario, controles -/+, cantidad, subtotal, nota, eliminar) están forzados en una sola fila horizontal muy estrecha. Resultado: no se lee el producto, los precios chocan visualmente y se ve amateur.
 
-## 1. Categorías sin scroll horizontal
-Archivo: `src/components/pos/ProductGrid.tsx`
+## Rediseño propuesto (CartPanel.tsx)
 
-- Quitar `overflow-x-auto` y volver a `flex-wrap` para que todas las categorías sean visibles siempre.
-- Mantener la barra `sticky top-0` con `backdrop-blur`.
-- Reducir tamaño de los badges (`text-xs px-2 py-0.5`) para que quepan más por fila.
-- Resultado: un solo clic cambia de categoría, sin scroll lateral.
+Reorganizar cada item del ticket en **dos filas** dentro de una tarjeta limpia, en vez de una sola fila apretada:
 
-## 2. Ticket más compacto
-Archivo: `src/pages/PosPage.tsx`
+### Fila 1 — Identidad del producto
+- Nombre del producto en `text-sm font-medium`, con espacio para 2 líneas (`line-clamp-2`), sin truncar agresivamente.
+- A la derecha: subtotal en `text-sm font-bold text-primary` (es el dato más importante visualmente).
+- Si es paquete: ícono `Package` antes del nombre.
 
-- Cambiar el grid de `lg:grid-cols-5` (3+2) a `lg:grid-cols-7` con **5 columnas para productos y 2 para el ticket** (~28% del ancho).
-- Reducir `p-4` → `p-3` en el panel del ticket.
+### Fila 2 — Controles y metadata
+- Izquierda: precio unitario en `text-[11px] text-muted-foreground` ("$70.00 c/u").
+- Centro/derecha: stepper de cantidad agrupado (`-` `1` `+`) con fondo sutil `bg-muted/40 rounded-md` para que se lea como un control unificado, botones `h-7 w-7`.
+- Extremo derecho: botones de acción secundarios (nota 📝 y eliminar 🗑) agrupados, separados visualmente del stepper con un pequeño gap.
 
-Archivo: `src/components/pos/CartPanel.tsx`
-- Header "Ticket" de `text-lg` a `text-base`.
-- Padding interno de cada item `p-2` → `p-1.5`, botones +/− `h-6 w-6`.
+### Mejoras visuales
+- Tarjeta con `p-2.5`, `rounded-lg`, `border-border`, hover sutil `hover:border-primary/30 transition-colors`.
+- Botón eliminar en `ghost` con `text-muted-foreground hover:text-destructive` (no rojo permanente — más limpio).
+- Nota inline (cuando exista) con fondo `bg-primary/5` y borde izquierdo `border-l-2 border-primary` en lugar del emoji suelto.
+- Componentes de paquete sin cambios estructurales, solo ajuste de spacing.
 
-## 3. Quitar precio de las tarjetas de producto
-Archivo: `src/components/pos/ProductGrid.tsx`
+### Layout esquemático
 
-- Eliminar el `<span>` que muestra `${p.precio_venta.toFixed(2)}` en cada tarjeta.
-- El nombre del producto queda como única información visible (más el badge de paquete cuando aplique).
-- Esto permite reducir aún más la altura de cada card y ajustar el área de imagen para mostrar más productos por pantalla.
-- El precio se sigue viendo en el ticket al agregar el producto, que es donde realmente importa.
+```text
+┌─────────────────────────────────────────┐
+│ Cappuccino Grande               $70.00  │
+│ $70.00 c/u        [- 1 +]      📝  🗑   │
+└─────────────────────────────────────────┘
+```
 
-## Resultado esperado
-- Categorías siempre visibles, un clic para cambiar.
-- Ticket más estrecho y compacto pero legible.
-- Tarjetas de producto sin precio, más bajas → más filas visibles sin scroll.
+## Archivos a modificar
+
+- `src/components/pos/CartPanel.tsx` — solo la función `renderItem` y estilos. Sin cambios en lógica, props ni store.
+
+## Lo que NO cambia
+
+- Lógica de carrito, cálculos, totales, footer del ticket, validaciones.
+- Ancho del panel de ticket (sigue siendo 2/7 del grid del POS).
+- Otros componentes (ProductGrid, PosPage, CajaCheckoutPanel).
