@@ -15,6 +15,8 @@ interface Props {
   onRemove: (lineId: string) => void;
   onClear: () => void;
   subtotal: number;
+  coworkingSessionActive?: boolean;
+  clienteNombre?: string | null;
 }
 
 const keyOf = (i: CartItem) => i.lineId ?? i.producto_id;
