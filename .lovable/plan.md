@@ -1,68 +1,56 @@
-## Épica 1: Arquitectura de Base de Datos
+## Épica 2: Reestructuración de Navegación (Back of House vs Front of House)
 
-Preparar el esquema relacional para soportar **precios por plataforma de delivery** y **paquetes dinámicos** (grupos de selección tipo "elige tu bebida").
-
----
-
-### Tarea 1.1 — Tablas de Delivery
-
-**`plataformas_delivery`** — catálogo de plataformas (Uber Eats, Rappi, DiDi Food, etc.)
-- `id` UUID PK
-- `nombre` text UNIQUE NOT NULL
-- `comision_porcentaje` numeric NOT NULL DEFAULT 0
-- `activo` boolean NOT NULL DEFAULT true
-- `created_at`, `updated_at`
-
-**`producto_precios_delivery`** — precio de venta de cada producto por plataforma
-- `id` UUID PK
-- `producto_id` UUID NOT NULL → `productos.id` ON DELETE CASCADE
-- `plataforma_id` UUID NOT NULL → `plataformas_delivery.id` ON DELETE CASCADE
-- `precio_venta` numeric NOT NULL DEFAULT 0
-- `created_at`, `updated_at`
-- UNIQUE (`producto_id`, `plataforma_id`)
+Separar el almacén (insumos/compras/mermas) del catálogo de venta (productos, paquetes, precios delivery).
 
 ---
 
-### Tarea 1.2 — Paquetes dinámicos (grupos de selección)
+### 2.1 — Nuevo item "Menú" en `AppSidebar.tsx`
 
-**`paquete_grupos`** — un paquete tendrá varios grupos (ej. "Elige tu bebida", "Elige tu postre")
-- `id` UUID PK
-- `paquete_id` UUID NOT NULL → `productos.id` ON DELETE CASCADE
-- `nombre_grupo` text NOT NULL
-- `cantidad_incluida` integer NOT NULL DEFAULT 1
-- `es_obligatorio` boolean NOT NULL DEFAULT true
-- `orden` integer DEFAULT 0 *(para mantener orden visual)*
-- `created_at`, `updated_at`
+- Agregar entrada en `allMenuItems` justo **debajo de "Inventarios"**:
+  - `title: 'Menú'`, `url: '/menu'`, `icon: BookOpen` (ícono tipo carta de menú de restaurante, importado de `lucide-react`).
+  - `allowedRoles: ['administrador', 'supervisor']`.
 
-**`paquete_opciones_grupo`** — productos seleccionables dentro de cada grupo
-- `id` UUID PK
-- `grupo_id` UUID NOT NULL → `paquete_grupos.id` ON DELETE CASCADE
-- `producto_id` UUID NOT NULL → `productos.id` ON DELETE CASCADE
-- `precio_adicional` numeric NOT NULL DEFAULT 0
-- `created_at`
-- UNIQUE (`grupo_id`, `producto_id`)
+### 2.2 — Limpiar `InventariosPage.tsx`
 
-> La tabla existente `paquete_componentes` se **conserva intacta** en esta épica para no romper el POS actual. La migración/eliminación se hará en una épica posterior cuando reescribamos la UI de paquetes y el carrito.
+Quitar de la página y del `<TabsList>`:
+- Pestaña **Productos & Recetas** (`ProductosTab`).
+- Pestaña **Paquetes** (`PaquetesTab`).
+- Imports asociados.
+
+Pestañas que permanecen: **Categorías, Insumos, Compras, Mermas**.
+
+`defaultValue` sigue en `"categorias"`.
+
+> Los archivos `ProductosTab.tsx` y `PaquetesTab.tsx` **no se borran**; sólo dejan de importarse aquí porque se reutilizarán en Menú.
+
+### 2.3 — Nueva página `MenuPage.tsx`
+
+Crear `src/pages/MenuPage.tsx` con la misma estructura visual de `InventariosPage` (header + `<Tabs>`):
+
+- Título: **"Menú"** · subtítulo: "Productos, paquetes y precios para venta y delivery".
+- Tabs (`defaultValue="productos"`):
+  1. **Productos Individuales** → reutiliza `<ProductosTab isAdmin={isAdmin} roles={roles} />` tal cual existe hoy.
+  2. **Paquetes / Combos** → placeholder con `<div>` "Próximamente — gestión de paquetes dinámicos". *(Se implementará en una épica posterior con la nueva tabla `paquete_grupos`.)*
+  3. **Precios Delivery** → placeholder "Próximamente — precios por plataforma". *(Se implementará al construir la UI sobre `producto_precios_delivery`.)*
+
+Permisos de página: `administrador` y `supervisor`.
+
+### Routing — `src/App.tsx`
+
+- Importar `MenuPage`.
+- Agregar `<Route path="/menu" …>` con `<ProtectedRoute allowedRoles={['administrador','supervisor']}>` envolviendo `<DashboardLayout><MenuPage /></DashboardLayout>`.
 
 ---
 
-### Seguridad (RLS)
+### Notas técnicas
 
-Las 4 tablas con el mismo patrón ya usado en el proyecto:
-- **SELECT**: cualquier usuario autenticado.
-- **ALL (insert/update/delete)**: solo `administrador` vía `has_role(auth.uid(), 'administrador')`.
+- No se toca lógica de negocio ni queries — sólo navegación, imports y un nuevo archivo de página.
+- `ProductosTab` y `PaquetesTab` quedan disponibles para reutilizarse/refactorizarse en épicas siguientes.
+- Sin migraciones de base de datos en esta épica.
 
-Triggers `update_updated_at_column` donde aplique.
+### Archivos afectados
 
----
-
-### Frontend (sólo tipos, sin UI todavía)
-
-`src/integrations/supabase/types.ts` se regenera automáticamente al aplicar la migración — no se edita a mano. No hay cambios de UI ni lógica en esta épica; sólo schema + RLS listos para que las próximas épicas (gestión de productos / paquetes / delivery) los consuman.
-
----
-
-### Detalles técnicos
-
-- Una sola migración SQL con: 4 `CREATE TABLE`, índices en FKs, `ENABLE ROW LEVEL SECURITY`, políticas, triggers de `updated_at`.
-- Sin datos seed — las plataformas las dará de alta el admin desde la futura UI.
+- `src/components/AppSidebar.tsx` (editar)
+- `src/pages/InventariosPage.tsx` (editar)
+- `src/pages/MenuPage.tsx` (crear)
+- `src/App.tsx` (editar — agregar ruta)
