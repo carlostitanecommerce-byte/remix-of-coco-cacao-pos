@@ -226,8 +226,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         monto_acumulado: 0,
         tarifa_id: selectedTarifaId || null,
         tarifa_snapshot: tarifaSnapshot,
-        upsell_producto_id: firstUpsell?.producto_id ?? null,
-        upsell_precio: firstUpsell?.precio ?? null,
       } as any).select('id').single();
 
       if (error || !sessionData) {
@@ -241,33 +239,38 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         return;
       }
 
-      // Batch insert extras + amenities con rollback explícito si falla
-      const upsellRows: any[] = [];
+      // Insertar amenities + extras directamente en detalle_ventas (cuenta abierta)
+      const detalleRows: any[] = [];
       for (const it of extraItems) {
-        upsellRows.push({
-          session_id: sessionData.id,
+        detalleRows.push({
+          coworking_session_id: sessionData.id,
+          venta_id: null,
           producto_id: it.producto_id,
-          precio_especial: it.precio,
           cantidad: 1,
+          precio_unitario: it.precio,
+          subtotal: it.precio,
+          tipo_concepto: it.isSpecial ? 'producto' : 'producto',
         });
       }
       for (const a of amenityOptions) {
         const qty = a.cantidad_incluida * pax;
-        upsellRows.push({
-          session_id: sessionData.id,
+        detalleRows.push({
+          coworking_session_id: sessionData.id,
+          venta_id: null,
           producto_id: a.producto_id,
-          precio_especial: 0,
           cantidad: qty,
+          precio_unitario: 0,
+          subtotal: 0,
+          tipo_concepto: 'amenity',
         });
       }
 
-      if (upsellRows.length > 0) {
+      if (detalleRows.length > 0) {
         const { error: upsellErr } = await supabase
-          .from('coworking_session_upsells')
-          .insert(upsellRows);
+          .from('detalle_ventas')
+          .insert(detalleRows);
 
         if (upsellErr) {
-          // Rollback: borrar la sesión recién creada para evitar cuenta inconsistente
           await supabase.from('coworking_sessions').delete().eq('id', sessionData.id);
           toast({
             variant: 'destructive',
