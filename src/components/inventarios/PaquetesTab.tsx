@@ -58,7 +58,7 @@ const emptyForm = { nombre: '', categoria: '', precio_venta: '', imagen_url: '',
 interface Props { isAdmin: boolean }
 
 const PaquetesTab = ({ isAdmin }: Props) => {
-  const { categorias: CATEGORIAS } = useCategorias();
+  const { categorias: CATEGORIAS } = useCategorias('paquete');
   const { user } = useAuth();
 
   const [paquetes, setPaquetes] = useState<Paquete[]>([]);
