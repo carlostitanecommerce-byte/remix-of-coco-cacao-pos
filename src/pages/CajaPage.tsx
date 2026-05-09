@@ -28,9 +28,11 @@ const CajaPage = () => {
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
   const [cierreOpen, setCierreOpen] = useState(false);
+  const [aperturaCerrada, setAperturaCerrada] = useState(false);
 
   const isAdmin = roles.includes('administrador');
   const isSupervisor = roles.includes('supervisor');
+  const puedeOmitirApertura = isAdmin || isSupervisor;
 
   useSolicitudCancelacionToasts();
 
