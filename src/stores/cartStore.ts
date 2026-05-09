@@ -12,6 +12,8 @@ interface CartState {
   coworkingSessionId: string | null;
   clienteNombre: string | null;
   ownerUserId: string | null;
+  /** Mapa producto_id → precio especial proveniente de tarifa_upsells de la sesión activa. */
+  tarifaUpsells: Record<string, number>;
   ensureOwner: (userId: string | null) => void;
   setItems: (items: CartItem[]) => void;
   addOrIncrementProduct: (item: CartItem) => void;
@@ -22,6 +24,8 @@ interface CartState {
   removeItem: (key: string) => void;
   clear: () => void;
   importCoworkingSession: (items: CartItem[], sessionId: string, clienteNombre: string) => void;
+  setActiveCoworkingSession: (sessionId: string | null, clienteNombre: string | null) => void;
+  setTarifaUpsells: (map: Record<string, number>) => void;
 }
 
 export const useCartStore = create<CartState>()(
