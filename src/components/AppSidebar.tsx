@@ -17,6 +17,7 @@ import {
   ShoppingCart,
   Building2,
   Package,
+  BookOpen,
   Users,
   BarChart3,
   LogOut,
@@ -32,6 +33,7 @@ const allMenuItems = [
   { title: 'Cocina', url: '/cocina', icon: ChefHat, allowedRoles: ['administrador', 'supervisor', 'barista'] },
   { title: 'Coworking', url: '/coworking', icon: Building2, allowedRoles: ['administrador', 'supervisor', 'caja', 'recepcion'] },
   { title: 'Inventarios', url: '/inventarios', icon: Package, allowedRoles: ['administrador', 'supervisor'] },
+  { title: 'Menú', url: '/menu', icon: BookOpen, allowedRoles: ['administrador', 'supervisor'] },
   { title: 'Usuarios', url: '/usuarios', icon: Users, allowedRoles: ['administrador'] },
   { title: 'Reportes', url: '/reportes', icon: BarChart3, allowedRoles: ['administrador', 'supervisor'] },
 ];

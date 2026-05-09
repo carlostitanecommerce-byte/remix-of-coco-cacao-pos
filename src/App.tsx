@@ -14,6 +14,7 @@ import UsersPage from "@/pages/UsersPage";
 import ReportesPage from "@/pages/ReportesPage";
 import CoworkingPage from "@/pages/CoworkingPage";
 import InventariosPage from "@/pages/InventariosPage";
+import MenuPage from "@/pages/MenuPage";
 import CocinaPage from "@/pages/CocinaPage";
 import NotFound from "./pages/NotFound";
 
@@ -102,6 +103,16 @@ const App = () => (
                 <ProtectedRoute allowedRoles={['administrador', 'supervisor']}>
                   <DashboardLayout>
                     <InventariosPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/menu"
+              element={
+                <ProtectedRoute allowedRoles={['administrador', 'supervisor']}>
+                  <DashboardLayout>
+                    <MenuPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }
