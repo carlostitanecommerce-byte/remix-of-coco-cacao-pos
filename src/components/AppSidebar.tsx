@@ -8,7 +8,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarFooter,
+  useSidebar,
 } from '@/components/ui/sidebar';
+import { useLocation } from 'react-router-dom';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -36,6 +38,14 @@ const allMenuItems = [
 
 export function AppSidebar() {
   const { profile, roles, signOut } = useAuth();
+  const { isMobile, setOpen, setOpenMobile } = useSidebar();
+  const { pathname } = useLocation();
+
+  const handleNavClick = (url: string) => {
+    if (pathname === url) return;
+    if (isMobile) setOpenMobile(false);
+    else setOpen(false);
+  };
 
   const rolLabel = roles.length > 0
     ? roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ')
@@ -72,6 +82,7 @@ export function AppSidebar() {
                     <NavLink
                       to={item.url}
                       end
+                      onClick={() => handleNavClick(item.url)}
                       className="hover:bg-sidebar-accent"
                       activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                     >
