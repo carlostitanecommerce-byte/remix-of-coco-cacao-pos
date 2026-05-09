@@ -531,6 +531,38 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   const margenColor = (m: number) =>
     m > 40 ? 'text-green-600' : m >= 20 ? 'text-yellow-600' : 'text-destructive';
 
+  // === Filtrado + paginación ===
+  const filtrados = useMemo(() => productos.filter(p =>
+    p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+    p.categoria.toLowerCase().includes(busqueda.toLowerCase())
+  ), [productos, busqueda]);
+
+  useEffect(() => { setPaginaActual(1); }, [busqueda, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const fin = inicio + porPagina;
+  const productosPagina = filtrados.slice(inicio, fin);
+
+  const numerosPagina = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    const total = totalPaginas;
+    const cur = paginaSegura;
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (cur > 3) pages.push('ellipsis');
+      const start = Math.max(2, cur - 1);
+      const end = Math.min(total - 1, cur + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (cur < total - 2) pages.push('ellipsis');
+      pages.push(total);
+    }
+    return pages;
+  }, [totalPaginas, paginaSegura]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
