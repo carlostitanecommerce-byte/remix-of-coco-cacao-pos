@@ -109,12 +109,21 @@ const PosPage = () => {
 
   const handlePaqueteConfirm = useCallback(({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
     if (!paqueteCtx) return;
+    // Guardia: el paquete debe tener al menos una opción seleccionada para que el descuento de inventario sea correcto
+    if (!opciones || opciones.length === 0) {
+      toast.error('Selecciona al menos una opción del paquete');
+      return;
+    }
     // Derivar componentes para compatibilidad con KDS y prorrateo en ConfirmVentaDialog
     const counts = new Map<string, { producto_id: string; nombre: string; cantidad: number }>();
     for (const o of opciones) {
       const prev = counts.get(o.producto_id);
       if (prev) prev.cantidad += 1;
       else counts.set(o.producto_id, { producto_id: o.producto_id, nombre: o.nombre_producto, cantidad: 1 });
+    }
+    if (counts.size === 0) {
+      toast.error('Las opciones del paquete no tienen productos válidos');
+      return;
     }
     addOrIncrementPaquete({
       producto_id: paqueteCtx.id,
