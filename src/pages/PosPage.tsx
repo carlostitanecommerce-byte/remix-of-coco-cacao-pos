@@ -359,16 +359,18 @@ const PosPage = () => {
                 onRemove={removeItem}
                 onClear={clear}
                 subtotal={subtotal}
+                coworkingSessionActive={isOpenAccount}
+                clienteNombre={clienteNombre}
               />
             </div>
             <Button
               className="mt-3 w-full"
               size="lg"
-              disabled={items.length === 0}
+              disabled={items.length === 0 || charging}
               onClick={goToCheckout}
             >
-              Cobrar
-              <ArrowRight className="ml-2 h-4 w-4" />
+              {checkoutLabelMobile}
+              <CheckoutIcon className="ml-2 h-4 w-4" />
             </Button>
           </SheetContent>
         </Sheet>
