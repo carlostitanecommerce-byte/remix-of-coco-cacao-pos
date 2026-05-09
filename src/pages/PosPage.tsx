@@ -312,15 +312,17 @@ const PosPage = () => {
               onRemove={removeItem}
               onClear={clear}
               subtotal={subtotal}
+              coworkingSessionActive={isOpenAccount}
+              clienteNombre={clienteNombre}
             />
             <Button
               className="mt-3 w-full"
               size="lg"
-              disabled={items.length === 0}
+              disabled={items.length === 0 || charging}
               onClick={goToCheckout}
             >
-              Procesar pago en Caja
-              <ArrowRight className="ml-2 h-4 w-4" />
+              {checkoutLabel}
+              <CheckoutIcon className="ml-2 h-4 w-4" />
             </Button>
           </div>
         </div>
