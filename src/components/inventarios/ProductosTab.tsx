@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCategorias } from '@/hooks/useCategorias';
 import { useAuth } from '@/hooks/useAuth';
@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download, Upload, X, Loader2, ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, BookOpen, Copy, Search, Download, Upload, X, Loader2, ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 
@@ -65,6 +65,8 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   const canEditInstructions = isAdmin || roles.includes('supervisor');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -529,6 +531,38 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   const margenColor = (m: number) =>
     m > 40 ? 'text-green-600' : m >= 20 ? 'text-yellow-600' : 'text-destructive';
 
+  // === Filtrado + paginación ===
+  const filtrados = useMemo(() => productos.filter(p =>
+    p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+    p.categoria.toLowerCase().includes(busqueda.toLowerCase())
+  ), [productos, busqueda]);
+
+  useEffect(() => { setPaginaActual(1); }, [busqueda, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const fin = inicio + porPagina;
+  const productosPagina = filtrados.slice(inicio, fin);
+
+  const numerosPagina = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    const total = totalPaginas;
+    const cur = paginaSegura;
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (cur > 3) pages.push('ellipsis');
+      const start = Math.max(2, cur - 1);
+      const end = Math.min(total - 1, cur + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (cur < total - 2) pages.push('ellipsis');
+      pages.push(total);
+    }
+    return pages;
+  }, [totalPaginas, paginaSegura]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -571,13 +605,11 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
-              ) : (() => {
-                const filtrados = productos.filter(p => p.nombre.toLowerCase().includes(busqueda.toLowerCase()) || p.categoria.toLowerCase().includes(busqueda.toLowerCase()));
-                return filtrados.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados para la búsqueda' : 'Sin productos registrados'}</TableCell></TableRow>
-                ) : filtrados.map(p => (
+              ) : filtrados.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados para la búsqueda' : 'Sin productos registrados'}</TableCell></TableRow>
+              ) : productosPagina.map(p => (
                 <Fragment key={p.id}>
-                  <TableRow key={p.id}>
+                  <TableRow>
                     <TableCell className="font-medium">{p.nombre}</TableCell>
                     <TableCell>
                       <Badge variant="secondary">{p.categoria}</Badge>
@@ -642,12 +674,53 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
                     </TableRow>
                   )}
                 </Fragment>
-              ));
-              })()}
+              ))}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      {filtrados.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground">
+            Mostrando {inicio + 1}–{Math.min(fin, filtrados.length)} de {filtrados.length} productos
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground">Por página</Label>
+              <Select value={String(porPagina)} onValueChange={v => setPorPagina(Number(v))}>
+                <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[10, 25, 50, 100].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === 1} onClick={() => setPaginaActual(p => Math.max(1, p - 1))}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              {numerosPagina.map((n, idx) =>
+                n === 'ellipsis' ? (
+                  <span key={`e-${idx}`} className="px-2 text-muted-foreground text-sm">…</span>
+                ) : (
+                  <Button
+                    key={n}
+                    variant={n === paginaSegura ? 'default' : 'outline'}
+                    size="icon"
+                    className="h-8 w-8 text-xs"
+                    onClick={() => setPaginaActual(n)}
+                  >
+                    {n}
+                  </Button>
+                )
+              )}
+              <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === totalPaginas} onClick={() => setPaginaActual(p => Math.min(totalPaginas, p + 1))}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dialog Producto + Receta */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

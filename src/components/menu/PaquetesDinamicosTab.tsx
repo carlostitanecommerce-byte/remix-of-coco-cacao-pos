@@ -24,7 +24,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Plus, Pencil, Trash2, Package, Search, X, ArrowUp, ArrowDown, Layers,
+  Plus, Pencil, Trash2, Package, Search, X, ArrowUp, ArrowDown, Layers, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -79,6 +79,8 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
   const [paquetes, setPaquetes] = useState<Paquete[]>([]);
   const [productosSimples, setProductosSimples] = useState<ProductoSimple[]>([]);
   const [busqueda, setBusqueda] = useState('');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -395,6 +397,32 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
     p.categoria.toLowerCase().includes(busqueda.toLowerCase())
   ), [paquetes, busqueda]);
 
+  useEffect(() => { setPaginaActual(1); }, [busqueda, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const fin = inicio + porPagina;
+  const paquetesPagina = filtrados.slice(inicio, fin);
+
+  const numerosPagina = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    const total = totalPaginas;
+    const cur = paginaSegura;
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (cur > 3) pages.push('ellipsis');
+      const start = Math.max(2, cur - 1);
+      const end = Math.min(total - 1, cur + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (cur < total - 2) pages.push('ellipsis');
+      pages.push(total);
+    }
+    return pages;
+  }, [totalPaginas, paginaSegura]);
+
   const costoPreview = calcCosto(grupos);
   const precioPreview = parseFloat(form.precio_venta) || 0;
   const margenPreview = calcMargen(precioPreview, costoPreview);
@@ -442,7 +470,7 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
                 <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
               ) : filtrados.length === 0 ? (
                 <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados' : 'Sin paquetes registrados'}</TableCell></TableRow>
-              ) : filtrados.map(p => (
+              ) : paquetesPagina.map(p => (
                 <TableRow key={p.id} className={!p.activo ? 'opacity-60' : ''}>
                   <TableCell className="font-medium">{p.nombre}</TableCell>
                   <TableCell>{p.categoria}</TableCell>
@@ -469,6 +497,48 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
           </Table>
         </CardContent>
       </Card>
+
+      {filtrados.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground">
+            Mostrando {inicio + 1}–{Math.min(fin, filtrados.length)} de {filtrados.length} paquetes
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground">Por página</Label>
+              <Select value={String(porPagina)} onValueChange={v => setPorPagina(Number(v))}>
+                <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[10, 25, 50, 100].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === 1} onClick={() => setPaginaActual(p => Math.max(1, p - 1))}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              {numerosPagina.map((n, idx) =>
+                n === 'ellipsis' ? (
+                  <span key={`e-${idx}`} className="px-2 text-muted-foreground text-sm">…</span>
+                ) : (
+                  <Button
+                    key={n}
+                    variant={n === paginaSegura ? 'default' : 'outline'}
+                    size="icon"
+                    className="h-8 w-8 text-xs"
+                    onClick={() => setPaginaActual(n)}
+                  >
+                    {n}
+                  </Button>
+                )
+              )}
+              <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === totalPaginas} onClick={() => setPaginaActual(p => Math.min(totalPaginas, p + 1))}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Diálogo de edición */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
