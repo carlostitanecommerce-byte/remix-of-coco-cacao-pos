@@ -149,10 +149,26 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
             <Separator />
 
             <div className="space-y-1">
-              {lineasMostrar.map(l => (
+              {lineasMostrar.map(l => l.kind === 'simple' ? (
                 <div key={l.id} className="flex justify-between gap-2">
                   <span className="flex-1 break-words min-w-0">{l.cantidad}x {l.displayName}</span>
-                  <span className="shrink-0">${Number(l.subtotal).toFixed(2)}</span>
+                  <span className="shrink-0">${l.subtotal.toFixed(2)}</span>
+                </div>
+              ) : (
+                <div key={l.id}>
+                  <div className="flex justify-between gap-2">
+                    <span className="flex-1 break-words min-w-0">{l.cantidad}x 📦 {l.nombre}</span>
+                    <span className="shrink-0">${l.subtotal.toFixed(2)}</span>
+                  </div>
+                  {l.componentes.length > 0 && (
+                    <ul className="ml-3 mt-0.5 space-y-0.5">
+                      {l.componentes.map((c, idx) => (
+                        <li key={idx} className="text-[11px] text-muted-foreground">
+                          • {c.cantidad}x {c.nombre}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ))}
             </div>
