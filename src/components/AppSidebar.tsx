@@ -38,6 +38,14 @@ const allMenuItems = [
 
 export function AppSidebar() {
   const { profile, roles, signOut } = useAuth();
+  const { isMobile, setOpen, setOpenMobile } = useSidebar();
+  const { pathname } = useLocation();
+
+  const handleNavClick = (url: string) => {
+    if (pathname === url) return;
+    if (isMobile) setOpenMobile(false);
+    else setOpen(false);
+  };
 
   const rolLabel = roles.length > 0
     ? roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ')
