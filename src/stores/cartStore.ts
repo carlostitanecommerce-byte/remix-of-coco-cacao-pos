@@ -2,6 +2,11 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { CartItem } from '@/components/pos/types';
 
+const keyOf = (i: CartItem) => i.lineId ?? i.producto_id;
+
+const ensureLineId = (i: CartItem): CartItem =>
+  i.lineId ? i : { ...i, lineId: i.producto_id };
+
 interface CartState {
   items: CartItem[];
   coworkingSessionId: string | null;
@@ -11,10 +16,10 @@ interface CartState {
   setItems: (items: CartItem[]) => void;
   addOrIncrementProduct: (item: CartItem) => void;
   addOrIncrementPaquete: (item: CartItem) => void;
-  updateQty: (productoId: string, delta: number) => void;
-  setQty: (productoId: string, qty: number) => void;
-  updateNotas: (productoId: string, notas: string) => void;
-  removeItem: (productoId: string) => void;
+  updateQty: (key: string, delta: number) => void;
+  setQty: (key: string, qty: number) => void;
+  updateNotas: (key: string, notas: string) => void;
+  removeItem: (key: string) => void;
   clear: () => void;
   importCoworkingSession: (items: CartItem[], sessionId: string, clienteNombre: string) => void;
 }
@@ -36,73 +41,85 @@ export const useCartStore = create<CartState>()(
           set({ items: [], coworkingSessionId: null, clienteNombre: null, ownerUserId: null });
         }
       },
-      setItems: (items) => set({ items }),
+      setItems: (items) => set({ items: items.map(ensureLineId) }),
       addOrIncrementProduct: (item) => {
         const items = get().items;
+        const incoming = ensureLineId({ ...item, lineId: item.producto_id });
         const existing = items.find(
-          (i) => i.producto_id === item.producto_id && i.tipo_concepto === 'producto'
+          (i) => i.producto_id === incoming.producto_id && i.tipo_concepto === 'producto'
         );
         if (existing) {
           set({
             items: items.map((i) =>
-              i.producto_id === item.producto_id && i.tipo_concepto === 'producto'
+              i.producto_id === incoming.producto_id && i.tipo_concepto === 'producto'
                 ? { ...i, cantidad: i.cantidad + 1, subtotal: (i.cantidad + 1) * i.precio_unitario }
                 : i
             ),
           });
         } else {
-          set({ items: [...items, item] });
+          set({ items: [...items, incoming] });
         }
       },
       addOrIncrementPaquete: (item) => {
         const items = get().items;
+        const isDinamico = !!item.opciones && item.opciones.length > 0;
+        if (isDinamico) {
+          const lineId = item.lineId ?? (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `pq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+          set({ items: [...items, { ...item, lineId }] });
+          return;
+        }
+        const incoming = ensureLineId({ ...item, lineId: item.producto_id });
         const existing = items.find(
-          (i) => i.producto_id === item.producto_id && i.tipo_concepto === 'paquete'
+          (i) => i.producto_id === incoming.producto_id && i.tipo_concepto === 'paquete' && !i.opciones
         );
         if (existing) {
           set({
             items: items.map((i) =>
-              i.producto_id === item.producto_id && i.tipo_concepto === 'paquete'
+              i.producto_id === incoming.producto_id && i.tipo_concepto === 'paquete' && !i.opciones
                 ? { ...i, cantidad: i.cantidad + 1, subtotal: (i.cantidad + 1) * i.precio_unitario }
                 : i
             ),
           });
         } else {
-          set({ items: [...items, item] });
+          set({ items: [...items, incoming] });
         }
       },
-      updateQty: (productoId, delta) =>
+      updateQty: (key, delta) =>
         set({
           items: get().items.map((i) => {
-            if (i.producto_id !== productoId) return i;
+            if (keyOf(i) !== key) return i;
             const newQty = Math.max(1, i.cantidad + delta);
             return { ...i, cantidad: newQty, subtotal: newQty * i.precio_unitario };
           }),
         }),
-      setQty: (productoId, qty) =>
+      setQty: (key, qty) =>
         set({
           items: get().items.map((i) =>
-            i.producto_id === productoId
-              ? { ...i, cantidad: qty, subtotal: qty * i.precio_unitario }
-              : i
+            keyOf(i) === key ? { ...i, cantidad: qty, subtotal: qty * i.precio_unitario } : i
           ),
         }),
-      updateNotas: (productoId, notas) =>
+      updateNotas: (key, notas) =>
         set({
           items: get().items.map((i) =>
-            i.producto_id === productoId ? { ...i, notas: notas.trim() || undefined } : i
+            keyOf(i) === key ? { ...i, notas: notas.trim() || undefined } : i
           ),
         }),
-      removeItem: (productoId) =>
-        set({ items: get().items.filter((i) => i.producto_id !== productoId) }),
+      removeItem: (key) =>
+        set({ items: get().items.filter((i) => keyOf(i) !== key) }),
       clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null }),
-      // ownerUserId no se borra en clear() — sólo cambia al cambiar de usuario via ensureOwner.
       importCoworkingSession: (items, sessionId, clienteNombre) =>
-        set({ items, coworkingSessionId: sessionId, clienteNombre }),
+        set({ items: items.map(ensureLineId), coworkingSessionId: sessionId, clienteNombre }),
     }),
     {
       name: 'pos-cart',
       storage: createJSONStorage(() => sessionStorage),
+      onRehydrateStorage: () => (state) => {
+        if (state?.items) {
+          state.items = state.items.map(ensureLineId);
+        }
+      },
     }
   )
 );
