@@ -71,12 +71,42 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
 
   if (!venta) return null;
 
-  // Agrupar componentes de paquetes para evitar mostrar líneas individuales sueltas
-  const lineasMostrar = detalles.map(d => {
-    const nombre = d.descripcion || d.productos?.nombre || 'Concepto';
-    const prefijo = d.paquete_nombre ? `📦 ${d.paquete_nombre} → ` : '';
-    return { ...d, displayName: `${prefijo}${nombre}` };
-  });
+  // Agrupar componentes de paquetes: una sola línea por paquete (cantidad real, precio total real)
+  // con sus componentes listados debajo sin precio individual.
+  type LineaSimple = { kind: 'simple'; id: string; cantidad: number; subtotal: number; displayName: string };
+  type LineaPaquete = { kind: 'paquete'; id: string; cantidad: number; subtotal: number; nombre: string; componentes: { cantidad: number; nombre: string }[] };
+  const lineasMostrar: (LineaSimple | LineaPaquete)[] = [];
+  const paqueteBuckets = new Map<string, LineaPaquete>();
+  for (const d of detalles) {
+    const nombreLinea = d.descripcion || d.productos?.nombre || 'Concepto';
+    if (d.paquete_nombre) {
+      // Agrupar por paquete_nombre (ya viene normalizado por venta; suficiente para diferenciar paquetes)
+      const key = `pq:${d.paquete_nombre}`;
+      let bucket = paqueteBuckets.get(key);
+      if (!bucket) {
+        bucket = {
+          kind: 'paquete',
+          id: key,
+          cantidad: 1,
+          subtotal: 0,
+          nombre: d.paquete_nombre,
+          componentes: [],
+        };
+        paqueteBuckets.set(key, bucket);
+        lineasMostrar.push(bucket);
+      }
+      bucket.subtotal += Number(d.subtotal) || 0;
+      bucket.componentes.push({ cantidad: Number(d.cantidad) || 0, nombre: nombreLinea });
+    } else {
+      lineasMostrar.push({
+        kind: 'simple',
+        id: d.id,
+        cantidad: Number(d.cantidad) || 0,
+        subtotal: Number(d.subtotal) || 0,
+        displayName: nombreLinea,
+      });
+    }
+  }
 
   const subtotalSinIva = venta.total_neto - venta.iva;
   const metodoPagoLabel: Record<string, string> = {
