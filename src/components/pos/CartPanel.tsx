@@ -96,9 +96,16 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
 
         {/* Fila 2: precio unitario + stepper + acciones */}
         <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[11px] text-muted-foreground tabular-nums">
-            ${item.precio_unitario.toFixed(2)} c/u
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-[11px] text-muted-foreground tabular-nums">
+              ${item.precio_unitario.toFixed(2)} c/u
+            </p>
+            {item.precio_especial && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-primary text-primary">
+                Tarifa Coworking
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center gap-1.5">
             <div className="flex items-center gap-0.5 rounded-md bg-muted/50 p-0.5">
               <Button
