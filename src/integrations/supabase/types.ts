@@ -172,6 +172,7 @@ export type Database = {
       }
       categorias_maestras: {
         Row: {
+          ambito: string
           created_at: string
           descripcion: string | null
           id: string
@@ -179,6 +180,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ambito?: string
           created_at?: string
           descripcion?: string | null
           id?: string
@@ -186,6 +188,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ambito?: string
           created_at?: string
           descripcion?: string | null
           id?: string
