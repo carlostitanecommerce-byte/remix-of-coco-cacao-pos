@@ -119,7 +119,7 @@ export function ProductGrid({ onAdd }: Props) {
                 key={`sk-${idx}`}
                 className="flex flex-col rounded-md border border-border bg-card overflow-hidden animate-pulse"
               >
-                <div className={cn('w-full bg-muted', isCompacto ? 'h-16' : 'aspect-[4/3]')} />
+                <div className={cn('w-full bg-muted', isCompacto ? 'h-14' : 'aspect-[5/3]')} />
                 <div className="p-1.5">
                   <div className="h-3 w-3/4 bg-muted rounded" />
                 </div>
