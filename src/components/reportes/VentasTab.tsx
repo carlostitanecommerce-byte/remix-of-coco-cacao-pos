@@ -175,30 +175,31 @@ export default function VentasTab() {
     const cap = areas.reduce((s, a) => s + a.capacidad_pax, 0);
     setTotalCapacidad(cap);
     setCoworkLimitHit(sessions.length >= COWORK_LIMIT);
+    setSessionsCount(sessions.length);
 
     // Truncate "fin" to now() for active sessions to avoid inflating future hours.
     const nowMs = Date.now();
 
-    // For each day-hour slot in range, count pax of overlapping sessions
+    // For each day-hour slot in range, count pax of overlapping sessions.
+    // Slots are built explicitly in CDMX (UTC-6) so the heatmap is timezone-independent.
     const map: CoworkHeatmap = {};
     const days = eachDayOfInterval({ start: rango.desde, end: rango.hasta });
 
     days.forEach(day => {
       const jsDay = getDay(day);
       const diaIdx = jsDay === 0 ? 6 : jsDay - 1;
+      const dayStr = format(day, 'yyyy-MM-dd');
 
       HORAS_COWORK.forEach(hora => {
-        const slotStart = new Date(day);
-        slotStart.setHours(hora, 0, 0, 0);
-        const slotEnd = new Date(day);
-        slotEnd.setHours(hora, 59, 59, 999);
+        const hh = String(hora).padStart(2, '0');
+        const slotStartMs = new Date(`${dayStr}T${hh}:00:00-06:00`).getTime();
+        const slotEndMs = new Date(`${dayStr}T${hh}:59:59.999-06:00`).getTime();
+
+        const key = `${diaIdx}-${hora}`;
+        if (!map[key]) map[key] = { personas: 0 };
 
         // Skip future slots entirely (avoids forecasted occupancy)
-        if (slotStart.getTime() > nowMs) {
-          const key = `${diaIdx}-${hora}`;
-          if (!map[key]) map[key] = { personas: 0 };
-          return;
-        }
+        if (slotStartMs > nowMs) return;
 
         let personas = 0;
         sessions.forEach(s => {
@@ -208,13 +209,11 @@ export default function VentasTab() {
           const finRaw = s.fecha_salida_real
             ? new Date(s.fecha_salida_real).getTime()
             : Math.min(new Date(s.fecha_fin_estimada).getTime(), nowMs);
-          if (inicio <= slotEnd.getTime() && finRaw >= slotStart.getTime()) {
-            personas += s.pax_count;
+          if (inicio <= slotEndMs && finRaw >= slotStartMs) {
+            personas += Number(s.pax_count) || 0;
           }
         });
 
-        const key = `${diaIdx}-${hora}`;
-        if (!map[key]) map[key] = { personas: 0 };
         map[key].personas += personas;
       });
     });
