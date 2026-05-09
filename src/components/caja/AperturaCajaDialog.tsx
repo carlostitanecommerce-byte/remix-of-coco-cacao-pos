@@ -81,7 +81,7 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose, allowSkip = fal
         <DialogFooter className="gap-2">
           {onClose && (
             <Button variant="outline" onClick={onClose} disabled={saving}>
-              Cancelar
+              {allowSkip ? 'Cerrar (revisar historial)' : 'Cancelar'}
             </Button>
           )}
           <Button onClick={handleSubmit} disabled={saving} className="flex-1">
