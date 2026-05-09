@@ -7,7 +7,7 @@ const SidebarBackdrop = () => {
   return (
     <div
       onClick={() => setOpen(false)}
-      className="fixed inset-0 z-[5] hidden bg-black/30 backdrop-blur-[1px] md:block animate-in fade-in"
+      className="fixed inset-0 z-30 hidden bg-black/30 backdrop-blur-[1px] md:block animate-in fade-in"
       aria-hidden="true"
     />
   );

@@ -1,45 +1,52 @@
-# Sidebar como overlay (no empuja el contenido)
+## Problema
 
-## Comportamiento actual
-La barra usa `collapsible="offcanvas"` (default). Cuando se abre en escritorio, el componente shadcn renderiza un **div "spacer"** con `w-[--sidebar-width]` que ocupa espacio en el flex layout, comprimiendo la sección principal para que ambas quepan lado a lado.
+Cuando se abre la barra lateral en el POS, queda **debajo** de la barra sticky de categorías/productos. La causa es un conflicto de `z-index`:
 
-## Comportamiento deseado
-Al abrir, la barra debe **flotar encima** del contenido (sin alterar su ancho), reforzando que es solo para navegación. Al cerrar (clic en el trigger o en el área oscurecida), se oculta y el contenido queda 100% visible.
+- Sidebar (shadcn): `z-10`
+- Backdrop del overlay: `z-[5]`
+- Barra sticky de categorías en `ProductGrid.tsx`: `z-10`
 
-## Cambios
+Al empatar en `z-10`, la barra sticky del contenido queda por encima del sidebar (que es `fixed`), tapándolo.
 
-### 1. Neutralizar el spacer del Sidebar — `src/index.css`
-Agregar una regla CSS global y específica que fuerce a 0 el ancho del div "gap" del Sidebar shadcn cuando está expandido en desktop. Es la única forma limpia sin tocar el componente UI base.
-```css
-/* Sidebar overlay mode: don't reserve space for the sidebar on desktop */
-@media (min-width: 768px) {
-  .peer[data-state="expanded"] > div:first-child {
-    width: 0 !important;
-  }
-}
+## Auditoría de otras secciones
+
+Revisé todo `src/` buscando `sticky`, `fixed` y clases `z-*`:
+
+- `CajaPage.tsx` usa `lg:sticky lg:top-4` **sin** z-index → no causa solapamiento, pero por consistencia conviene asegurarse de que el sidebar siempre quede encima.
+- Resto de páginas (Coworking, Inventarios, Reportes, Cocina, Usuarios) no usan elementos sticky/fixed que compitan con el sidebar.
+- Diálogos/Sheets de shadcn ya viven en `z-50`, por encima del sidebar — correcto, no se tocan.
+
+Es decir, el único síntoma visible es el del POS, pero la **raíz** está en el layout del sidebar. Arreglarlo ahí lo soluciona globalmente y previene regresiones futuras si alguna otra pantalla agrega un sticky.
+
+## Solución
+
+Subir la pila del sidebar **overlay** por encima de cualquier contenido sticky de la app, manteniéndola por debajo de modales (`z-50`):
+
+1. **`src/components/DashboardLayout.tsx`** — Backdrop de `z-[5]` → `z-30`.
+2. **`src/index.css`** — Añadir regla CSS dentro del bloque desktop existente para forzar `z-index: 40` sobre el contenedor `fixed` del sidebar de shadcn cuando está expandido (sin tocar `ui/sidebar.tsx`, que es componente generado):
+
+   ```css
+   @media (min-width: 768px) {
+     .group.peer[data-state="expanded"] ~ * .fixed[data-sidebar],
+     [data-sidebar="sidebar"] { z-index: 40; }
+   }
+   ```
+
+   Selector real: apuntar al wrapper `fixed inset-y-0 z-10 ... md:flex` que renderiza shadcn (lo identificaremos por `data-variant` / `data-side` en el árbol del Sidebar).
+
+3. No se modifica `ProductGrid.tsx` ni ninguna otra página: el sticky del POS sigue funcionando para el scroll vertical, solo deja de competir con el sidebar.
+
+### Jerarquía resultante
+
 ```
-Esto convierte la barra en un overlay puro: el div interior `fixed inset-y-0 z-10` ya está posicionado por encima, solo el spacer estaba reservando espacio.
+modales / sheets / popovers ........ z-50
+sidebar (overlay desktop) ........... z-40
+backdrop del sidebar ................ z-30
+contenido sticky de páginas ......... z-10  (sin cambios)
+contenido normal .................... z-0
+```
 
-### 2. Backdrop opcional para desktop — `src/components/DashboardLayout.tsx`
-Agregar un overlay semitransparente que aparece cuando la barra está abierta en desktop y la cierra al hacer clic. Mejora la usabilidad y comunica al usuario que debe cerrar la barra para interactuar con la sección.
+## Archivos a editar
 
-- Crear pequeño componente interno `<SidebarBackdrop />` que use `useSidebar()` para leer `open` y llamar `setOpen(false)`.
-- Renderizar `<div className="fixed inset-0 z-[5] bg-black/30 backdrop-blur-[1px] hidden md:block" onClick={...}>` solo cuando `open === true`.
-- Z-index menor que el sidebar (`z-10`) para que la barra siga encima.
-
-### 3. (No requiere cambios) Mobile
-En móviles el Sidebar shadcn ya usa Sheet (overlay con backdrop nativo). El cambio CSS está dentro de `@media (min-width: 768px)` para no afectar móvil.
-
-### 4. (No requiere cambios) Estado por defecto
-La barra inicia abierta por defecto (`SidebarProvider` con `defaultOpen` true). Tras este cambio podría sentirse intrusiva al cargar; **se mantiene el default actual** salvo que el usuario lo pida.
-
-## Verificación
-1. Cargar `/inventarios` → la barra está abierta, el contenido **NO** se comprime (mantiene el ancho que tendría con la barra cerrada).
-2. Click en el trigger (icono ☰) → la barra se cierra, contenido sin cambios.
-3. Click fuera de la barra (sobre el backdrop) → la barra se cierra.
-4. En móvil → comportamiento Sheet sin cambios.
-
-## Fuera de alcance
-- No se modifica `src/components/ui/sidebar.tsx` (componente base shadcn).
-- No se cambia el contenido ni los items de `AppSidebar.tsx`.
-- No se cambian rutas ni lógica de navegación.
+- `src/components/DashboardLayout.tsx`
+- `src/index.css`
