@@ -106,7 +106,7 @@ const CajaPage = () => {
 
       {(isAdmin || isSupervisor) && <SolicitudesCancelacionPanel />}
 
-      <VentasTurnoPanel isAdmin={isAdmin} />
+      {(cajaAbierta || puedeOmitirApertura) && <VentasTurnoPanel isAdmin={isAdmin} />}
     </div>
   );
 
