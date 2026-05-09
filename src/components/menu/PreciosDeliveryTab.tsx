@@ -294,6 +294,14 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Buscar producto..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="pl-9" />
             </div>
+            <Select value={tipoFiltro} onValueChange={setTipoFiltro}>
+              <SelectTrigger className="w-44"><SelectValue placeholder="Tipo" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos los tipos</SelectItem>
+                <SelectItem value="producto">Producto individual</SelectItem>
+                <SelectItem value="paquete">Paquete / Combo</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={catFiltro} onValueChange={setCatFiltro}>
               <SelectTrigger className="w-48"><SelectValue placeholder="Categoría" /></SelectTrigger>
               <SelectContent>
