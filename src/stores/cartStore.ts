@@ -35,14 +35,15 @@ export const useCartStore = create<CartState>()(
       coworkingSessionId: null,
       clienteNombre: null,
       ownerUserId: null,
+      tarifaUpsells: {},
       ensureOwner: (userId) => {
         const current = get().ownerUserId;
         if (userId && current && current !== userId) {
-          set({ items: [], coworkingSessionId: null, clienteNombre: null, ownerUserId: userId });
+          set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {}, ownerUserId: userId });
         } else if (userId && !current) {
           set({ ownerUserId: userId });
         } else if (!userId && current) {
-          set({ items: [], coworkingSessionId: null, clienteNombre: null, ownerUserId: null });
+          set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {}, ownerUserId: null });
         }
       },
       setItems: (items) => set({ items: items.map(ensureLineId) }),
