@@ -82,10 +82,17 @@ const PosPage = () => {
   }, [searchParams, setActiveCoworkingSession, setTarifaUpsells]);
 
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
+    // M2: validar stock acumulado considerando lo que ya está en el carrito
+    const currentItems = useCartStore.getState().items;
     if (p.tipo === 'paquete') {
+      // Para paquetes legacy (sin opciones), acumulamos cantidad existente.
+      const existentePaquete = currentItems.find(
+        (i) => i.tipo_concepto === 'paquete' && i.producto_id === p.id && !i.opciones
+      );
+      const cantidadAValidar = (existentePaquete?.cantidad ?? 0) + 1;
       const { data: validacionPaquete, error: rpcErr } = await supabase.rpc(
         'validar_stock_paquete',
-        { p_paquete_id: p.id, p_cantidad: 1 }
+        { p_paquete_id: p.id, p_cantidad: cantidadAValidar }
       );
       if (rpcErr) { toast.error('Error al validar stock del paquete'); return; }
       const resultado = validacionPaquete as unknown as { valido: boolean; error?: string };
