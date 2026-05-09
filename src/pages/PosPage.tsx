@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { CartPanel } from '@/components/pos/CartPanel';
@@ -7,12 +7,13 @@ import { StickyCheckoutBar } from '@/components/pos/StickyCheckoutBar';
 import { PaqueteSelectorDialog } from '@/components/pos/PaqueteSelectorDialog';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ClipboardCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
 import { useCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsDesktop } from '@/hooks/use-mobile';
+import { enviarASesionKDS } from '@/components/coworking/sendToKitchen';
 import type { PaqueteOpcionSeleccionada } from '@/components/pos/types';
 
 interface PaqueteCtx { id: string; nombre: string; precio_venta: number }
