@@ -22,6 +22,7 @@ const PosPage = () => {
   const { user } = useAuth();
   const isDesktop = useIsDesktop();
   const [ticketOpen, setTicketOpen] = useState(false);
+  const [paqueteCtx, setPaqueteCtx] = useState<PaqueteCtx | null>(null);
 
   const items = useCartStore((s) => s.items);
   const ensureOwner = useCartStore((s) => s.ensureOwner);
@@ -46,6 +47,19 @@ const PosPage = () => {
       const resultado = validacionPaquete as unknown as { valido: boolean; error?: string };
       if (!resultado?.valido) { toast.error(resultado?.error || 'Stock insuficiente para este paquete'); return; }
 
+      // ¿Tiene grupos dinámicos configurados?
+      const { count: gruposCount } = await supabase
+        .from('paquete_grupos')
+        .select('id', { count: 'exact', head: true })
+        .eq('paquete_id', p.id);
+
+      if ((gruposCount ?? 0) > 0) {
+        // Paquete dinámico → abrir modal de selección
+        setPaqueteCtx({ id: p.id, nombre: p.nombre, precio_venta: p.precio_venta });
+        return;
+      }
+
+      // Paquete legacy basado en paquete_componentes
       const { data: comps } = await supabase
         .from('paquete_componentes')
         .select('producto_id, cantidad, productos:producto_id(nombre, activo)')
@@ -93,13 +107,40 @@ const PosPage = () => {
     });
   }, [addOrIncrementProduct, addOrIncrementPaquete]);
 
-  const handleUpdateQty = useCallback(async (productoId: string, delta: number) => {
-    if (delta > 0) {
-      const validacion = await verificarStock(productoId, 1);
-      if (!validacion.valido) { toast.error(validacion.error); return; }
+  const handlePaqueteConfirm = useCallback(({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
+    if (!paqueteCtx) return;
+    // Derivar componentes para compatibilidad con KDS y prorrateo en ConfirmVentaDialog
+    const counts = new Map<string, { producto_id: string; nombre: string; cantidad: number }>();
+    for (const o of opciones) {
+      const prev = counts.get(o.producto_id);
+      if (prev) prev.cantidad += 1;
+      else counts.set(o.producto_id, { producto_id: o.producto_id, nombre: o.nombre_producto, cantidad: 1 });
     }
-    updateQty(productoId, delta);
-  }, [updateQty]);
+    addOrIncrementPaquete({
+      producto_id: paqueteCtx.id,
+      nombre: `📦 ${paqueteCtx.nombre}`,
+      precio_unitario: precioFinal,
+      cantidad: 1,
+      subtotal: precioFinal,
+      tipo_concepto: 'paquete',
+      paquete_id: paqueteCtx.id,
+      opciones,
+      componentes: Array.from(counts.values()),
+    });
+    setPaqueteCtx(null);
+  }, [paqueteCtx, addOrIncrementPaquete]);
+
+  const handleUpdateQty = useCallback(async (lineId: string, delta: number) => {
+    if (delta > 0) {
+      const item = items.find(i => (i.lineId ?? i.producto_id) === lineId);
+      if (item && item.tipo_concepto === 'producto') {
+        const validacion = await verificarStock(item.producto_id, 1);
+        if (!validacion.valido) { toast.error(validacion.error); return; }
+      }
+      // Para paquetes el control de stock ya se valida globalmente al cobrar.
+    }
+    updateQty(lineId, delta);
+  }, [updateQty, items]);
 
   const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
   const itemCount = items.reduce((s, i) => s + i.cantidad, 0);
