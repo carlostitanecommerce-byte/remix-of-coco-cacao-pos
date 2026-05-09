@@ -4,7 +4,19 @@ export interface PaqueteComponente {
   cantidad: number;
 }
 
+export interface PaqueteOpcionSeleccionada {
+  grupo_id: string;
+  nombre_grupo: string;
+  producto_id: string;
+  nombre_producto: string;
+  precio_adicional: number;
+}
+
 export interface CartItem {
+  /** Identificador único de línea. Para productos simples y paquetes legacy = producto_id.
+   *  Para paquetes dinámicos con opciones se asigna un uuid para permitir múltiples
+   *  configuraciones del mismo paquete en el ticket. */
+  lineId?: string;
   producto_id: string;
   nombre: string;
   precio_unitario: number;
@@ -15,6 +27,8 @@ export interface CartItem {
   descripcion?: string;
   paquete_id?: string;
   componentes?: PaqueteComponente[];
+  /** Solo paquetes dinámicos: opciones elegidas por el cajero. */
+  opciones?: PaqueteOpcionSeleccionada[];
   notas?: string;
 }
 

@@ -1,62 +1,83 @@
-## Categorías por Ámbito
+## POS: paquetes dinámicos con selección de opciones
 
-Separar las categorías maestras por ámbito (insumo / producto / paquete) para que cada formulario solo vea las suyas.
+Adaptar el flujo de POS para que al tocar un producto `tipo='paquete'` se abra un modal de selección de grupos antes de añadir al carrito, y que el ticket muestre y cobre las opciones elegidas (con sus precios adicionales).
 
-### 1. Base de datos
+### 1. Estructura del CartItem (`src/components/pos/types.ts`)
 
-Migración sobre `categorias_maestras`:
-- Agregar columna `ambito text NOT NULL DEFAULT 'producto'`.
-- Constraint `CHECK (ambito IN ('insumo','producto','paquete'))`.
-- Backfill inteligente antes de aplicar el `NOT NULL`:
-  - Si el `nombre` de la categoría aparece en `insumos.categoria` y NO en `productos.categoria` → `ambito = 'insumo'`.
-  - En cualquier otro caso → `ambito = 'producto'` (default seguro).
-- Quitar el índice único actual sobre `nombre` (si existe) y crearlo como único compuesto `(nombre, ambito)`, así una misma palabra (p.ej. "Bebidas") puede existir como categoría de insumo y de producto sin chocar.
-- Índice simple en `ambito` para filtros rápidos.
-
-Nota: no se duplican filas automáticamente. Si el usuario necesita la misma categoría en dos ámbitos, la creará manualmente desde la UI (queda explícito en la nota de la migración).
-
-### 2. Hook `useCategorias`
-
-Aceptar un parámetro opcional de ámbito:
+Agregar soporte para opciones anidadas y para que múltiples paquetes "iguales" coexistan con distinta configuración:
 
 ```ts
-useCategorias(ambito?: 'insumo' | 'producto' | 'paquete')
+export interface PaqueteOpcionSeleccionada {
+  grupo_id: string;
+  nombre_grupo: string;
+  producto_id: string;
+  nombre_producto: string;
+  precio_adicional: number; // 0 si no aplica
+}
+
+export interface CartItem {
+  lineId: string;        // NUEVO — identificador único de línea (uuid para paquetes; = producto_id para simples)
+  // ... campos existentes
+  opciones?: PaqueteOpcionSeleccionada[]; // NUEVO — solo para paquetes dinámicos
+  // `componentes` se mantiene para paquetes legacy (compatibilidad con KDS y prorrateo en ConfirmVentaDialog)
+}
 ```
 
-- Si se pasa, filtra `eq('ambito', ambito)`.
-- Si no, devuelve todas (compatibilidad).
-- Re-fetch cuando cambia el parámetro.
+`precio_unitario` del paquete = `precio_base + Σ precio_adicional` de las opciones; `subtotal = precio_unitario * cantidad`.
 
-### 3. `CategoriasTab.tsx` (gestión)
+### 2. Cart store (`src/stores/cartStore.ts`)
 
-- Form del diálogo: agregar `<Select>` obligatorio "Ámbito de la categoría" con opciones Insumo / Producto / Paquete. Validar antes de guardar.
-- Tabla: nueva columna **Ámbito** con `<Badge>` por valor:
-  - Insumo → `secondary` con ícono `FlaskConical`.
-  - Producto → `default` con ícono `Package`.
-  - Paquete → `outline` con ícono `Boxes` (o similar).
-- Conteo "En uso": mantener la lógica actual (insumos + productos), pero mostrar solo el conteo relevante al ámbito de la fila (paquetes cuenta dentro de productos ya que comparten tabla).
-- Filtro rápido arriba de la tabla: tabs/segmented control para ver "Todas / Insumos / Productos / Paquetes" (mejora UX, no rompe nada).
-- Audit log: incluir `ambito` en el `metadata` de crear/actualizar/eliminar.
+- Cambiar todas las operaciones de carrito para usar `lineId` en lugar de `producto_id`: `updateQty(lineId, delta)`, `setQty`, `updateNotas`, `removeItem`.
+- `addOrIncrementProduct`: sigue mergeando por `producto_id` y reusa `lineId = producto_id`.
+- `addOrIncrementPaquete`:
+  - Si el paquete es **dinámico** (tiene `opciones`): NO mergear. Crear siempre línea nueva con `lineId = crypto.randomUUID()`.
+  - Si es **legacy** (sin `opciones`, viene con `componentes`): mantener merge actual por `producto_id`.
+- `importCoworkingSession`: rellenar `lineId` con `producto_id` si falta (compatibilidad con items históricos en sessionStorage).
+- Migración suave: al hidratar desde sessionStorage, si un item no trae `lineId`, asignar `lineId = producto_id`.
 
-### 4. Filtros en formularios consumidores
+### 3. Modal de selección (`src/components/pos/PaqueteSelectorDialog.tsx`, nuevo)
 
-- `InsumosTab.tsx` → `useCategorias('insumo')`.
-- `ProductosTab.tsx` (en `MenuPage` → Productos Individuales) → `useCategorias('producto')`.
-- `PaquetesDinamicosTab.tsx` (Constructor de Paquetes) → `useCategorias('paquete')`.
-- `PaquetesTab.tsx` legacy (si todavía monta en algún lado): también `useCategorias('paquete')`.
-- Dejar los filtros de búsqueda/listado (sidebars de categorías) tal cual están si ya leen sus propias listas; solo cambian los `<Select>` del formulario de alta/edición.
+Props: `paquete: { id, nombre, precio_venta }`, `open`, `onOpenChange`, `onConfirm(opciones, precioFinal)`.
 
-### 5. Validación post-cambio
+Comportamiento:
+- Al abrir, carga `paquete_grupos` + `paquete_opciones_grupo` con join a `productos(nombre, activo)` filtrando opciones inactivas.
+- Renderiza cada grupo como card con título, badge "Obligatorio" y contador `seleccionadas / cantidad_incluida`.
+- Cada opción es un botón clickeable; muestra `+ $X.XX` cuando `precio_adicional > 0`.
+- Selección con repetición permitida: el cajero puede tocar la misma opción `cantidad_incluida` veces; cada toque empuja una entrada a `opciones[grupo_id]`. Se puede quitar tocando un chip "✕" sobre las elegidas.
+- Resumen pegajoso al pie: `Precio base + extras = Total`. Botón "Agregar al ticket" deshabilitado hasta cumplir todas las cantidades obligatorias.
+- Validación: si un grupo `es_obligatorio = false`, permitir 0 selecciones.
 
-- Verificar que ningún componente externo lea `categorias_maestras` sin filtrar y rompa (búsqueda rápida en repo).
-- Tipos de Supabase se regeneran automáticamente tras la migración.
+### 4. Integración en `PosPage.tsx`
+
+- Estado `paqueteSeleccionado: Producto | null`.
+- En `addProduct`, si `p.tipo === 'paquete'`:
+  - Mantener la validación de stock (`validar_stock_paquete`).
+  - **Cambio**: en vez de leer `paquete_componentes` directamente, abrir `PaqueteSelectorDialog`. Si el paquete no tiene `paquete_grupos` (legacy), mantener el flujo actual (componentes fijos). Detectar con un count rápido a `paquete_grupos`.
+- `onConfirm` del modal: construir `componentes` derivado de `opciones` (para que KDS y prorrateo en `ConfirmVentaDialog` sigan funcionando sin cambios) y llamar `addOrIncrementPaquete` con `lineId = uuid`, `opciones`, `componentes`, `precio_unitario = base + Σ extras`.
+
+### 5. CartPanel (`src/components/pos/CartPanel.tsx`)
+
+- Cambiar handlers a `lineId` (props: `onUpdateQty(lineId, delta)`, `onRemove(lineId)`, etc.).
+- En el render del item, si es paquete con `opciones`, listar las opciones agrupadas por `nombre_grupo` indentadas bajo el nombre, con `+ $X.XX` cuando aplique. Si no tiene `opciones`, conservar el render actual de `componentes`.
+- Subtotal por línea ya viene calculado; nada cambia ahí.
+
+### 6. Persistencia y KDS (sin migración de DB)
+
+- `ConfirmVentaDialog.tsx` ya consume `pq.componentes` para prorratear precios y construir KDS. Como en el paso 4 generamos `componentes` a partir de las opciones elegidas (mapeando cada opción a `{ producto_id, nombre, cantidad: 1 }`), no se requiere modificar la persistencia.
+- El nombre que llega al KDS seguirá viendo `Componente (📦 Paquete)`. Aceptable.
+- No se requiere migración SQL en esta épica.
+
+### 7. Validación post-cambio
+
+- Probar paquete legacy (con `paquete_componentes`, sin `paquete_grupos`) → flujo actual sin modal, sigue funcionando.
+- Paquete dinámico → abre modal, valida obligatorios, agrega al ticket con extras sumados.
+- Dos paquetes dinámicos del mismo producto con distintas opciones → dos líneas separadas en el ticket.
+- Cobro normal en `/caja` → venta y KDS generados correctamente.
 
 ### Archivos afectados
 
-- Migración SQL nueva (categorías_maestras: columna + constraint + backfill + índices).
-- `src/hooks/useCategorias.ts` (editar).
-- `src/components/inventarios/CategoriasTab.tsx` (editar).
-- `src/components/inventarios/InsumosTab.tsx` (editar — solo el `useCategorias`).
-- `src/components/inventarios/ProductosTab.tsx` (editar — solo el `useCategorias`).
-- `src/components/inventarios/PaquetesTab.tsx` (editar — solo el `useCategorias`).
-- `src/components/menu/PaquetesDinamicosTab.tsx` (editar — solo el `useCategorias`).
+- `src/components/pos/types.ts` (editar)
+- `src/stores/cartStore.ts` (editar — refactor a `lineId`)
+- `src/components/pos/PaqueteSelectorDialog.tsx` (crear)
+- `src/pages/PosPage.tsx` (editar — abrir modal + cablear handlers por `lineId`)
+- `src/components/pos/CartPanel.tsx` (editar — handlers por `lineId` + render de opciones)
