@@ -66,9 +66,19 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
 
   const renderItem = (item: CartItem) => {
     const isPaquete = item.tipo_concepto === 'paquete';
+    const k = keyOf(item);
+    // Agrupar opciones por nombre_grupo (paquetes dinámicos)
+    const opcionesPorGrupo = new Map<string, typeof item.opciones>();
+    if (item.opciones && item.opciones.length > 0) {
+      for (const op of item.opciones) {
+        const arr = opcionesPorGrupo.get(op.nombre_grupo) ?? [];
+        arr.push(op);
+        opcionesPorGrupo.set(op.nombre_grupo, arr);
+      }
+    }
     return (
       <div
-        key={item.producto_id}
+        key={k}
         className="rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-primary/30"
       >
         {/* Fila 1: Nombre + subtotal */}
@@ -93,7 +103,7 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 hover:bg-background"
-                onClick={() => onUpdateQty(item.producto_id, -1)}
+                onClick={() => onUpdateQty(k, -1)}
               >
                 <Minus className="h-3 w-3" />
               </Button>
@@ -104,7 +114,7 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 hover:bg-background"
-                onClick={() => onUpdateQty(item.producto_id, 1)}
+                onClick={() => onUpdateQty(k, 1)}
               >
                 <Plus className="h-3 w-3" />
               </Button>
@@ -112,14 +122,14 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
             {onUpdateNotas && (
               <NotesPopover
                 value={item.notas ?? ''}
-                onChange={(v) => onUpdateNotas(item.producto_id, v)}
+                onChange={(v) => onUpdateNotas(k, v)}
               />
             )}
             <Button
               variant="ghost"
               size="icon"
               className="h-6 w-6 text-muted-foreground hover:text-destructive"
-              onClick={() => onRemove(item.producto_id)}
+              onClick={() => onRemove(k)}
             >
               <Trash2 className="h-3 w-3" />
             </Button>
@@ -132,7 +142,33 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
           </div>
         )}
 
-        {isPaquete && item.componentes && item.componentes.length > 0 && (
+        {/* Paquete dinámico: opciones agrupadas */}
+        {isPaquete && opcionesPorGrupo.size > 0 && (
+          <div className="mt-2 ml-1 space-y-1.5 border-l border-border pl-2">
+            {Array.from(opcionesPorGrupo.entries()).map(([grupo, ops]) => (
+              <div key={grupo}>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                  {grupo}
+                </p>
+                <ul className="mt-0.5 space-y-0.5">
+                  {(ops ?? []).map((op, idx) => (
+                    <li key={`${op.producto_id}-${idx}`} className="text-[11px] text-foreground/80 flex items-center justify-between gap-2">
+                      <span className="truncate">• {op.nombre_producto}</span>
+                      {op.precio_adicional > 0 && (
+                        <span className="text-primary tabular-nums shrink-0">
+                          +${op.precio_adicional.toFixed(2)}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Paquete legacy: componentes fijos (solo si NO hay opciones) */}
+        {isPaquete && opcionesPorGrupo.size === 0 && item.componentes && item.componentes.length > 0 && (
           <ul className="mt-2 ml-1 space-y-0.5 border-l border-border pl-2">
             {item.componentes.map((c, idx) => (
               <li key={idx} className="text-[11px] text-muted-foreground flex items-center gap-1">
