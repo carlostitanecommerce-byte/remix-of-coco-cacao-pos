@@ -553,9 +553,20 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         <div className="space-y-3">
           <div className="max-h-40 overflow-y-auto space-y-1">
             {summary!.items.map(item => (
-              <div key={item.producto_id} className="flex justify-between gap-2 text-sm">
-                <span className="flex-1 break-words min-w-0">{item.cantidad}x {item.nombre}</span>
-                <span className="font-medium shrink-0">${item.subtotal.toFixed(2)}</span>
+              <div key={item.lineId ?? item.producto_id}>
+                <div className="flex justify-between gap-2 text-sm">
+                  <span className="flex-1 break-words min-w-0">{item.cantidad}x {item.nombre}</span>
+                  <span className="font-medium shrink-0">${item.subtotal.toFixed(2)}</span>
+                </div>
+                {item.tipo_concepto === 'paquete' && (item.componentes ?? []).length > 0 && (
+                  <ul className="ml-3 mt-0.5 space-y-0.5">
+                    {(item.componentes ?? []).map((c, idx) => (
+                      <li key={idx} className="text-[11px] text-muted-foreground">
+                        • {c.cantidad * item.cantidad}x {c.nombre}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>
