@@ -62,7 +62,7 @@ function NotesPopover({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear, subtotal }: Props) {
+export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear, subtotal, coworkingSessionActive, clienteNombre }: Props) {
   const productoItems = items.filter(i => i.tipo_concepto === 'producto');
   const paqueteItems = items.filter(i => i.tipo_concepto === 'paquete');
 
