@@ -10,7 +10,7 @@ import { toast } from '@/hooks/use-toast';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const HORAS_RETAIL = Array.from({ length: 18 }, (_, i) => i + 6);
-const HORAS_COWORK = Array.from({ length: 13 }, (_, i) => i + 8);
+const HORAS_COWORK = Array.from({ length: 17 }, (_, i) => i + 7); // 7 AM – 11 PM
 
 interface CellData {
   total: number;
@@ -36,6 +36,7 @@ export default function VentasTab() {
   const [periodoTransacciones, setPeriodoTransacciones] = useState(0);
   const [retailLimitHit, setRetailLimitHit] = useState(false);
   const [coworkLimitHit, setCoworkLimitHit] = useState(false);
+  const [sessionsCount, setSessionsCount] = useState(0);
 
   const RETAIL_LIMIT = 5000;
   const COWORK_LIMIT = 2000;
@@ -174,30 +175,31 @@ export default function VentasTab() {
     const cap = areas.reduce((s, a) => s + a.capacidad_pax, 0);
     setTotalCapacidad(cap);
     setCoworkLimitHit(sessions.length >= COWORK_LIMIT);
+    setSessionsCount(sessions.length);
 
     // Truncate "fin" to now() for active sessions to avoid inflating future hours.
     const nowMs = Date.now();
 
-    // For each day-hour slot in range, count pax of overlapping sessions
+    // For each day-hour slot in range, count pax of overlapping sessions.
+    // Slots are built explicitly in CDMX (UTC-6) so the heatmap is timezone-independent.
     const map: CoworkHeatmap = {};
     const days = eachDayOfInterval({ start: rango.desde, end: rango.hasta });
 
     days.forEach(day => {
       const jsDay = getDay(day);
       const diaIdx = jsDay === 0 ? 6 : jsDay - 1;
+      const dayStr = format(day, 'yyyy-MM-dd');
 
       HORAS_COWORK.forEach(hora => {
-        const slotStart = new Date(day);
-        slotStart.setHours(hora, 0, 0, 0);
-        const slotEnd = new Date(day);
-        slotEnd.setHours(hora, 59, 59, 999);
+        const hh = String(hora).padStart(2, '0');
+        const slotStartMs = new Date(`${dayStr}T${hh}:00:00-06:00`).getTime();
+        const slotEndMs = new Date(`${dayStr}T${hh}:59:59.999-06:00`).getTime();
+
+        const key = `${diaIdx}-${hora}`;
+        if (!map[key]) map[key] = { personas: 0 };
 
         // Skip future slots entirely (avoids forecasted occupancy)
-        if (slotStart.getTime() > nowMs) {
-          const key = `${diaIdx}-${hora}`;
-          if (!map[key]) map[key] = { personas: 0 };
-          return;
-        }
+        if (slotStartMs > nowMs) return;
 
         let personas = 0;
         sessions.forEach(s => {
@@ -207,13 +209,11 @@ export default function VentasTab() {
           const finRaw = s.fecha_salida_real
             ? new Date(s.fecha_salida_real).getTime()
             : Math.min(new Date(s.fecha_fin_estimada).getTime(), nowMs);
-          if (inicio <= slotEnd.getTime() && finRaw >= slotStart.getTime()) {
-            personas += s.pax_count;
+          if (inicio <= slotEndMs && finRaw >= slotStartMs) {
+            personas += Number(s.pax_count) || 0;
           }
         });
 
-        const key = `${diaIdx}-${hora}`;
-        if (!map[key]) map[key] = { personas: 0 };
         map[key].personas += personas;
       });
     });
@@ -474,12 +474,23 @@ export default function VentasTab() {
               <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
                 <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
               </div>
-            ) : Object.values(coworkMap).every(c => c.personas === 0) ? (
+            ) : sessionsCount === 0 ? (
               <div className="text-center text-sm text-muted-foreground py-16">
                 No hay sesiones de coworking en este período.
               </div>
             ) : (
               <TooltipProvider delayDuration={100}>
+                {sessionsCount > 0 && Object.values(coworkMap).every(c => c.personas === 0) && (
+                  <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium">Sesiones fuera del rango horario mostrado</p>
+                      <p className="text-xs opacity-90">
+                        Hay {sessionsCount} sesión{sessionsCount > 1 ? 'es' : ''} registrada{sessionsCount > 1 ? 's' : ''} en este período que ocurrieron fuera del horario 7:00 AM – 11:59 PM.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <div className="min-w-[600px]">
                     <div className="grid gap-1" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
@@ -514,7 +525,7 @@ export default function VentasTab() {
                               <TooltipContent side="top" className="text-xs">
                                 <p className="font-semibold">{dia}, {fmtHoraFull(hora)}</p>
                                 <p>Personas en sitio: {cell.personas}</p>
-                                <p>% Ocupación: {pct}%</p>
+                                {totalCapacidad > 0 && <p>% Ocupación: {pct}%</p>}
                               </TooltipContent>
                             </Tooltip>
                           );
