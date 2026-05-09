@@ -30,6 +30,8 @@ export interface CartItem {
   /** Solo paquetes dinámicos: opciones elegidas por el cajero. */
   opciones?: PaqueteOpcionSeleccionada[];
   notas?: string;
+  /** Indica que el precio_unitario proviene de una tarifa de coworking (upsell). */
+  precio_especial?: boolean;
 }
 
 export interface VentaConfig {
