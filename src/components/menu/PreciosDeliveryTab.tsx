@@ -67,8 +67,13 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
 
   // Filtros matriz
   const [busqueda, setBusqueda] = useState('');
+  const [tipoFiltro, setTipoFiltro] = useState<string>('__all__');
   const [catFiltro, setCatFiltro] = useState<string>('__all__');
   const [soloActivos, setSoloActivos] = useState(true);
+
+  // Paginación
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
 
   // Borrador local de precios { "<prodId>:<plataId>": stringValue }
   const [borrador, setBorrador] = useState<Record<string, string>>({});
