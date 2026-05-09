@@ -150,32 +150,44 @@ const PosPage = () => {
     navigate('/caja');
   };
 
+  const paqueteDialog = (
+    <PaqueteSelectorDialog
+      open={!!paqueteCtx}
+      onOpenChange={(o) => { if (!o) setPaqueteCtx(null); }}
+      paquete={paqueteCtx}
+      onConfirm={handlePaqueteConfirm}
+    />
+  );
+
   if (isDesktop) {
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-7 gap-4 h-[calc(100vh-7rem)]">
-        <div className="lg:col-span-5 min-h-0">
-          <ProductGrid onAdd={addProduct} />
+      <>
+        <div className="grid grid-cols-1 lg:grid-cols-7 gap-4 h-[calc(100vh-7rem)]">
+          <div className="lg:col-span-5 min-h-0">
+            <ProductGrid onAdd={addProduct} />
+          </div>
+          <div className="lg:col-span-2 border border-border rounded-lg p-3 bg-card flex flex-col min-h-0">
+            <CartPanel
+              items={items}
+              onUpdateQty={handleUpdateQty}
+              onUpdateNotas={updateNotas}
+              onRemove={removeItem}
+              onClear={clear}
+              subtotal={subtotal}
+            />
+            <Button
+              className="mt-3 w-full"
+              size="lg"
+              disabled={items.length === 0}
+              onClick={goToCheckout}
+            >
+              Procesar pago en Caja
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
         </div>
-        <div className="lg:col-span-2 border border-border rounded-lg p-3 bg-card flex flex-col min-h-0">
-          <CartPanel
-            items={items}
-            onUpdateQty={handleUpdateQty}
-            onUpdateNotas={updateNotas}
-            onRemove={removeItem}
-            onClear={clear}
-            subtotal={subtotal}
-          />
-          <Button
-            className="mt-3 w-full"
-            size="lg"
-            disabled={items.length === 0}
-            onClick={goToCheckout}
-          >
-            Procesar pago en Caja
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+        {paqueteDialog}
+      </>
     );
   }
 
