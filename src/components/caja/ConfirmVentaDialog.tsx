@@ -43,6 +43,16 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       }
 
       const paqueteItems = summary.items.filter(item => item.tipo_concepto === 'paquete');
+      // Guardia: cada paquete debe haber expandido sus opciones a componentes con producto_id válido,
+      // de lo contrario el trigger descontar_inventario_venta no podría descontar insumos correctamente.
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      for (const pq of paqueteItems) {
+        const comps = pq.componentes ?? [];
+        if (comps.length === 0 || comps.some(c => !c.producto_id || !uuidRe.test(c.producto_id))) {
+          toast.error(`El paquete "${pq.nombre}" no tiene opciones válidas. Vuelve a seleccionarlo.`);
+          return;
+        }
+      }
       for (const pq of paqueteItems) {
         for (const comp of (pq.componentes ?? [])) {
           const totalQty = comp.cantidad * pq.cantidad;
