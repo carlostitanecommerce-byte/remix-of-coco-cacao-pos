@@ -21,8 +21,6 @@ interface ActiveSession {
   fecha_fin_estimada: string;
   fecha_salida_real: string | null;
   es_privado: boolean;
-  upsell_producto_id: string | null;
-  upsell_precio: number | null;
   tarifa_id: string | null;
   tarifa_snapshot: TarifaSnapshot | null;
 }
@@ -53,12 +51,12 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
   const fetchSessions = async () => {
     const { data: sessData } = await supabase
       .from('coworking_sessions')
-      .select('id, cliente_nombre, area_id, pax_count, fecha_inicio, fecha_fin_estimada, upsell_producto_id, upsell_precio, tarifa_id, usuario_id, estado, monto_acumulado, fecha_salida_real, tarifa_snapshot')
+      .select('id, cliente_nombre, area_id, pax_count, fecha_inicio, fecha_fin_estimada, tarifa_id, usuario_id, estado, monto_acumulado, fecha_salida_real, tarifa_snapshot')
       .eq('estado', 'pendiente_pago');
 
     if (!sessData || sessData.length === 0) { setSessions([]); setLoading(false); return; }
 
-    const areaIds = [...new Set(sessData.map(s => s.area_id))];
+    const areaIds = [...new Set((sessData as any[]).map(s => s.area_id))];
     const { data: areasData } = await supabase
       .from('areas_coworking')
       .select('id, nombre_area, es_privado')
@@ -66,15 +64,13 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
 
     const areaMap = new Map(areasData?.map(a => [a.id, a]) ?? []);
 
-    setSessions(sessData.map(s => {
+    setSessions((sessData as any[]).map((s: any) => {
       const area = areaMap.get(s.area_id);
       return {
         ...s,
         area_nombre: area?.nombre_area ?? 'Desconocida',
         es_privado: area?.es_privado ?? false,
         fecha_salida_real: s.fecha_salida_real ?? null,
-        upsell_producto_id: s.upsell_producto_id ?? null,
-        upsell_precio: s.upsell_precio ?? null,
         tarifa_id: s.tarifa_id ?? null,
         tarifa_snapshot: (s.tarifa_snapshot as TarifaSnapshot | null) ?? null,
       };
@@ -88,7 +84,6 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
     const channel = supabase
       .channel('pos-coworking-sessions-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_sessions' }, () => fetchSessions())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_session_upsells' }, () => fetchSessions())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchSessions())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -205,26 +200,8 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
       });
     }
 
-    // Session upsells/amenities/consumos (junction table — frozen prices already stored per row)
-    const { data: sessionUpsells } = await supabase
-      .from('coworking_session_upsells')
-      .select('producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-      .eq('session_id', session.id);
-
-    for (const u of (sessionUpsells ?? [])) {
-      const prodName = (u as any).productos?.nombre ?? 'Producto';
-      const isAmenity = u.precio_especial === 0;
-      items.push({
-        producto_id: u.producto_id,
-        nombre: isAmenity ? `🎁 ${prodName} (incluido)` : `☕ ${prodName} (precio especial)`,
-        precio_unitario: u.precio_especial,
-        cantidad: u.cantidad,
-        subtotal: u.precio_especial * u.cantidad,
-        tipo_concepto: isAmenity ? 'amenity' : 'producto',
-        coworking_session_id: session.id,
-        descripcion: isAmenity ? `Amenity incluido en ${tarifaNombre}` : `Upsell/consumo coworking`,
-      });
-    }
+    // Amenities/upsells/consumos ya viven en detalle_ventas (venta_id NULL)
+    // y se cargan en el bloque siguiente (openLines).
 
     // Consumos POS abiertos (detalle_ventas con venta_id NULL para esta sesión)
     const { data: openLines } = await supabase
@@ -321,8 +298,8 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
                         estado: (s as any).estado ?? 'pendiente_pago',
                         monto_acumulado: (s as any).monto_acumulado ?? 0,
                         tarifa_id: s.tarifa_id,
-                        upsell_producto_id: s.upsell_producto_id,
-                        upsell_precio: s.upsell_precio,
+                        upsell_producto_id: null,
+                        upsell_precio: null,
                         tarifa_snapshot: s.tarifa_snapshot,
                       })}
                       title="Cancelar sesión"

@@ -103,12 +103,14 @@ export default function MenuTab() {
           .limit(VENTAS_LIMIT)
           .abortSignal(signal),
         // Upsells reales del período: marcamos isUpsell por uso operativo,
-        // no por configuración de producto.
+        // no por configuración de producto. Vienen de detalle_ventas vinculados a sesión coworking.
         supabase
-          .from('coworking_session_upsells')
+          .from('detalle_ventas')
           .select('producto_id')
           .gte('created_at', desdeISO)
           .lte('created_at', hastaISO)
+          .not('coworking_session_id', 'is', null)
+          .eq('tipo_concepto', 'producto')
           .limit(UPSELLS_LIMIT)
           .abortSignal(signal),
       ]);

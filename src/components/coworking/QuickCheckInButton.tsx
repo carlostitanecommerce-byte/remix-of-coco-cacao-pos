@@ -122,16 +122,19 @@ export function QuickCheckInButton({ reservacion, area, getAvailablePax, onSucce
         return;
       }
 
-      // Insertar amenities en batch (cantidad_incluida * pax)
+      // Insertar amenities en detalle_ventas (cuenta abierta) — cantidad_incluida * pax
       if (sessionData && amenities.length > 0) {
         const amenityRows = amenities.map(a => ({
-          session_id: sessionData.id,
+          coworking_session_id: sessionData.id,
+          venta_id: null,
           producto_id: a.producto_id,
-          precio_especial: 0,
           cantidad: a.cantidad_incluida * reservacion.pax_count,
+          precio_unitario: 0,
+          subtotal: 0,
+          tipo_concepto: 'amenity',
         }));
-        const { error: amenityErr } = await supabase
-          .from('coworking_session_upsells')
+        const { error: amenityErr } = await (supabase as any)
+          .from('detalle_ventas')
           .insert(amenityRows);
         if (amenityErr) {
           toast({

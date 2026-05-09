@@ -106,21 +106,9 @@ const CoworkingPage = () => {
     const cargoExtra = cargoExtraUnidad * paxMultiplier;
     const subtotalContratado = (tiempoContratadoMin / 60) * precioBase * paxMultiplier;
 
-    // Fetch all upsells from junction table
-    const { data: upsellRows } = await supabase
-      .from('coworking_session_upsells')
-      .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-      .eq('session_id', session.id);
-
-    const upsells = (upsellRows ?? []).map((u: any) => ({
-      id: u.id,
-      producto_id: u.producto_id,
-      nombre: u.productos?.nombre ?? 'Upsell',
-      precio_especial: u.precio_especial,
-      cantidad: u.cantidad,
-    }));
-
-    const upsellsTotal = upsells.reduce((sum: number, u: any) => sum + u.precio_especial * u.cantidad, 0);
+    // Amenities/upsells ahora viven en detalle_ventas y se cuentan en consumosPosTotal
+    const upsells: any[] = [];
+    const upsellsTotal = 0;
 
     // Sumar consumos POS abiertos (detalle_ventas con venta_id NULL para esta sesión)
     const { data: openLines } = await supabase
