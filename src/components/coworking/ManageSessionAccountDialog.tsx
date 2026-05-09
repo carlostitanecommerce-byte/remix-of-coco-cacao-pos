@@ -104,9 +104,9 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       const item = items.find(i => i.id === amenity.currentItemId);
       if (!item) return;
       const newQty = item.cantidad + 1;
-      const { error } = await supabase
-        .from('coworking_session_upsells')
-        .update({ cantidad: newQty })
+      const { error } = await (supabase as any)
+        .from('detalle_ventas')
+        .update({ cantidad: newQty, subtotal: 0 })
         .eq('id', item.id);
       if (error) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
@@ -128,13 +128,16 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} a cocina` : undefined,
       });
     } else {
-      const { data, error } = await supabase
-        .from('coworking_session_upsells')
+      const { data, error } = await (supabase as any)
+        .from('detalle_ventas')
         .insert({
-          session_id: session.id,
+          coworking_session_id: session.id,
+          venta_id: null,
           producto_id: amenity.producto_id,
-          precio_especial: 0,
           cantidad: 1,
+          precio_unitario: 0,
+          subtotal: 0,
+          tipo_concepto: 'amenity',
         })
         .select('id')
         .single();
@@ -172,28 +175,29 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const reloadItemsAndCancels = async () => {
     if (!session) return;
     const [itemsRes, cancelRes] = await Promise.all([
-      supabase
-        .from('coworking_session_upsells')
-        .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-        .eq('session_id', session.id)
+      (supabase as any)
+        .from('detalle_ventas')
+        .select('id, producto_id, precio_unitario, cantidad, tipo_concepto, productos:producto_id(nombre)')
+        .eq('coworking_session_id', session.id)
+        .is('venta_id', null)
         .order('created_at', { ascending: true }),
       supabase
         .from('cancelaciones_items_sesion')
-        .select('upsell_id, cantidad')
+        .select('detalle_id, cantidad')
         .eq('session_id', session.id)
         .eq('estado', 'pendiente_decision'),
     ]);
-    const pendingByUpsell = new Map<string, number>();
+    const pendingByDetalle = new Map<string, number>();
     (cancelRes.data ?? []).forEach((c: any) => {
-      if (c.upsell_id) pendingByUpsell.set(c.upsell_id, (pendingByUpsell.get(c.upsell_id) ?? 0) + (c.cantidad || 0));
+      if (c.detalle_id) pendingByDetalle.set(c.detalle_id, (pendingByDetalle.get(c.detalle_id) ?? 0) + (c.cantidad || 0));
     });
-    const mapped = (itemsRes.data ?? []).map((u: any) => ({
+    const mapped = ((itemsRes.data ?? []) as any[]).map((u: any) => ({
       id: u.id,
       producto_id: u.producto_id,
       nombre: u.productos?.nombre ?? 'Producto',
-      precio_especial: Number(u.precio_especial) || 0,
+      precio_especial: Number(u.precio_unitario) || 0,
       cantidad: u.cantidad,
-      pendingCancelQty: pendingByUpsell.get(u.id) ?? 0,
+      pendingCancelQty: pendingByDetalle.get(u.id) ?? 0,
     }));
     setItems(mapped);
   };
@@ -220,7 +224,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'coworking_session_upsells', filter: `session_id=eq.${session.id}` },
+        { event: '*', schema: 'public', table: 'detalle_ventas', filter: `coworking_session_id=eq.${session.id}` },
         () => { reloadItemsAndCancels(); },
       )
       .subscribe();
@@ -277,38 +281,44 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       const delta = nuevaCantidad - cantidadAnterior;
 
       if (nuevaCantidad <= 0) {
-        const { error } = await supabase
-          .from('coworking_session_upsells')
-          .delete()
-          .eq('session_id', session.id)
+        // No podemos borrar lineas; setear cantidad a 0 (subtotal 0)
+        const { error } = await (supabase as any)
+          .from('detalle_ventas')
+          .update({ cantidad: 0, subtotal: 0 })
+          .eq('coworking_session_id', session.id)
+          .is('venta_id', null)
           .eq('producto_id', a.producto_id)
-          .eq('precio_especial', 0);
+          .eq('tipo_concepto', 'amenity');
         if (error) errCount++; else okCount++;
         continue;
       }
 
-      const { data: existing } = await supabase
-        .from('coworking_session_upsells')
+      const { data: existing } = await (supabase as any)
+        .from('detalle_ventas')
         .select('id')
-        .eq('session_id', session.id)
+        .eq('coworking_session_id', session.id)
+        .is('venta_id', null)
         .eq('producto_id', a.producto_id)
-        .eq('precio_especial', 0)
+        .eq('tipo_concepto', 'amenity')
         .maybeSingle();
 
       if (existing?.id) {
-        const { error } = await supabase
-          .from('coworking_session_upsells')
-          .update({ cantidad: nuevaCantidad })
+        const { error } = await (supabase as any)
+          .from('detalle_ventas')
+          .update({ cantidad: nuevaCantidad, subtotal: 0 })
           .eq('id', existing.id);
         if (error) errCount++; else okCount++;
       } else {
-        const { error } = await supabase
-          .from('coworking_session_upsells')
+        const { error } = await (supabase as any)
+          .from('detalle_ventas')
           .insert({
-            session_id: session.id,
+            coworking_session_id: session.id,
+            venta_id: null,
             producto_id: a.producto_id,
-            precio_especial: 0,
             cantidad: nuevaCantidad,
+            precio_unitario: 0,
+            subtotal: 0,
+            tipo_concepto: 'amenity',
           });
         if (error) errCount++; else okCount++;
       }
