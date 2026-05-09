@@ -63,6 +63,8 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
           min_cobrar: summary.minCobrar,
           bloques_extra: summary.bloquesExtra,
           cargo_extra: summary.cargoExtra,
+          consumos_pos_total: summary.consumosPosTotal,
+          consumos_pos_lineas: summary.consumosPosLineas,
           total: summary.total,
         },
       });
@@ -164,6 +166,12 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
                 <span>{u.precio_especial === 0 ? 'Incluido' : `+$${(u.precio_especial * u.cantidad).toFixed(2)}`}</span>
               </div>
             ))}
+            {summary.consumosPosTotal > 0 && (
+              <div className="flex justify-between text-sm text-foreground">
+                <span>🧾 Consumos POS ({summary.consumosPosLineas} {summary.consumosPosLineas === 1 ? 'línea' : 'líneas'})</span>
+                <span>+${summary.consumosPosTotal.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-lg pt-1 border-t border-border">
               <span>Total a pagar</span>
               <span className="text-primary">${summary.total.toFixed(2)}</span>
