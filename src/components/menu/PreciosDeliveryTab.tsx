@@ -52,7 +52,7 @@ interface Props { isAdmin: boolean }
 
 const PreciosDeliveryTab = ({ isAdmin }: Props) => {
   const { user } = useAuth();
-  const { categorias } = useCategorias();
+  const { categorias } = useCategorias(['producto', 'paquete']);
 
   const [plataformas, setPlataformas] = useState<Plataforma[]>([]);
   const [productos, setProductos] = useState<ProductoRow[]>([]);

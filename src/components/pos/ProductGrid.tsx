@@ -28,7 +28,7 @@ const DENSITY_KEY = 'pos-grid-density';
 export function ProductGrid({ onAdd }: Props) {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
-  const { categorias: categoriasDB } = useCategorias();
+  const { categorias: categoriasDB } = useCategorias(['producto', 'paquete']);
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
   const [densidad, setDensidad] = useState<Densidad>(() => {
     if (typeof window === 'undefined') return 'compacto';
