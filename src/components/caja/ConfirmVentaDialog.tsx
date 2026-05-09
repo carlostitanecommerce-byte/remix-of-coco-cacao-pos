@@ -385,6 +385,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
     const coworkingItems = ticket.items.filter(i => i.tipo_concepto === 'coworking');
     const amenityItems = ticket.items.filter(i => i.tipo_concepto === 'amenity');
     const productoItems = ticket.items.filter(i => i.tipo_concepto === 'producto');
+    const paqueteItemsTicket = ticket.items.filter(i => i.tipo_concepto === 'paquete');
 
     const metodoPagoLabel: Record<string, string> = {
       efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', mixto: 'Mixto'

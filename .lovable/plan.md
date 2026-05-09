@@ -1,56 +1,49 @@
-## Problema
+## Auditoría: ¿realmente se cobró mal el paquete?
 
-Al hacer clic en "Registrar salida" en `/coworking`, el handler llama a la RPC `freeze_checkout_coworking`. La función Postgres falla con:
+Consulté la base de datos para la única venta con paquete registrada (folio **#0653**, total $310):
 
-```
-column reference "fecha_salida_real" is ambiguous
-```
+| Línea | Descripción | Subtotal | paquete_nombre |
+|---|---|---:|---|
+| 1 | Café Americano Frío (vaso de 14 oz) | **$19.39** | 📦 Bebida + Helado |
+| 2 | Helado de horchata con coco (vaso 1/2 L) | **$130.61** | 📦 Bebida + Helado |
+| 3 | Café & Cacao Frappé Mokachino | $85.00 | — |
+| 4 | Café & Cacao Frío Latte moka | $75.00 | — |
 
-Causa: el `RETURNS TABLE(... fecha_salida_real ...)` declara una variable de salida con el mismo nombre que la columna de `coworking_sessions`. En el `UPDATE`, la cláusula `AND fecha_salida_real IS NULL` no está calificada y Postgres no sabe si te refieres a la columna o a la variable de retorno → aborta y el frontend no avanza.
+**$19.39 + $130.61 = $150.00 exactos** = precio del paquete "Bebida + Helado".
 
-## Fix
+Conclusión: el paquete **se cobró correctamente a $150**. Lo que se ve en el ticket NO son dos paquetes mal cobrados, sino **un solo paquete con dos componentes (bebida + helado)** cuyo precio fue prorrateado entre los dos productos en `detalle_ventas` proporcional a su costo (el helado vale mucho más que el café, por eso se llevó $130.61 y el café $19.39).
 
-Migración que reemplaza `freeze_checkout_coworking` calificando la columna en el `WHERE` del `UPDATE`:
+El prorrateo es intencional y necesario para que los reportes de menú / margen por producto funcionen, pero **la presentación al cliente y al cajero está rota**:
 
-```sql
-CREATE OR REPLACE FUNCTION public.freeze_checkout_coworking(p_session_id uuid)
-RETURNS TABLE(id uuid, fecha_salida_real timestamp with time zone, was_frozen_now boolean)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_now timestamptz := (now() AT TIME ZONE 'America/Mexico_City') AT TIME ZONE 'America/Mexico_City';
-  v_existing timestamptz;
-BEGIN
-  SELECT s.fecha_salida_real INTO v_existing
-  FROM public.coworking_sessions s
-  WHERE s.id = p_session_id
-  FOR UPDATE;
+1. El ticket no muestra el paquete como una unidad — solo aparecen los componentes con precios distorsionados.
+2. No hay encabezado "📦 Bebida + Helado .... $150.00".
+3. Visualmente parece que se vendieron productos sueltos a precios extraños.
+4. La sección "Paquetes" del carrito desaparece del ticket impreso (todo se mezcla en "Productos").
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Sesión no encontrada';
-  END IF;
+## Plan de corrección (solo presentación; no se toca lógica de cobro ni DB)
 
-  IF v_existing IS NOT NULL THEN
-    RETURN QUERY SELECT p_session_id, v_existing, false;
-    RETURN;
-  END IF;
+### 1. `src/components/caja/ConfirmVentaDialog.tsx` — vista del ticket post-venta
+- Agregar una sección **"Paquetes"** antes de "Productos".
+- Para cada paquete del `summary.items` (tipo_concepto = 'paquete'), renderizar:
+  - Línea principal: `{cantidad}x 📦 {nombre} ........ ${subtotal}` (precio real del paquete).
+  - Sub-lista (sin precio) con cada componente: `• {cant}x {nombre_componente}`.
+- Quitar de la sección "Productos" cualquier ítem que provenga de un paquete (ya están listados como sub-componentes).
 
-  UPDATE public.coworking_sessions AS s
-  SET fecha_salida_real = v_now
-  WHERE s.id = p_session_id
-    AND s.fecha_salida_real IS NULL;
+### 2. `src/components/caja/TicketReimprimirDialog.tsx` — re-impresión desde Caja/Reportes
+- Agrupar `detalle_ventas` por `paquete_id`:
+  - Si `paquete_id IS NOT NULL`: agrupar todas las filas con el mismo `paquete_id`, sumar sus subtotales y mostrar **una sola línea** `1x 📦 {paquete_nombre} ........ ${suma}` con los componentes listados debajo sin precio.
+  - Si `paquete_id IS NULL`: mostrar la línea tal cual (productos sueltos, coworking, amenities).
+- Eliminar el formato actual `📦 Paquete → Componente $19.39` que confunde.
 
-  RETURN QUERY SELECT p_session_id, v_now, true;
-END;
-$function$;
-```
+### 3. Vista de confirmación previa (mismo `ConfirmVentaDialog`, líneas 530–537)
+- Aplicar la misma agrupación: paquetes como una sola línea con componentes como sub-ítems sin precio. Esto coincide con cómo ya se ven en `CartPanel`.
 
-No requiere cambios de frontend.
+### 4. Verificación
+- Reimprimir el ticket #0653 desde Reportes → Caja: validar que aparezca `1x 📦 Bebida + Helado .... $150.00` con los dos componentes listados debajo, en vez de las dos líneas con precios prorrateados.
+- Hacer una venta de prueba con dos paquetes del mismo tipo pero distintas selecciones: deben aparecer como dos líneas independientes de $150 cada una con sus respectivos componentes debajo.
 
-## Validación
+### Detalles técnicos
+- No se modifican: `crear_venta_completa`, `detalle_ventas`, prorrateo en `ConfirmVentaDialog.handleConfirm`, ni reportes (siguen usando los precios prorrateados que son correctos para análisis de margen por producto).
+- Cambios estrictamente en JSX de los dos diálogos de ticket.
 
-1. En `/coworking`, abrir una sesión activa y dar clic en "Registrar salida".
-2. Verificar en consola que ya no aparece `freeze_checkout_coworking failed` y que se abre el modal de checkout con el resumen.
-3. Repetir el clic: la segunda llamada debe devolver `was_frozen_now=false` con la misma `fecha_salida_real` (idempotencia preservada).
+¿Procedemos con esta corrección de presentación?
