@@ -83,7 +83,14 @@ const CajaPage = () => {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No hay caja abierta. Abre la caja para iniciar operaciones.</p>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">No hay caja abierta. Abre la caja para iniciar operaciones.</p>
+              {puedeOmitirApertura && aperturaCerrada && (
+                <Button onClick={() => setAperturaCerrada(false)}>
+                  Abrir Caja
+                </Button>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
