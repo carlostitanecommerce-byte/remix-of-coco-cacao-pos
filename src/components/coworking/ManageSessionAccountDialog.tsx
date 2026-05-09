@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { verificarStock } from '@/hooks/useValidarStock';
 import {
@@ -16,9 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Search, Plus, Minus, Trash2, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X, Ban } from 'lucide-react';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+import { Plus, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X, ShoppingCart } from 'lucide-react';
 import type { Area, CoworkingSession } from './types';
 import { enviarASesionKDS } from './sendToKitchen';
 
@@ -33,27 +31,13 @@ interface PendingAmenityUpdate {
   oldPax: number;
 }
 
-interface Producto {
-  id: string;
-  nombre: string;
-  categoria: string;
-  precio_venta: number;
-  requiere_preparacion: boolean;
-}
-
 interface SessionItem {
   id: string;
   producto_id: string;
   nombre: string;
   precio_especial: number;
   cantidad: number;
-  requiere_preparacion: boolean;
   pendingCancelQty: number;
-}
-
-interface UpsellSnapshotEntry {
-  producto_id: string;
-  precio_especial: number;
 }
 
 interface Props {
@@ -64,20 +48,13 @@ interface Props {
 }
 
 export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess }: Props) {
+  const navigate = useNavigate();
   const { toast } = useToast();
-  const [productos, setProductos] = useState<Producto[]>([]);
   const [items, setItems] = useState<SessionItem[]>([]);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [isEditingPax, setIsEditingPax] = useState(false);
   const [tempPax, setTempPax] = useState('');
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
-  // Diálogo de solicitud de cancelación (item ya enviado a cocina)
-  const [cancelTarget, setCancelTarget] = useState<SessionItem | null>(null);
-  const [cancelQty, setCancelQty] = useState(1);
-  const [cancelMotivo, setCancelMotivo] = useState('');
-  // Cache de requiere_preparacion por producto_id (para items que no estén en `productos`)
-  const prepCacheRef = useRef<Map<string, boolean>>(new Map());
   const mutationLockRef = useRef(false);
   const [busy, setBusy] = useState(false);
 
@@ -92,20 +69,6 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       setBusy(false);
     }
   };
-
-  // Snapshot de upsells disponibles para esta sesión (precio congelado al check-in)
-  const upsellsMap = useMemo(() => {
-    const map = new Map<string, number>();
-    const list = (session?.tarifa_snapshot?.upsells_disponibles ?? []) as UpsellSnapshotEntry[];
-    if (Array.isArray(list)) {
-      for (const u of list) {
-        if (u && typeof u.producto_id === 'string') {
-          map.set(u.producto_id, Number(u.precio_especial) || 0);
-        }
-      }
-    }
-    return map;
-  }, [session]);
 
   const missingAmenities = useMemo(() => {
     if (!session || !session.tarifa_snapshot?.amenities) return [];
@@ -139,7 +102,31 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
     if (amenity.currentItemId) {
       const item = items.find(i => i.id === amenity.currentItemId);
-      if (item) await doUpdateQuantity(item, 1);
+      if (!item) return;
+      const newQty = item.cantidad + 1;
+      const { error } = await supabase
+        .from('coworking_session_upsells')
+        .update({ cantidad: newQty })
+        .eq('id', item.id);
+      if (error) {
+        toast({ variant: 'destructive', title: 'Error', description: error.message });
+        return;
+      }
+      setItems(prev => prev.map(i => (i.id === item.id ? { ...i, cantidad: newQty } : i)));
+
+      const kdsRes = await enviarASesionKDS({
+        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
+        items: [{
+          producto_id: item.producto_id,
+          nombre: item.nombre,
+          cantidad: 1,
+          isAmenity: true,
+        }],
+      });
+      toast({
+        title: 'Beneficio restaurado',
+        description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} a cocina` : undefined,
+      });
     } else {
       const { data, error } = await supabase
         .from('coworking_session_upsells')
@@ -162,11 +149,9 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         nombre: amenity.nombre || 'Amenity',
         precio_especial: 0,
         cantidad: 1,
-        requiere_preparacion: prepCacheRef.current.get(amenity.producto_id) ?? true,
         pendingCancelQty: 0,
       }]);
 
-      // Enviar a cocina
       const kdsRes = await enviarASesionKDS({
         context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
         items: [{
@@ -183,27 +168,13 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     }
   };
 
-  // Construye un SessionItem usando el cache de requiere_preparacion
-  const buildItem = (u: any, prepFromJoin?: boolean): SessionItem => {
-    const requiere = prepFromJoin ?? prepCacheRef.current.get(u.producto_id) ?? true;
-    return {
-      id: u.id,
-      producto_id: u.producto_id,
-      nombre: u.productos?.nombre ?? u.nombre ?? 'Producto',
-      precio_especial: Number(u.precio_especial) || 0,
-      cantidad: u.cantidad,
-      requiere_preparacion: requiere,
-      pendingCancelQty: 0,
-    };
-  };
-
   // Recarga items + cancelaciones pendientes (para refrescar pendingCancelQty)
   const reloadItemsAndCancels = async () => {
     if (!session) return;
     const [itemsRes, cancelRes] = await Promise.all([
       supabase
         .from('coworking_session_upsells')
-        .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre, requiere_preparacion)')
+        .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
         .eq('session_id', session.id)
         .order('created_at', { ascending: true }),
       supabase
@@ -216,216 +187,45 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     (cancelRes.data ?? []).forEach((c: any) => {
       if (c.upsell_id) pendingByUpsell.set(c.upsell_id, (pendingByUpsell.get(c.upsell_id) ?? 0) + (c.cantidad || 0));
     });
-    const mapped = (itemsRes.data ?? []).map((u: any) => {
-      const requiere = u.productos?.requiere_preparacion !== false;
-      prepCacheRef.current.set(u.producto_id, requiere);
-      const it = buildItem(u, requiere);
-      it.pendingCancelQty = pendingByUpsell.get(u.id) ?? 0;
-      return it;
-    });
+    const mapped = (itemsRes.data ?? []).map((u: any) => ({
+      id: u.id,
+      producto_id: u.producto_id,
+      nombre: u.productos?.nombre ?? 'Producto',
+      precio_especial: Number(u.precio_especial) || 0,
+      cantidad: u.cantidad,
+      pendingCancelQty: pendingByUpsell.get(u.id) ?? 0,
+    }));
     setItems(mapped);
   };
 
   useEffect(() => {
     if (!session) return;
-    setSearch('');
     const fetchAll = async () => {
       setLoading(true);
-      const prodRes = await supabase
-        .from('productos')
-        .select('id, nombre, categoria, precio_venta, requiere_preparacion')
-        .eq('activo', true)
-        .eq('tipo', 'simple')
-        .order('nombre');
-      const prods = (prodRes.data as Producto[]) ?? [];
-      setProductos(prods);
-      prods.forEach(p => prepCacheRef.current.set(p.id, p.requiere_preparacion !== false));
       await reloadItemsAndCancels();
       setLoading(false);
     };
     fetchAll();
   }, [session]);
 
-  // Realtime: refrescar al cambiar cancelaciones (decisión de cocina)
+  // Realtime: refrescar al cambiar cancelaciones (decisión de cocina) o upsells
   useEffect(() => {
     if (!session) return;
     const ch = supabase
-      .channel(`cancel-items-session-${session.id}`)
+      .channel(`manage-session-${session.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'cancelaciones_items_sesion', filter: `session_id=eq.${session.id}` },
         () => { reloadItemsAndCancels(); },
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'coworking_session_upsells', filter: `session_id=eq.${session.id}` },
+        () => { reloadItemsAndCancels(); },
+      )
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [session?.id]);
-
-  const resolvePrice = (productoId: string, precioVenta: number) => {
-    if (upsellsMap.has(productoId)) {
-      return { precio: upsellsMap.get(productoId) ?? 0, isSpecial: true };
-    }
-    return { precio: precioVenta, isSpecial: false };
-  };
-
-  const handleAdd = (producto: Producto) => withLock(() => doAdd(producto));
-  const doAdd = async (producto: Producto) => {
-    if (!session) return;
-    const validacion = await verificarStock(producto.id, 1);
-    if (!validacion.valido) {
-      toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
-      return;
-    }
-    const { precio } = resolvePrice(producto.id, producto.precio_venta);
-
-    const { data, error } = await supabase
-      .from('coworking_session_upsells')
-      .insert({
-        session_id: session.id,
-        producto_id: producto.id,
-        precio_especial: precio,
-        cantidad: 1,
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-      return;
-    }
-    setItems(prev => [
-      ...prev,
-      {
-        id: data.id,
-        producto_id: producto.id,
-        nombre: producto.nombre,
-        precio_especial: precio,
-        cantidad: 1,
-        requiere_preparacion: prepCacheRef.current.get(producto.id) ?? producto.requiere_preparacion ?? true,
-        pendingCancelQty: 0,
-      },
-    ]);
-
-    // Enviar a cocina
-    const kdsRes = await enviarASesionKDS({
-      context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
-      items: [{
-        producto_id: producto.id,
-        nombre: producto.nombre,
-        cantidad: 1,
-        isAmenity: precio === 0,
-      }],
-    });
-    toast({
-      title: `${producto.nombre} agregado`,
-      description: kdsRes.folio
-        ? `$${precio.toFixed(2)} · Comanda #${String(kdsRes.folio).padStart(4, '0')} a cocina`
-        : `$${precio.toFixed(2)}`,
-    });
-  };
-
-  const handleRemove = (item: SessionItem) => withLock(() => doRemove(item));
-  const doRemove = async (item: SessionItem) => {
-    const { error } = await supabase
-      .from('coworking_session_upsells')
-      .delete()
-      .eq('id', item.id);
-
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-      return;
-    }
-    setItems(prev => prev.filter(i => i.id !== item.id));
-    toast({ title: 'Eliminado' });
-  };
-
-  const openCancelDialog = (item: SessionItem) => {
-    const maxQty = item.cantidad - item.pendingCancelQty;
-    setCancelTarget(item);
-    setCancelQty(Math.min(1, maxQty) || 1);
-    setCancelMotivo('');
-  };
-
-  const submitCancelRequest = () => withLock(async () => {
-    if (!cancelTarget) return;
-    const motivo = cancelMotivo.trim();
-    if (!motivo) {
-      toast({ variant: 'destructive', title: 'Motivo requerido' });
-      return;
-    }
-    const maxQty = cancelTarget.cantidad - cancelTarget.pendingCancelQty;
-    if (cancelQty < 1 || cancelQty > maxQty) {
-      toast({ variant: 'destructive', title: 'Cantidad inválida', description: `Máximo ${maxQty}.` });
-      return;
-    }
-    const { error } = await supabase.rpc('solicitar_cancelacion_item_sesion' as any, {
-      p_upsell_id: cancelTarget.id,
-      p_cantidad: cancelQty,
-      p_motivo: motivo,
-    });
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-      return;
-    }
-    toast({ title: 'Solicitud enviada a cocina', description: `${cancelTarget.nombre} ×${cancelQty}` });
-    setCancelTarget(null);
-    await reloadItemsAndCancels();
-  });
-
-  const handleUpdateQuantity = (item: SessionItem, delta: number) => withLock(() => doUpdateQuantity(item, delta));
-  const doUpdateQuantity = async (item: SessionItem, delta: number) => {
-    const newQty = item.cantidad + delta;
-    if (newQty < 0) return;
-
-    if (delta > 0) {
-      const validacion = await verificarStock(item.producto_id, 1);
-      if (!validacion.valido) {
-        toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
-        return;
-      }
-    }
-
-    if (newQty === 0) {
-      const { error } = await supabase
-        .from('coworking_session_upsells')
-        .delete()
-        .eq('id', item.id);
-      if (error) {
-        toast({ variant: 'destructive', title: 'Error', description: error.message });
-        return;
-      }
-      setItems(prev => prev.filter(i => i.id !== item.id));
-      return;
-    }
-
-    const { error } = await supabase
-      .from('coworking_session_upsells')
-      .update({ cantidad: newQty })
-      .eq('id', item.id);
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-      return;
-    }
-    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, cantidad: newQty } : i)));
-
-    // Si fue un incremento, mandar el delta a cocina como nueva comanda
-    if (delta > 0 && session) {
-      const kdsRes = await enviarASesionKDS({
-        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
-        items: [{
-          producto_id: item.producto_id,
-          nombre: item.nombre,
-          cantidad: delta,
-          isAmenity: item.precio_especial === 0,
-        }],
-      });
-      if (kdsRes.folio) {
-        toast({
-          title: 'Cantidad actualizada',
-          description: `+${delta} a cocina (#${String(kdsRes.folio).padStart(4, '0')})`,
-        });
-      }
-    }
-  };
 
   const sessionArea = session ? areas.find(a => a.id === session.area_id) : undefined;
 
@@ -513,7 +313,6 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         if (error) errCount++; else okCount++;
       }
 
-      // Solo enviamos a cocina lo que aumentó (no descontamos comandas previas)
       if (delta > 0) {
         deltasParaCocina.push({
           producto_id: a.producto_id,
@@ -555,13 +354,17 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     onSuccess?.();
   };
 
-  if (!session) return null;
+  const handleGoToPos = () => {
+    if (!session) return;
+    const params = new URLSearchParams({
+      session_id: session.id,
+      client_name: session.cliente_nombre,
+    });
+    handleClose();
+    navigate(`/pos?${params.toString()}`);
+  };
 
-  const filtered = productos.filter(
-    p =>
-      p.nombre.toLowerCase().includes(search.toLowerCase()) ||
-      p.categoria.toLowerCase().includes(search.toLowerCase()),
-  );
+  if (!session) return null;
 
   const totalCuenta = items.reduce((sum, i) => sum + i.precio_especial * i.cantidad, 0);
 
@@ -618,7 +421,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          {/* Estado de la cuenta */}
+          {/* Estado de la cuenta (solo lectura) */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">Estado de la Cuenta</h3>
@@ -631,13 +434,12 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               <p className="text-sm text-muted-foreground py-3">Cargando...</p>
             ) : items.length === 0 ? (
               <p className="text-sm text-muted-foreground py-3 text-center border border-dashed rounded-md">
-                Aún no hay productos en la cuenta.
+                Aún no hay productos en la cuenta. Usa “Agregar Consumo en POS” para registrar consumos.
               </p>
             ) : (
               <div className="space-y-1.5">
                 {items.map(item => {
                   const isAmenity = item.precio_especial === 0;
-                  const requiereCancelacion = item.requiere_preparacion;
                   const hasPending = item.pendingCancelQty > 0;
                   return (
                     <div
@@ -664,61 +466,13 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span
-                          className={
-                            isAmenity ? 'text-primary font-medium' : 'text-foreground font-medium'
-                          }
-                        >
-                          {isAmenity ? 'Incluido' : `$${item.precio_especial.toFixed(2)}`}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => handleUpdateQuantity(item, -1)}
-                            disabled={busy || requiereCancelacion}
-                            title={requiereCancelacion ? 'Usa "Solicitar cancelación" (ya enviado a cocina)' : 'Disminuir'}
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <span className="w-6 text-center font-medium">{item.cantidad}</span>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => handleUpdateQuantity(item, 1)}
-                            disabled={busy}
-                            title="Aumentar"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        {requiereCancelacion ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            onClick={() => openCancelDialog(item)}
-                            disabled={busy || hasPending}
-                            title={hasPending ? 'Cancelación ya solicitada' : 'Solicitar cancelación a cocina'}
-                          >
-                            <Ban className="h-3.5 w-3.5" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            onClick={() => handleRemove(item)}
-                            disabled={busy}
-                            title="Eliminar"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
+                      <span
+                        className={
+                          isAmenity ? 'text-primary font-medium' : 'text-foreground font-medium'
+                        }
+                      >
+                        {isAmenity ? 'Incluido' : `$${(item.precio_especial * item.cantidad).toFixed(2)}`}
+                      </span>
                     </div>
                   );
                 })}
@@ -749,72 +503,15 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               </div>
             </section>
           )}
-
-          {/* Añadir consumo extra */}
-          <section className="space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Añadir Consumo Extra</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Los productos del paquete de tarifa se cobran a precio especial; el resto, a precio regular.
-              </p>
-            </div>
-
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar producto por nombre o categoría..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            <div className="space-y-1 max-h-[40vh] overflow-y-auto pr-1">
-              {loading ? (
-                <p className="text-sm text-muted-foreground text-center py-4">Cargando...</p>
-              ) : filtered.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">Sin resultados</p>
-              ) : (
-                filtered.map(p => {
-                  const { precio, isSpecial } = resolvePrice(p.id, p.precio_venta);
-                  return (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between rounded-md border border-border p-2 text-sm hover:bg-muted/40 transition-colors"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{p.nombre}</span>
-                          {isSpecial ? (
-                            <Badge variant="default" className="text-[10px] px-1.5 py-0">
-                              Precio Especial
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              Precio Regular
-                            </Badge>
-                          )}
-                        </div>
-                        <span className="text-muted-foreground text-xs">{p.categoria}</span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-foreground font-medium">${precio.toFixed(2)}</span>
-                        <Button size="sm" variant="outline" className="h-7" onClick={() => handleAdd(p)} disabled={busy}>
-                          <Plus className="h-3 w-3 mr-1" />
-                          Agregar
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </section>
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background">
+        <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background gap-2">
           <Button variant="outline" onClick={handleClose}>
             Cerrar
+          </Button>
+          <Button onClick={handleGoToPos} className="gap-2">
+            <ShoppingCart className="h-4 w-4" />
+            Agregar Consumo en POS
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -832,56 +529,6 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           <AlertDialogFooter>
             <AlertDialogCancel>No, dejar como está</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Sí, actualizar amenities</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <Ban className="h-5 w-5 text-destructive" /> Solicitar cancelación a cocina
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Este ítem ya fue enviado a cocina. La cocina decidirá si se retorna a stock o se registra como merma.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {cancelTarget && (
-            <div className="space-y-3 py-2">
-              <div className="rounded-md border bg-muted/30 p-2.5 text-sm">
-                <div className="font-medium">{cancelTarget.nombre}</div>
-                <div className="text-xs text-muted-foreground">
-                  En cuenta: ×{cancelTarget.cantidad}
-                  {cancelTarget.pendingCancelQty > 0 && ` · Pendiente: ${cancelTarget.pendingCancelQty}`}
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cancel-qty">Cantidad a cancelar</Label>
-                <Input
-                  id="cancel-qty"
-                  type="number"
-                  min={1}
-                  max={cancelTarget.cantidad - cancelTarget.pendingCancelQty}
-                  value={cancelQty}
-                  onChange={(e) => setCancelQty(parseInt(e.target.value, 10) || 1)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cancel-motivo">Motivo</Label>
-                <Textarea
-                  id="cancel-motivo"
-                  placeholder="Ej. Cliente cambió de opinión, error en la orden…"
-                  value={cancelMotivo}
-                  onChange={(e) => setCancelMotivo(e.target.value)}
-                  rows={3}
-                />
-              </div>
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Volver</AlertDialogCancel>
-            <AlertDialogAction onClick={submitCancelRequest} disabled={busy} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Enviar solicitud
-            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
