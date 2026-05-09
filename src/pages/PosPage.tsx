@@ -141,15 +141,19 @@ const PosPage = () => {
     const validacion = await verificarStock(p.id, 1);
     if (!validacion.valido) { toast.error(validacion.error); return; }
 
+    const especial = tarifaUpsells[p.id];
+    const precioFinal = especial != null ? especial : p.precio_venta;
+
     addOrIncrementProduct({
       producto_id: p.id,
       nombre: p.nombre,
-      precio_unitario: p.precio_venta,
+      precio_unitario: precioFinal,
       cantidad: 1,
-      subtotal: p.precio_venta,
+      subtotal: precioFinal,
       tipo_concepto: 'producto',
+      precio_especial: especial != null,
     });
-  }, [addOrIncrementProduct, addOrIncrementPaquete]);
+  }, [addOrIncrementProduct, addOrIncrementPaquete, tarifaUpsells]);
 
   const handlePaqueteConfirm = useCallback(({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
     if (!paqueteCtx) return;
