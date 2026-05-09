@@ -122,6 +122,7 @@ export type Database = {
           created_at: string
           decided_at: string | null
           decidido_por: string | null
+          detalle_id: string | null
           estado: Database["public"]["Enums"]["cancelacion_item_estado"]
           id: string
           kds_item_id: string | null
@@ -132,13 +133,13 @@ export type Database = {
           producto_id: string
           session_id: string
           solicitante_id: string
-          upsell_id: string | null
         }
         Insert: {
           cantidad: number
           created_at?: string
           decided_at?: string | null
           decidido_por?: string | null
+          detalle_id?: string | null
           estado?: Database["public"]["Enums"]["cancelacion_item_estado"]
           id?: string
           kds_item_id?: string | null
@@ -149,13 +150,13 @@ export type Database = {
           producto_id: string
           session_id: string
           solicitante_id: string
-          upsell_id?: string | null
         }
         Update: {
           cantidad?: number
           created_at?: string
           decided_at?: string | null
           decidido_por?: string | null
+          detalle_id?: string | null
           estado?: Database["public"]["Enums"]["cancelacion_item_estado"]
           id?: string
           kds_item_id?: string | null
@@ -166,7 +167,6 @@ export type Database = {
           producto_id?: string
           session_id?: string
           solicitante_id?: string
-          upsell_id?: string | null
         }
         Relationships: []
       }
@@ -318,48 +318,6 @@ export type Database = {
           },
         ]
       }
-      coworking_session_upsells: {
-        Row: {
-          cantidad: number
-          created_at: string
-          id: string
-          precio_especial: number
-          producto_id: string
-          session_id: string
-        }
-        Insert: {
-          cantidad?: number
-          created_at?: string
-          id?: string
-          precio_especial?: number
-          producto_id: string
-          session_id: string
-        }
-        Update: {
-          cantidad?: number
-          created_at?: string
-          id?: string
-          precio_especial?: number
-          producto_id?: string
-          session_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "coworking_session_upsells_producto_id_fkey"
-            columns: ["producto_id"]
-            isOneToOne: false
-            referencedRelation: "productos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "coworking_session_upsells_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "coworking_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       coworking_sessions: {
         Row: {
           area_id: string
@@ -375,8 +333,6 @@ export type Database = {
           tarifa_id: string | null
           tarifa_snapshot: Json | null
           updated_at: string
-          upsell_precio: number | null
-          upsell_producto_id: string | null
           usuario_id: string
         }
         Insert: {
@@ -393,8 +349,6 @@ export type Database = {
           tarifa_id?: string | null
           tarifa_snapshot?: Json | null
           updated_at?: string
-          upsell_precio?: number | null
-          upsell_producto_id?: string | null
           usuario_id: string
         }
         Update: {
@@ -411,8 +365,6 @@ export type Database = {
           tarifa_id?: string | null
           tarifa_snapshot?: Json | null
           updated_at?: string
-          upsell_precio?: number | null
-          upsell_producto_id?: string | null
           usuario_id?: string
         }
         Relationships: [
@@ -428,13 +380,6 @@ export type Database = {
             columns: ["tarifa_id"]
             isOneToOne: false
             referencedRelation: "tarifas_coworking"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "coworking_sessions_upsell_producto_id_fkey"
-            columns: ["upsell_producto_id"]
-            isOneToOne: false
-            referencedRelation: "productos"
             referencedColumns: ["id"]
           },
         ]
@@ -1337,6 +1282,14 @@ export type Database = {
         }
         Returns: Json
       }
+      ajustar_amenity_sesion: {
+        Args: {
+          p_nueva_cantidad: number
+          p_producto_id: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       anular_compra_insumo: {
         Args: { p_compra_id: string; p_motivo: string }
         Returns: Json
@@ -1411,7 +1364,7 @@ export type Database = {
         Returns: Json
       }
       solicitar_cancelacion_item_sesion: {
-        Args: { p_cantidad: number; p_motivo: string; p_upsell_id: string }
+        Args: { p_cantidad: number; p_detalle_id: string; p_motivo: string }
         Returns: Json
       }
       validar_stock_carrito: { Args: { p_items: Json }; Returns: Json }
