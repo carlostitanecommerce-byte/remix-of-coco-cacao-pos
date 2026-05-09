@@ -1,48 +1,45 @@
-# Rediseño columna "En uso" — Categorías
+# Sidebar como overlay (no empuja el contenido)
 
-## Problema
-Actualmente la columna muestra dos badges separados (`7 ins.` / `6 prod.`) tipo "pastilla" con borde y texto en dos líneas. Ocupa mucho espacio vertical, se ve repetitivo y poco profesional.
+## Comportamiento actual
+La barra usa `collapsible="offcanvas"` (default). Cuando se abre en escritorio, el componente shadcn renderiza un **div "spacer"** con `w-[--sidebar-width]` que ocupa espacio en el flex layout, comprimiendo la sección principal para que ambas quepan lado a lado.
 
-## Propuesta de diseño
+## Comportamiento deseado
+Al abrir, la barra debe **flotar encima** del contenido (sin alterar su ancho), reforzando que es solo para navegación. Al cerrar (clic en el trigger o en el área oscurecida), se oculta y el contenido queda 100% visible.
 
-Reemplazar los dos badges por **un solo "chip" compacto e inline** que combine ambos conteos con iconos semánticos en lugar de abreviaciones de texto.
+## Cambios
 
-### Estructura visual (por celda)
+### 1. Neutralizar el spacer del Sidebar — `src/index.css`
+Agregar una regla CSS global y específica que fuerce a 0 el ancho del div "gap" del Sidebar shadcn cuando está expandido en desktop. Es la única forma limpia sin tocar el componente UI base.
+```css
+/* Sidebar overlay mode: don't reserve space for the sidebar on desktop */
+@media (min-width: 768px) {
+  .peer[data-state="expanded"] > div:first-child {
+    width: 0 !important;
+  }
+}
 ```
-[🧪 7]  [📦 6]
-```
+Esto convierte la barra en un overlay puro: el div interior `fixed inset-y-0 z-10` ya está posicionado por encima, solo el spacer estaba reservando espacio.
 
-- Cada conteo se muestra con un **icono pequeño + número**, sin bordes ni mayúsculas.
-- Iconos:
-  - **Insumos:** `FlaskConical` (lucide) — color `text-muted-foreground`
-  - **Productos:** `Package` (lucide) — color `text-muted-foreground`
-- Tipografía: `text-sm tabular-nums font-medium text-foreground` para el número.
-- Separador sutil vertical entre ambos: `divide-x divide-border/60` o un punto `·`.
-- Si un conteo es 0, se muestra atenuado (`opacity-40`) en lugar de ocultarlo, para que la celda mantenga ancho consistente y se lea como "estructurado".
-- Si **ambos son 0**: un guión `—` sutil en `text-muted-foreground`, alineado a la derecha.
-- Tooltip al hacer hover sobre cada par mostrando el texto completo: "7 insumos en esta categoría" / "6 productos en esta categoría".
+### 2. Backdrop opcional para desktop — `src/components/DashboardLayout.tsx`
+Agregar un overlay semitransparente que aparece cuando la barra está abierta en desktop y la cierra al hacer clic. Mejora la usabilidad y comunica al usuario que debe cerrar la barra para interactuar con la sección.
 
-### Detalle de implementación (`src/components/inventarios/CategoriasTab.tsx`)
-- Eliminar los `<Badge>` actuales (líneas 200–212).
-- Reemplazar por un contenedor `flex items-center justify-end gap-3` con dos sub-elementos:
-  ```tsx
-  <Tooltip><TooltipTrigger>
-    <span className="inline-flex items-center gap-1.5 text-sm tabular-nums">
-      <FlaskConical className="h-3.5 w-3.5 text-muted-foreground" />
-      <span className={cn("font-medium", uso_insumos === 0 && "opacity-40")}>{uso_insumos}</span>
-    </span>
-  </TooltipTrigger><TooltipContent>...</TooltipContent></Tooltip>
-  ```
-- Envolver toda la tabla con `<TooltipProvider delayDuration={150}>` (verificar si ya existe arriba).
-- Importar `FlaskConical, Package` de `lucide-react` y `cn` de `@/lib/utils`.
-- Quitar `font-mono` para alinearlo con el estilo limpio del resto.
+- Crear pequeño componente interno `<SidebarBackdrop />` que use `useSidebar()` para leer `open` y llamar `setOpen(false)`.
+- Renderizar `<div className="fixed inset-0 z-[5] bg-black/30 backdrop-blur-[1px] hidden md:block" onClick={...}>` solo cuando `open === true`.
+- Z-index menor que el sidebar (`z-10`) para que la barra siga encima.
 
-### Beneficios
-- Misma altura de fila para todas las categorías → tabla más uniforme.
-- Iconos > abreviaciones de texto: lectura más rápida y profesional.
-- Tooltip aporta accesibilidad y claridad sin saturar la celda.
-- Mantiene el principio "diseño limpio, tonos cálidos, traceabilidad" de la memoria del proyecto.
+### 3. (No requiere cambios) Mobile
+En móviles el Sidebar shadcn ya usa Sheet (overlay con backdrop nativo). El cambio CSS está dentro de `@media (min-width: 768px)` para no afectar móvil.
+
+### 4. (No requiere cambios) Estado por defecto
+La barra inicia abierta por defecto (`SidebarProvider` con `defaultOpen` true). Tras este cambio podría sentirse intrusiva al cargar; **se mantiene el default actual** salvo que el usuario lo pida.
+
+## Verificación
+1. Cargar `/inventarios` → la barra está abierta, el contenido **NO** se comprime (mantiene el ancho que tendría con la barra cerrada).
+2. Click en el trigger (icono ☰) → la barra se cierra, contenido sin cambios.
+3. Click fuera de la barra (sobre el backdrop) → la barra se cierra.
+4. En móvil → comportamiento Sheet sin cambios.
 
 ## Fuera de alcance
-- No se cambian datos, queries, RLS ni la lógica de conteo.
-- No se modifica el resto de la tabla (nombre, descripción, acciones).
+- No se modifica `src/components/ui/sidebar.tsx` (componente base shadcn).
+- No se cambia el contenido ni los items de `AppSidebar.tsx`.
+- No se cambian rutas ni lógica de navegación.
