@@ -32,9 +32,15 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
     setSaving(true);
     try {
       // 0. Pre-validar inventario unificado vía RPC (considera consumos comprometidos en coworking)
+      // Los items con open_account_detalle_id YA existen en detalle_ventas y su stock ya se descontó
+      // al crearlos vía registrar_consumo_coworking — no validar ni reinsertar.
+      const isOpenItem = (it: typeof summary.items[number]) => !!it.open_account_detalle_id;
+      const openItems = summary.items.filter(isOpenItem);
+      const newItems = summary.items.filter(it => !isOpenItem(it));
+
       const qtyByProduct = new Map<string, number>();
 
-      const productoItems = summary.items.filter(
+      const productoItems = newItems.filter(
         (item) => item.tipo_concepto === 'producto' && !!item.producto_id && !item.producto_id.startsWith('coworking-')
       );
       for (const item of productoItems) {
@@ -42,7 +48,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         qtyByProduct.set(productId, (qtyByProduct.get(productId) ?? 0) + item.cantidad);
       }
 
-      const paqueteItems = summary.items.filter(item => item.tipo_concepto === 'paquete');
+      const paqueteItems = newItems.filter(item => item.tipo_concepto === 'paquete');
       // Guardia: cada paquete debe haber expandido sus opciones a componentes con producto_id válido,
       // de lo contrario el trigger descontar_inventario_venta no podría descontar insumos correctamente.
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -123,7 +129,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         for (const p of prods ?? []) costoMap.set(p.id, Number(p.costo_total) || 0);
       }
 
-      for (const item of summary.items) {
+      for (const item of newItems) {
         if (item.tipo_concepto === 'paquete') {
           const pq = item;
           const componentes = pq.componentes ?? [];
@@ -220,22 +226,35 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         coworking_session_id: summary.coworking_session_id ?? null,
         caja_id: summary.caja_id ?? null,
       };
+      const isCoworkingCheckout = !!summary.coworking_session_id;
+      const openIds = openItems.map(it => it.open_account_detalle_id!).filter(Boolean);
+
       const auditPayload = {
-        accion: numPaquetes > 0 ? 'venta_completada_con_paquetes' : 'venta_completada',
-        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${summary.coworking_session_id ? ' + Coworking' : ''}${numPaquetes > 0 ? ` + ${numPaquetes} paquete(s)` : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}`,
+        accion: isCoworkingCheckout
+          ? 'cierre_cuenta_coworking'
+          : (numPaquetes > 0 ? 'venta_completada_con_paquetes' : 'venta_completada'),
+        descripcion: `Venta por $${summary.total.toFixed(2)} (${summary.metodo_pago})${isCoworkingCheckout ? ' + Coworking' : ''}${numPaquetes > 0 ? ` + ${numPaquetes} paquete(s)` : ''}${propinaAmount > 0 ? ` + Propina $${propinaAmount.toFixed(2)}` : ''}${openIds.length > 0 ? ` + ${openIds.length} consumo(s) abierto(s)` : ''}`,
         metadata: {
           total: summary.total,
           propina: propinaAmount,
           items: summary.items.length,
+          open_lines_count: openIds.length,
           paquetes: paqueteItems.map(p => ({ paquete_id: p.paquete_id ?? p.producto_id, nombre: p.nombre, cantidad: p.cantidad, componentes: p.componentes })),
         },
       };
 
-      const { data: rpcData, error: rpcErr } = await supabase.rpc('crear_venta_completa', {
-        p_venta: ventaPayload as unknown as Json,
-        p_detalles: realDetalles as unknown as Json,
-        p_audit: auditPayload as unknown as Json,
-      });
+      const { data: rpcData, error: rpcErr } = isCoworkingCheckout
+        ? await supabase.rpc('cerrar_cuenta_coworking', {
+            p_venta: ventaPayload as unknown as Json,
+            p_detalles_nuevos: realDetalles as unknown as Json,
+            p_detalles_open_ids: openIds,
+            p_audit: auditPayload as unknown as Json,
+          })
+        : await supabase.rpc('crear_venta_completa', {
+            p_venta: ventaPayload as unknown as Json,
+            p_detalles: realDetalles as unknown as Json,
+            p_audit: auditPayload as unknown as Json,
+          });
 
       if (rpcErr || !rpcData) {
         // Bitácora del rollback (best-effort)

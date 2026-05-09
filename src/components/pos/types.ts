@@ -32,6 +32,9 @@ export interface CartItem {
   notas?: string;
   /** Indica que el precio_unitario proviene de una tarifa de coworking (upsell). */
   precio_especial?: boolean;
+  /** Si está presente, esta línea YA existe en detalle_ventas (venta_id NULL) y al cobrar
+   *  sólo se le estampa el venta_id; NO debe re-insertarse ni reenviarse a cocina. */
+  open_account_detalle_id?: string;
 }
 
 export interface VentaConfig {

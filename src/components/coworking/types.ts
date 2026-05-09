@@ -75,4 +75,6 @@ export interface CheckoutSummary {
   minCobrar: number;
   precioBaseSnapshot: number;
   paxMultiplier: number;
+  consumosPosTotal: number;
+  consumosPosLineas: number;
 }

@@ -89,6 +89,7 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
       .channel('pos-coworking-sessions-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_sessions' }, () => fetchSessions())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'coworking_session_upsells' }, () => fetchSessions())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_ventas' }, () => fetchSessions())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
@@ -222,6 +223,30 @@ export function CoworkingSessionSelector({ onImportSession, importedSessionId, p
         tipo_concepto: isAmenity ? 'amenity' : 'producto',
         coworking_session_id: session.id,
         descripcion: isAmenity ? `Amenity incluido en ${tarifaNombre}` : `Upsell/consumo coworking`,
+      });
+    }
+
+    // Consumos POS abiertos (detalle_ventas con venta_id NULL para esta sesión)
+    const { data: openLines } = await supabase
+      .from('detalle_ventas')
+      .select('id, producto_id, cantidad, precio_unitario, subtotal, tipo_concepto, descripcion, paquete_id, paquete_nombre, productos:producto_id(nombre)')
+      .eq('coworking_session_id', session.id)
+      .is('venta_id', null)
+      .order('created_at', { ascending: true });
+
+    for (const ln of (openLines ?? [])) {
+      const prodName = (ln as any).productos?.nombre ?? ln.descripcion ?? 'Producto';
+      items.push({
+        producto_id: ln.producto_id ?? `open-${ln.id}`,
+        nombre: `🧾 ${prodName}`,
+        precio_unitario: Number(ln.precio_unitario) || 0,
+        cantidad: ln.cantidad,
+        subtotal: Number(ln.subtotal) || 0,
+        tipo_concepto: (ln.tipo_concepto as any) ?? 'producto',
+        coworking_session_id: session.id,
+        descripcion: ln.descripcion ?? 'Consumo POS',
+        paquete_id: ln.paquete_id ?? undefined,
+        open_account_detalle_id: ln.id,
       });
     }
 

@@ -1352,6 +1352,15 @@ export type Database = {
         }
         Returns: Json
       }
+      cerrar_cuenta_coworking: {
+        Args: {
+          p_audit?: Json
+          p_detalles_nuevos: Json
+          p_detalles_open_ids: string[]
+          p_venta: Json
+        }
+        Returns: Json
+      }
       crear_venta_completa: {
         Args: { p_audit?: Json; p_detalles: Json; p_venta: Json }
         Returns: Json
