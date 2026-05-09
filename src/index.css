@@ -95,18 +95,3 @@
   }
 }
 
-/* Sidebar overlay mode (desktop): the sidebar floats over the content
-   instead of pushing it. Neutralizes the shadcn spacer div. */
-@media (min-width: 768px) {
-  [data-state="expanded"][data-variant="sidebar"] > div:first-child,
-  .group.peer[data-state="expanded"] > div:first-child {
-    width: 0 !important;
-  }
-
-  /* Sidebar overlay debe ir por encima de cualquier contenido sticky de las páginas
-     (que típicamente usa z-10), pero por debajo de modales/sheets (z-50). */
-  .group.peer > div.fixed,
-  [data-sidebar="sidebar"] {
-    z-index: 40 !important;
-  }
-}
