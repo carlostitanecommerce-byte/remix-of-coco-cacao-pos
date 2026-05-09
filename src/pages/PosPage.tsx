@@ -318,7 +318,7 @@ const PosPage = () => {
   // Tablet / mobile layout: products full-width + bottom bar + ticket Sheet
   return (
     <>
-      <div className="flex flex-col h-[calc(100vh-7rem)] -mx-6 -my-6">
+      <div className="flex flex-col h-[calc(100vh-3rem)] -mx-6 -my-6">
         <div className="flex-1 min-h-0 overflow-hidden px-4 pt-4">
           <ProductGrid onAdd={addProduct} />
         </div>
