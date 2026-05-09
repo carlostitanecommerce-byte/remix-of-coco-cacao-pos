@@ -251,6 +251,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
               })}
             </TableBody>
           </Table>
+          </TooltipProvider>
         </CardContent>
       </Card>
 
