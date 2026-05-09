@@ -740,6 +740,155 @@ export type Database = {
         }
         Relationships: []
       }
+      paquete_grupos: {
+        Row: {
+          cantidad_incluida: number
+          created_at: string
+          es_obligatorio: boolean
+          id: string
+          nombre_grupo: string
+          orden: number
+          paquete_id: string
+          updated_at: string
+        }
+        Insert: {
+          cantidad_incluida?: number
+          created_at?: string
+          es_obligatorio?: boolean
+          id?: string
+          nombre_grupo: string
+          orden?: number
+          paquete_id: string
+          updated_at?: string
+        }
+        Update: {
+          cantidad_incluida?: number
+          created_at?: string
+          es_obligatorio?: boolean
+          id?: string
+          nombre_grupo?: string
+          orden?: number
+          paquete_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paquete_grupos_paquete_id_fkey"
+            columns: ["paquete_id"]
+            isOneToOne: false
+            referencedRelation: "productos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paquete_opciones_grupo: {
+        Row: {
+          created_at: string
+          grupo_id: string
+          id: string
+          precio_adicional: number
+          producto_id: string
+        }
+        Insert: {
+          created_at?: string
+          grupo_id: string
+          id?: string
+          precio_adicional?: number
+          producto_id: string
+        }
+        Update: {
+          created_at?: string
+          grupo_id?: string
+          id?: string
+          precio_adicional?: number
+          producto_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paquete_opciones_grupo_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "paquete_grupos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paquete_opciones_grupo_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: false
+            referencedRelation: "productos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plataformas_delivery: {
+        Row: {
+          activo: boolean
+          comision_porcentaje: number
+          created_at: string
+          id: string
+          nombre: string
+          updated_at: string
+        }
+        Insert: {
+          activo?: boolean
+          comision_porcentaje?: number
+          created_at?: string
+          id?: string
+          nombre: string
+          updated_at?: string
+        }
+        Update: {
+          activo?: boolean
+          comision_porcentaje?: number
+          created_at?: string
+          id?: string
+          nombre?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      producto_precios_delivery: {
+        Row: {
+          created_at: string
+          id: string
+          plataforma_id: string
+          precio_venta: number
+          producto_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          plataforma_id: string
+          precio_venta?: number
+          producto_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          plataforma_id?: string
+          precio_venta?: number
+          producto_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "producto_precios_delivery_plataforma_id_fkey"
+            columns: ["plataforma_id"]
+            isOneToOne: false
+            referencedRelation: "plataformas_delivery"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producto_precios_delivery_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: false
+            referencedRelation: "productos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       productos: {
         Row: {
           activo: boolean
