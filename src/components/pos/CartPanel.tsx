@@ -15,6 +15,8 @@ interface Props {
   onRemove: (lineId: string) => void;
   onClear: () => void;
   subtotal: number;
+  coworkingSessionActive?: boolean;
+  clienteNombre?: string | null;
 }
 
 const keyOf = (i: CartItem) => i.lineId ?? i.producto_id;
@@ -60,7 +62,7 @@ function NotesPopover({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear, subtotal }: Props) {
+export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear, subtotal, coworkingSessionActive, clienteNombre }: Props) {
   const productoItems = items.filter(i => i.tipo_concepto === 'producto');
   const paqueteItems = items.filter(i => i.tipo_concepto === 'paquete');
 
@@ -94,9 +96,16 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
 
         {/* Fila 2: precio unitario + stepper + acciones */}
         <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[11px] text-muted-foreground tabular-nums">
-            ${item.precio_unitario.toFixed(2)} c/u
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-[11px] text-muted-foreground tabular-nums">
+              ${item.precio_unitario.toFixed(2)} c/u
+            </p>
+            {item.precio_especial && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-primary text-primary">
+                Tarifa Coworking
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center gap-1.5">
             <div className="flex items-center gap-0.5 rounded-md bg-muted/50 p-0.5">
               <Button
@@ -194,6 +203,15 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
           </Button>
         )}
       </div>
+
+      {coworkingSessionActive && (
+        <div className="mb-2 rounded-md border border-primary/30 bg-primary/10 p-2 text-sm text-primary">
+          <p className="font-semibold">📌 Cargando a sesión de Coworking</p>
+          {clienteNombre && (
+            <p className="text-xs opacity-80 truncate">Cliente: {clienteNombre}</p>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
         {items.length === 0 ? (

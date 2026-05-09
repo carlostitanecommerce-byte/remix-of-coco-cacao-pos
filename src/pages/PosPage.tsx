@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { CartPanel } from '@/components/pos/CartPanel';
@@ -7,22 +7,25 @@ import { StickyCheckoutBar } from '@/components/pos/StickyCheckoutBar';
 import { PaqueteSelectorDialog } from '@/components/pos/PaqueteSelectorDialog';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ClipboardCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { verificarStock } from '@/hooks/useValidarStock';
 import { useCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsDesktop } from '@/hooks/use-mobile';
+import { enviarASesionKDS } from '@/components/coworking/sendToKitchen';
 import type { PaqueteOpcionSeleccionada } from '@/components/pos/types';
 
 interface PaqueteCtx { id: string; nombre: string; precio_venta: number }
 
 const PosPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const isDesktop = useIsDesktop();
   const [ticketOpen, setTicketOpen] = useState(false);
   const [paqueteCtx, setPaqueteCtx] = useState<PaqueteCtx | null>(null);
+  const [charging, setCharging] = useState(false);
 
   const items = useCartStore((s) => s.items);
   const ensureOwner = useCartStore((s) => s.ensureOwner);
@@ -32,10 +35,51 @@ const PosPage = () => {
   const updateNotas = useCartStore((s) => s.updateNotas);
   const removeItem = useCartStore((s) => s.removeItem);
   const clear = useCartStore((s) => s.clear);
+  const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
+  const clienteNombre = useCartStore((s) => s.clienteNombre);
+  const tarifaUpsells = useCartStore((s) => s.tarifaUpsells);
+  const setActiveCoworkingSession = useCartStore((s) => s.setActiveCoworkingSession);
+  const setTarifaUpsells = useCartStore((s) => s.setTarifaUpsells);
 
   useEffect(() => {
     ensureOwner(user?.id ?? null);
   }, [user?.id, ensureOwner]);
+
+  // Detección de contexto: cargar sesión de coworking desde URL
+  useEffect(() => {
+    const sessionId = searchParams.get('session_id');
+    const clientName = searchParams.get('client_name');
+    if (!sessionId) {
+      setActiveCoworkingSession(null, null);
+      setTarifaUpsells({});
+      return;
+    }
+    setActiveCoworkingSession(sessionId, clientName);
+    (async () => {
+      const { data: sess } = await supabase
+        .from('coworking_sessions')
+        .select('tarifa_id, cliente_nombre')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (!sess) {
+        toast.error('Sesión de coworking no encontrada');
+        return;
+      }
+      if (!sess.tarifa_id) {
+        setTarifaUpsells({});
+        toast.success(`Cuenta abierta: ${sess.cliente_nombre}`);
+        return;
+      }
+      const { data: ups } = await supabase
+        .from('tarifa_upsells')
+        .select('producto_id, precio_especial')
+        .eq('tarifa_id', sess.tarifa_id);
+      const map: Record<string, number> = {};
+      (ups ?? []).forEach((u: any) => { map[u.producto_id] = Number(u.precio_especial); });
+      setTarifaUpsells(map);
+      toast.success(`Cuenta abierta: ${sess.cliente_nombre}${Object.keys(map).length ? ` · ${Object.keys(map).length} precios especiales` : ''}`);
+    })();
+  }, [searchParams, setActiveCoworkingSession, setTarifaUpsells]);
 
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
     if (p.tipo === 'paquete') {
@@ -97,15 +141,19 @@ const PosPage = () => {
     const validacion = await verificarStock(p.id, 1);
     if (!validacion.valido) { toast.error(validacion.error); return; }
 
+    const especial = tarifaUpsells[p.id];
+    const precioFinal = especial != null ? especial : p.precio_venta;
+
     addOrIncrementProduct({
       producto_id: p.id,
       nombre: p.nombre,
-      precio_unitario: p.precio_venta,
+      precio_unitario: precioFinal,
       cantidad: 1,
-      subtotal: p.precio_venta,
+      subtotal: precioFinal,
       tipo_concepto: 'producto',
+      precio_especial: especial != null,
     });
-  }, [addOrIncrementProduct, addOrIncrementPaquete]);
+  }, [addOrIncrementProduct, addOrIncrementPaquete, tarifaUpsells]);
 
   const handlePaqueteConfirm = useCallback(({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
     if (!paqueteCtx) return;
@@ -154,10 +202,91 @@ const PosPage = () => {
   const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
   const itemCount = items.reduce((s, i) => s + i.cantidad, 0);
 
+  const isOpenAccount = !!coworkingSessionId;
+
+  const chargeToOpenAccount = useCallback(async () => {
+    if (!coworkingSessionId || items.length === 0) return;
+    setCharging(true);
+    try {
+      // Validar stock por línea (productos simples; paquetes ya validan internamente al agregar)
+      for (const it of items) {
+        if (it.tipo_concepto === 'producto') {
+          const v = await verificarStock(it.producto_id, it.cantidad);
+          if (!v.valido) { toast.error(v.error ?? 'Stock insuficiente'); setCharging(false); return; }
+        }
+      }
+
+      const rows = items.map((it) => ({
+        venta_id: null,
+        coworking_session_id: coworkingSessionId,
+        producto_id: it.producto_id,
+        paquete_id: it.tipo_concepto === 'paquete' ? (it.paquete_id ?? it.producto_id) : null,
+        paquete_nombre: it.tipo_concepto === 'paquete' ? it.nombre.replace(/^📦\s*/, '') : null,
+        tipo_concepto: it.tipo_concepto === 'paquete' ? 'paquete' : 'producto',
+        cantidad: it.cantidad,
+        precio_unitario: it.precio_unitario,
+        subtotal: it.subtotal,
+        descripcion: it.notas ?? null,
+      }));
+
+      const { error: insErr } = await supabase.from('detalle_ventas').insert(rows as any);
+      if (insErr) {
+        console.error(insErr);
+        toast.error('Error al cargar a la cuenta: ' + insErr.message);
+        setCharging(false);
+        return;
+      }
+
+      // Enviar a KDS (productos simples + componentes de paquetes)
+      const kdsItems = items.flatMap((it) => {
+        if (it.tipo_concepto === 'paquete' && it.componentes && it.componentes.length > 0) {
+          return it.componentes.map((c) => ({
+            producto_id: c.producto_id,
+            nombre: c.nombre,
+            cantidad: c.cantidad * it.cantidad,
+            notas: it.notas ?? null,
+          }));
+        }
+        return [{
+          producto_id: it.producto_id,
+          nombre: it.nombre,
+          cantidad: it.cantidad,
+          notas: it.notas ?? null,
+        }];
+      });
+
+      await enviarASesionKDS({
+        context: { sessionId: coworkingSessionId, clienteNombre: clienteNombre ?? '', motivo: 'add' },
+        items: kdsItems,
+      });
+
+      await supabase.from('audit_logs').insert({
+        user_id: user?.id,
+        accion: 'coworking_open_account_charge',
+        descripcion: `Cargo a cuenta abierta de ${clienteNombre ?? 'sesión'} · ${items.length} líneas · $${subtotal.toFixed(2)}`,
+        metadata: { session_id: coworkingSessionId, total: subtotal, lineas: items.length },
+      });
+
+      toast.success(`Cargado a la cuenta de ${clienteNombre ?? 'sesión'}`);
+      clear();
+      navigate('/coworking');
+    } finally {
+      setCharging(false);
+    }
+  }, [coworkingSessionId, clienteNombre, items, subtotal, user?.id, clear, navigate]);
+
   const goToCheckout = () => {
     setTicketOpen(false);
-    navigate('/caja');
+    if (isOpenAccount) {
+      chargeToOpenAccount();
+    } else {
+      navigate('/caja');
+    }
   };
+
+  const checkoutLabel = isOpenAccount ? 'Cargar a Cuenta' : 'Procesar pago en Caja';
+  const checkoutLabelMobile = isOpenAccount ? 'Cargar a Cuenta' : 'Cobrar';
+  const CheckoutIcon = isOpenAccount ? ClipboardCheck : ArrowRight;
 
   const paqueteDialog = (
     <PaqueteSelectorDialog
@@ -183,15 +312,17 @@ const PosPage = () => {
               onRemove={removeItem}
               onClear={clear}
               subtotal={subtotal}
+              coworkingSessionActive={isOpenAccount}
+              clienteNombre={clienteNombre}
             />
             <Button
               className="mt-3 w-full"
               size="lg"
-              disabled={items.length === 0}
+              disabled={items.length === 0 || charging}
               onClick={goToCheckout}
             >
-              Procesar pago en Caja
-              <ArrowRight className="ml-2 h-4 w-4" />
+              {checkoutLabel}
+              <CheckoutIcon className="ml-2 h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -228,16 +359,18 @@ const PosPage = () => {
                 onRemove={removeItem}
                 onClear={clear}
                 subtotal={subtotal}
+                coworkingSessionActive={isOpenAccount}
+                clienteNombre={clienteNombre}
               />
             </div>
             <Button
               className="mt-3 w-full"
               size="lg"
-              disabled={items.length === 0}
+              disabled={items.length === 0 || charging}
               onClick={goToCheckout}
             >
-              Cobrar
-              <ArrowRight className="ml-2 h-4 w-4" />
+              {checkoutLabelMobile}
+              <CheckoutIcon className="ml-2 h-4 w-4" />
             </Button>
           </SheetContent>
         </Sheet>
