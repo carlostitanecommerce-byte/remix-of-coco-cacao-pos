@@ -16,7 +16,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Pencil, Trash2, Tag } from 'lucide-react';
+import { Plus, Pencil, Trash2, Tag, FlaskConical, Package } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 interface Categoria {
@@ -166,6 +168,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
 
       <Card>
         <CardContent className="p-0">
+          <TooltipProvider delayDuration={150}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -199,15 +202,35 @@ const CategoriasTab = ({ isAdmin }: Props) => {
                     <TableCell className="text-muted-foreground">{cat.descripcion || '—'}</TableCell>
                     <TableCell className="text-right">
                       {usoTotal === 0 ? (
-                        <Badge variant="secondary" className="font-mono text-xs">0</Badge>
+                        <span className="text-muted-foreground">—</span>
                       ) : (
-                        <div className="flex justify-end gap-1">
-                          {(cat.uso_insumos ?? 0) > 0 && (
-                            <Badge variant="outline" className="font-mono text-xs">{cat.uso_insumos} ins.</Badge>
-                          )}
-                          {(cat.uso_productos ?? 0) > 0 && (
-                            <Badge variant="outline" className="font-mono text-xs">{cat.uso_productos} prod.</Badge>
-                          )}
+                        <div className="flex items-center justify-end gap-4 tabular-nums">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex items-center gap-1.5 text-sm">
+                                <FlaskConical className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className={cn('font-medium text-foreground', (cat.uso_insumos ?? 0) === 0 && 'opacity-40')}>
+                                  {cat.uso_insumos ?? 0}
+                                </span>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              {(cat.uso_insumos ?? 0)} insumo{(cat.uso_insumos ?? 0) === 1 ? '' : 's'} en esta categoría
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex items-center gap-1.5 text-sm">
+                                <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className={cn('font-medium text-foreground', (cat.uso_productos ?? 0) === 0 && 'opacity-40')}>
+                                  {cat.uso_productos ?? 0}
+                                </span>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              {(cat.uso_productos ?? 0)} producto{(cat.uso_productos ?? 0) === 1 ? '' : 's'} en esta categoría
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                       )}
                     </TableCell>
@@ -228,6 +251,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
               })}
             </TableBody>
           </Table>
+          </TooltipProvider>
         </CardContent>
       </Card>
 
