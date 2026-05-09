@@ -446,6 +446,29 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
               </>
             )}
 
+            {paqueteItemsTicket.length > 0 && (
+              <>
+                <p className="font-bold text-xs uppercase text-muted-foreground">Paquetes</p>
+                {paqueteItemsTicket.map(p => (
+                  <div key={p.lineId ?? p.producto_id}>
+                    <div className="flex justify-between gap-2">
+                      <span className="flex-1 break-words min-w-0">{p.cantidad}x {p.nombre}</span>
+                      <span className="shrink-0">${p.subtotal.toFixed(2)}</span>
+                    </div>
+                    {(p.componentes ?? []).length > 0 && (
+                      <ul className="ml-3 mt-0.5 space-y-0.5">
+                        {(p.componentes ?? []).map((c, idx) => (
+                          <li key={idx} className="text-[11px] text-muted-foreground">
+                            • {c.cantidad * p.cantidad}x {c.nombre}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+
             {productoItems.length > 0 && (
               <>
                 <p className="font-bold text-xs uppercase text-muted-foreground">Productos</p>
