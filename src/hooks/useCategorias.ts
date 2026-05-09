@@ -1,21 +1,22 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-export function useCategorias() {
+export type CategoriaAmbito = 'insumo' | 'producto' | 'paquete';
+
+export function useCategorias(ambito?: CategoriaAmbito) {
   const [categorias, setCategorias] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchCategorias = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('categorias_maestras')
-      .select('nombre')
-      .order('nombre');
+    let q = supabase.from('categorias_maestras').select('nombre').order('nombre');
+    if (ambito) q = q.eq('ambito', ambito);
+    const { data } = await q;
     setCategorias((data ?? []).map((c: any) => c.nombre));
     setLoading(false);
   };
 
-  useEffect(() => { fetchCategorias(); }, []);
+  useEffect(() => { fetchCategorias(); }, [ambito]);
 
   return { categorias, loading, refetch: fetchCategorias };
 }

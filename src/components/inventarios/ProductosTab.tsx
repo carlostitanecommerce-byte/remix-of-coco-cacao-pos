@@ -60,7 +60,7 @@ const emptyForm = { nombre: '', categoria: '', precio_venta: '', imagen_url: '',
 interface Props { isAdmin: boolean; roles: string[] }
 
 const ProductosTab = ({ isAdmin, roles }: Props) => {
-  const { categorias: CATEGORIAS } = useCategorias();
+  const { categorias: CATEGORIAS } = useCategorias('producto');
   const { user } = useAuth();
   const canEditInstructions = isAdmin || roles.includes('supervisor');
   const [productos, setProductos] = useState<Producto[]>([]);

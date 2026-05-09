@@ -73,7 +73,7 @@ const emptyForm = { nombre: '', categoria: '', precio_venta: '', instrucciones_p
 interface Props { isAdmin: boolean }
 
 const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
-  const { categorias } = useCategorias();
+  const { categorias } = useCategorias('paquete');
   const { user } = useAuth();
 
   const [paquetes, setPaquetes] = useState<Paquete[]>([]);

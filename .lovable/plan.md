@@ -1,118 +1,62 @@
-## Épica 3: UI de Gestión de Catálogo (Menú)
+## Categorías por Ámbito
 
-Construir las dos pestañas que actualmente son placeholders en `MenuPage.tsx`:
-1. **Paquetes / Combos** — constructor de paquetes con grupos dinámicos.
-2. **Precios Delivery** — CRUD de plataformas + matriz editable de precios con margen neto.
+Separar las categorías maestras por ámbito (insumo / producto / paquete) para que cada formulario solo vea las suyas.
 
----
+### 1. Base de datos
 
-### 3.1 — Paquetes Dinámicos (Constructor de Grupos)
+Migración sobre `categorias_maestras`:
+- Agregar columna `ambito text NOT NULL DEFAULT 'producto'`.
+- Constraint `CHECK (ambito IN ('insumo','producto','paquete'))`.
+- Backfill inteligente antes de aplicar el `NOT NULL`:
+  - Si el `nombre` de la categoría aparece en `insumos.categoria` y NO en `productos.categoria` → `ambito = 'insumo'`.
+  - En cualquier otro caso → `ambito = 'producto'` (default seguro).
+- Quitar el índice único actual sobre `nombre` (si existe) y crearlo como único compuesto `(nombre, ambito)`, así una misma palabra (p.ej. "Bebidas") puede existir como categoría de insumo y de producto sin chocar.
+- Índice simple en `ambito` para filtros rápidos.
 
-**Componente:** `src/components/menu/PaquetesDinamicosTab.tsx`
-**Tablas usadas:** `productos` (tipo='paquete'), `paquete_grupos`, `paquete_opciones_grupo`.
-**Coexiste con la tabla legacy `paquete_componentes`** (que sigue usando el POS); esta pestaña sólo escribe a las tablas nuevas.
+Nota: no se duplican filas automáticamente. Si el usuario necesita la misma categoría en dos ámbitos, la creará manualmente desde la UI (queda explícito en la nota de la migración).
 
-#### Vista lista
-Tabla de paquetes (igual estilo que `PaquetesTab` actual): nombre, categoría, precio, # grupos, badge "Dinámico" si tiene `paquete_grupos`, acciones (editar / duplicar / eliminar / activar).
+### 2. Hook `useCategorias`
 
-Solo carga `productos` con `tipo='paquete'`. Botón **"Nuevo Paquete"** (admin).
+Aceptar un parámetro opcional de ámbito:
 
-#### Diálogo de edición — dos secciones
-**(A) Datos generales del paquete** (igual que `PaquetesTab`): nombre, categoría, precio_venta, imagen, instrucciones, activo. Reusar el patrón de subida al bucket `productos`.
-
-**(B) Constructor de Grupos**
-
-```text
-┌─ Grupo: "Elige tu bebida"  · cantidad: [1] · ☑ Obligatorio · ▲▼ ✕ ─┐
-│   Opciones:                                                          │
-│   ┌─────────────────────────────────────────────────────────────┐    │
-│   │ 🔍 Buscar producto…                              [+ Agregar]│    │
-│   └─────────────────────────────────────────────────────────────┘    │
-│   • Café americano               precio_adicional: [  0.00] ✕        │
-│   • Latte                        precio_adicional: [ 10.00] ✕        │
-│   • Cappuccino                   precio_adicional: [  5.00] ✕        │
-└──────────────────────────────────────────────────────────────────────┘
-
-[+ Agregar Grupo]
+```ts
+useCategorias(ambito?: 'insumo' | 'producto' | 'paquete')
 ```
 
-- Cada grupo: input `nombre_grupo`, input numérico `cantidad_incluida` (≥1), switch `es_obligatorio`, botones reordenar (actualizan `orden`), botón eliminar grupo.
-- Buscador de productos: input + dropdown filtrando `productos` activos (`tipo='simple'`) por nombre. Click → agrega como opción con `precio_adicional=0`.
-- Validaciones al guardar:
-  - Nombre del paquete obligatorio.
-  - Al menos 1 grupo.
-  - Cada grupo debe tener `nombre_grupo`, `cantidad_incluida≥1` y al menos 1 opción.
-  - `cantidad_incluida` ≤ número de opciones del grupo.
+- Si se pasa, filtra `eq('ambito', ambito)`.
+- Si no, devuelve todas (compatibilidad).
+- Re-fetch cuando cambia el parámetro.
 
-#### Persistencia
-Para simplicidad y consistencia (sin orfanatos): al guardar un paquete existente, **borrar todos sus `paquete_grupos`** (cascade limpia las opciones) y reinsertar todo. Wrap con manejo de error y `audit_logs`.
+### 3. `CategoriasTab.tsx` (gestión)
 
-#### Costo y margen del paquete
-Como las opciones son intercambiables, el `costo_total` del producto-paquete se calcula como **promedio del costo de las opciones × cantidad_incluida, sumado por grupo** (referencial). Se persiste en `productos.costo_total` y `margen` para que se vea en lista y en reportes.
+- Form del diálogo: agregar `<Select>` obligatorio "Ámbito de la categoría" con opciones Insumo / Producto / Paquete. Validar antes de guardar.
+- Tabla: nueva columna **Ámbito** con `<Badge>` por valor:
+  - Insumo → `secondary` con ícono `FlaskConical`.
+  - Producto → `default` con ícono `Package`.
+  - Paquete → `outline` con ícono `Boxes` (o similar).
+- Conteo "En uso": mantener la lógica actual (insumos + productos), pero mostrar solo el conteo relevante al ámbito de la fila (paquetes cuenta dentro de productos ya que comparten tabla).
+- Filtro rápido arriba de la tabla: tabs/segmented control para ver "Todas / Insumos / Productos / Paquetes" (mejora UX, no rompe nada).
+- Audit log: incluir `ambito` en el `metadata` de crear/actualizar/eliminar.
 
-> Nota: No se mezcla con `paquete_componentes` (legacy). El POS seguirá funcionando con paquetes legacy. Una migración posterior reemplazará el flujo POS.
+### 4. Filtros en formularios consumidores
 
----
+- `InsumosTab.tsx` → `useCategorias('insumo')`.
+- `ProductosTab.tsx` (en `MenuPage` → Productos Individuales) → `useCategorias('producto')`.
+- `PaquetesDinamicosTab.tsx` (Constructor de Paquetes) → `useCategorias('paquete')`.
+- `PaquetesTab.tsx` legacy (si todavía monta en algún lado): también `useCategorias('paquete')`.
+- Dejar los filtros de búsqueda/listado (sidebars de categorías) tal cual están si ya leen sus propias listas; solo cambian los `<Select>` del formulario de alta/edición.
 
-### 3.2 — Precios Delivery (CRUD plataformas + matriz)
+### 5. Validación post-cambio
 
-**Componente:** `src/components/menu/PreciosDeliveryTab.tsx`
-**Tablas usadas:** `plataformas_delivery`, `producto_precios_delivery`, `productos`.
+- Verificar que ningún componente externo lea `categorias_maestras` sin filtrar y rompa (búsqueda rápida en repo).
+- Tipos de Supabase se regeneran automáticamente tras la migración.
 
-#### Sección superior — CRUD plataformas
-Card con título "Plataformas de delivery". Tabla compacta:
+### Archivos afectados
 
-| Plataforma | Comisión % | Activo | Acciones |
-|---|---|---|---|
-| Uber Eats | 30 | ☑ | ✏️ 🗑️ |
-
-- Botón **"+ Agregar plataforma"** abre dialog con `nombre`, `comision_porcentaje`, switch `activo`.
-- Editar inline o por dialog (mismo).
-- Eliminar: confirm; si tiene precios asociados (FK CASCADE los borra) avisar antes.
-- Solo admin puede modificar.
-
-#### Sección inferior — Matriz de precios
-
-Filtros: input de búsqueda por nombre + select de filtro `Categoría` + switch "Solo activos".
-
-Tabla:
-
-| Producto | Categoría | Costo receta | Precio base | **Uber Eats** | Margen Neto | **Rappi** | Margen Neto | … |
-|---|---|---|---|---|---|---|---|---|
-| Latte | Café | $18.50 | $55 | [input $65] | $26.00 ✅ | [input $70] | $30.00 ✅ | |
-
-- Filas: `productos` (incluye `tipo='simple'` y `tipo='paquete'`) con `activo=true`.
-- Columnas dinámicas: una pareja **(Precio, Margen Neto)** por cada plataforma activa.
-- Celda de precio: `<Input type="number">` controlado; `onBlur` → upsert en `producto_precios_delivery` (UNIQUE producto+plataforma).
-- Margen neto calculado en cliente:
-  ```
-  margenNeto = (precio - precio * comision%/100) - costo_total
-  ```
-  - Color: verde si > 30%, amarillo 10–30%, rojo < 10% (sobre `precio`).
-- Si el precio se vacía → DELETE de la fila correspondiente.
-- Guardado optimista con `toast` y refetch.
-- Realtime opcional sobre `producto_precios_delivery` y `plataformas_delivery` para mantener sincronía entre pestañas.
-
-Permisos: admin/supervisor pueden editar precios; solo admin puede gestionar plataformas (RLS ya lo aplica; el botón se deshabilita en UI para no-admin).
-
----
-
-### Wiring en `MenuPage.tsx`
-Reemplazar los dos placeholders por los nuevos componentes:
-```tsx
-<TabsContent value="paquetes"><PaquetesDinamicosTab isAdmin={isAdmin} /></TabsContent>
-<TabsContent value="delivery"><PreciosDeliveryTab isAdmin={isAdmin} /></TabsContent>
-```
-
----
-
-### Auditoría
-Insertar registros en `audit_logs` para: crear/editar/eliminar paquete dinámico, crear/editar/eliminar plataforma, y batch de cambios de precios delivery por producto.
-
-### Archivos
-- **Crear:** `src/components/menu/PaquetesDinamicosTab.tsx`
-- **Crear:** `src/components/menu/PreciosDeliveryTab.tsx`
-- **Editar:** `src/pages/MenuPage.tsx` (sustituir placeholders)
-
-### Sin cambios de schema
-La épica 1 ya creó las 4 tablas necesarias.
+- Migración SQL nueva (categorías_maestras: columna + constraint + backfill + índices).
+- `src/hooks/useCategorias.ts` (editar).
+- `src/components/inventarios/CategoriasTab.tsx` (editar).
+- `src/components/inventarios/InsumosTab.tsx` (editar — solo el `useCategorias`).
+- `src/components/inventarios/ProductosTab.tsx` (editar — solo el `useCategorias`).
+- `src/components/inventarios/PaquetesTab.tsx` (editar — solo el `useCategorias`).
+- `src/components/menu/PaquetesDinamicosTab.tsx` (editar — solo el `useCategorias`).
