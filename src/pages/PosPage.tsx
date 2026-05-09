@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductGrid } from '@/components/pos/ProductGrid';
@@ -26,6 +26,8 @@ const PosPage = () => {
   const [ticketOpen, setTicketOpen] = useState(false);
   const [paqueteCtx, setPaqueteCtx] = useState<PaqueteCtx | null>(null);
   const [charging, setCharging] = useState(false);
+  // M3: lock por producto_id para evitar doble-clic concurrente.
+  const addingLockRef = useRef<Set<string>>(new Set());
 
   const items = useCartStore((s) => s.items);
   const ensureOwner = useCartStore((s) => s.ensureOwner);
@@ -82,6 +84,10 @@ const PosPage = () => {
   }, [searchParams, setActiveCoworkingSession, setTarifaUpsells]);
 
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
+    // M3: anti doble-clic — si ya hay una operación en curso para este producto, ignorar.
+    if (addingLockRef.current.has(p.id)) return;
+    addingLockRef.current.add(p.id);
+    try {
     // M2: validar stock acumulado considerando lo que ya está en el carrito
     const currentItems = useCartStore.getState().items;
     if (p.tipo === 'paquete') {
@@ -164,6 +170,9 @@ const PosPage = () => {
       tipo_concepto: 'producto',
       precio_especial: especial != null,
     });
+    } finally {
+      addingLockRef.current.delete(p.id);
+    }
   }, [addOrIncrementProduct, addOrIncrementPaquete, tarifaUpsells]);
 
   const handlePaqueteConfirm = useCallback(({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
