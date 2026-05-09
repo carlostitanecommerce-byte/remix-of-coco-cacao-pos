@@ -204,6 +204,15 @@ export function CartPanel({ items, onUpdateQty, onUpdateNotas, onRemove, onClear
         )}
       </div>
 
+      {coworkingSessionActive && (
+        <div className="mb-2 rounded-md border border-primary/30 bg-primary/10 p-2 text-sm text-primary">
+          <p className="font-semibold">📌 Cargando a sesión de Coworking</p>
+          {clienteNombre && (
+            <p className="text-xs opacity-80 truncate">Cliente: {clienteNombre}</p>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
         {items.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-8">Agrega productos al ticket</p>
