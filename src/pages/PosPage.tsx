@@ -26,6 +26,8 @@ const PosPage = () => {
   const [ticketOpen, setTicketOpen] = useState(false);
   const [paqueteCtx, setPaqueteCtx] = useState<PaqueteCtx | null>(null);
   const [charging, setCharging] = useState(false);
+  // M3: lock por producto_id para evitar doble-clic concurrente.
+  const addingLockRef = useRef<Set<string>>(new Set());
 
   const items = useCartStore((s) => s.items);
   const ensureOwner = useCartStore((s) => s.ensureOwner);
