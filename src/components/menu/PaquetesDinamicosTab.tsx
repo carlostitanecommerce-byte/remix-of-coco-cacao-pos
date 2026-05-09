@@ -397,6 +397,32 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
     p.categoria.toLowerCase().includes(busqueda.toLowerCase())
   ), [paquetes, busqueda]);
 
+  useEffect(() => { setPaginaActual(1); }, [busqueda, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const fin = inicio + porPagina;
+  const paquetesPagina = filtrados.slice(inicio, fin);
+
+  const numerosPagina = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    const total = totalPaginas;
+    const cur = paginaSegura;
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (cur > 3) pages.push('ellipsis');
+      const start = Math.max(2, cur - 1);
+      const end = Math.min(total - 1, cur + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (cur < total - 2) pages.push('ellipsis');
+      pages.push(total);
+    }
+    return pages;
+  }, [totalPaginas, paginaSegura]);
+
   const costoPreview = calcCosto(grupos);
   const precioPreview = parseFloat(form.precio_venta) || 0;
   const margenPreview = calcMargen(precioPreview, costoPreview);
