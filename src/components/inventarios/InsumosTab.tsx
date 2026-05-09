@@ -58,7 +58,7 @@ interface Props { isAdmin: boolean }
 
 const InsumosTab = ({ isAdmin }: Props) => {
   const { user } = useAuth();
-  const { categorias: CATEGORIAS_INSUMO } = useCategorias();
+  const { categorias: CATEGORIAS_INSUMO } = useCategorias('insumo');
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
