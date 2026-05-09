@@ -71,12 +71,42 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
 
   if (!venta) return null;
 
-  // Agrupar componentes de paquetes para evitar mostrar líneas individuales sueltas
-  const lineasMostrar = detalles.map(d => {
-    const nombre = d.descripcion || d.productos?.nombre || 'Concepto';
-    const prefijo = d.paquete_nombre ? `📦 ${d.paquete_nombre} → ` : '';
-    return { ...d, displayName: `${prefijo}${nombre}` };
-  });
+  // Agrupar componentes de paquetes: una sola línea por paquete (cantidad real, precio total real)
+  // con sus componentes listados debajo sin precio individual.
+  type LineaSimple = { kind: 'simple'; id: string; cantidad: number; subtotal: number; displayName: string };
+  type LineaPaquete = { kind: 'paquete'; id: string; cantidad: number; subtotal: number; nombre: string; componentes: { cantidad: number; nombre: string }[] };
+  const lineasMostrar: (LineaSimple | LineaPaquete)[] = [];
+  const paqueteBuckets = new Map<string, LineaPaquete>();
+  for (const d of detalles) {
+    const nombreLinea = d.descripcion || d.productos?.nombre || 'Concepto';
+    if (d.paquete_nombre) {
+      // Agrupar por paquete_nombre (ya viene normalizado por venta; suficiente para diferenciar paquetes)
+      const key = `pq:${d.paquete_nombre}`;
+      let bucket = paqueteBuckets.get(key);
+      if (!bucket) {
+        bucket = {
+          kind: 'paquete',
+          id: key,
+          cantidad: 1,
+          subtotal: 0,
+          nombre: d.paquete_nombre,
+          componentes: [],
+        };
+        paqueteBuckets.set(key, bucket);
+        lineasMostrar.push(bucket);
+      }
+      bucket.subtotal += Number(d.subtotal) || 0;
+      bucket.componentes.push({ cantidad: Number(d.cantidad) || 0, nombre: nombreLinea });
+    } else {
+      lineasMostrar.push({
+        kind: 'simple',
+        id: d.id,
+        cantidad: Number(d.cantidad) || 0,
+        subtotal: Number(d.subtotal) || 0,
+        displayName: nombreLinea,
+      });
+    }
+  }
 
   const subtotalSinIva = venta.total_neto - venta.iva;
   const metodoPagoLabel: Record<string, string> = {
@@ -119,10 +149,26 @@ export function TicketReimprimirDialog({ venta, onClose }: Props) {
             <Separator />
 
             <div className="space-y-1">
-              {lineasMostrar.map(l => (
+              {lineasMostrar.map(l => l.kind === 'simple' ? (
                 <div key={l.id} className="flex justify-between gap-2">
                   <span className="flex-1 break-words min-w-0">{l.cantidad}x {l.displayName}</span>
-                  <span className="shrink-0">${Number(l.subtotal).toFixed(2)}</span>
+                  <span className="shrink-0">${l.subtotal.toFixed(2)}</span>
+                </div>
+              ) : (
+                <div key={l.id}>
+                  <div className="flex justify-between gap-2">
+                    <span className="flex-1 break-words min-w-0">{l.cantidad}x 📦 {l.nombre}</span>
+                    <span className="shrink-0">${l.subtotal.toFixed(2)}</span>
+                  </div>
+                  {l.componentes.length > 0 && (
+                    <ul className="ml-3 mt-0.5 space-y-0.5">
+                      {l.componentes.map((c, idx) => (
+                        <li key={idx} className="text-[11px] text-muted-foreground">
+                          • {c.cantidad}x {c.nombre}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ))}
             </div>

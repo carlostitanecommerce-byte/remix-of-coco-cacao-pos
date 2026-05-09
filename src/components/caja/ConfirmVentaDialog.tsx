@@ -385,6 +385,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
     const coworkingItems = ticket.items.filter(i => i.tipo_concepto === 'coworking');
     const amenityItems = ticket.items.filter(i => i.tipo_concepto === 'amenity');
     const productoItems = ticket.items.filter(i => i.tipo_concepto === 'producto');
+    const paqueteItemsTicket = ticket.items.filter(i => i.tipo_concepto === 'paquete');
 
     const metodoPagoLabel: Record<string, string> = {
       efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', mixto: 'Mixto'
@@ -440,6 +441,29 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
                   <div key={i.producto_id} className="flex justify-between gap-2 text-muted-foreground">
                     <span className="flex-1 break-words min-w-0">{i.cantidad}x {i.nombre}</span>
                     <span className="shrink-0">$0.00</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {paqueteItemsTicket.length > 0 && (
+              <>
+                <p className="font-bold text-xs uppercase text-muted-foreground">Paquetes</p>
+                {paqueteItemsTicket.map(p => (
+                  <div key={p.lineId ?? p.producto_id}>
+                    <div className="flex justify-between gap-2">
+                      <span className="flex-1 break-words min-w-0">{p.cantidad}x {p.nombre}</span>
+                      <span className="shrink-0">${p.subtotal.toFixed(2)}</span>
+                    </div>
+                    {(p.componentes ?? []).length > 0 && (
+                      <ul className="ml-3 mt-0.5 space-y-0.5">
+                        {(p.componentes ?? []).map((c, idx) => (
+                          <li key={idx} className="text-[11px] text-muted-foreground">
+                            • {c.cantidad * p.cantidad}x {c.nombre}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 ))}
               </>
@@ -529,9 +553,20 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         <div className="space-y-3">
           <div className="max-h-40 overflow-y-auto space-y-1">
             {summary!.items.map(item => (
-              <div key={item.producto_id} className="flex justify-between gap-2 text-sm">
-                <span className="flex-1 break-words min-w-0">{item.cantidad}x {item.nombre}</span>
-                <span className="font-medium shrink-0">${item.subtotal.toFixed(2)}</span>
+              <div key={item.lineId ?? item.producto_id}>
+                <div className="flex justify-between gap-2 text-sm">
+                  <span className="flex-1 break-words min-w-0">{item.cantidad}x {item.nombre}</span>
+                  <span className="font-medium shrink-0">${item.subtotal.toFixed(2)}</span>
+                </div>
+                {item.tipo_concepto === 'paquete' && (item.componentes ?? []).length > 0 && (
+                  <ul className="ml-3 mt-0.5 space-y-0.5">
+                    {(item.componentes ?? []).map((c, idx) => (
+                      <li key={idx} className="text-[11px] text-muted-foreground">
+                        • {c.cantidad * item.cantidad}x {c.nombre}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>
