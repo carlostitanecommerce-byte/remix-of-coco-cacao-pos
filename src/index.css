@@ -94,3 +94,12 @@
     font-family: var(--font-heading);
   }
 }
+
+/* Sidebar overlay mode (desktop): the sidebar floats over the content
+   instead of pushing it. Neutralizes the shadcn spacer div. */
+@media (min-width: 768px) {
+  [data-state="expanded"][data-variant="sidebar"] > div:first-child,
+  .group.peer[data-state="expanded"] > div:first-child {
+    width: 0 !important;
+  }
+}
