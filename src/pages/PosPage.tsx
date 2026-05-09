@@ -20,10 +20,12 @@ interface PaqueteCtx { id: string; nombre: string; precio_venta: number }
 
 const PosPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const isDesktop = useIsDesktop();
   const [ticketOpen, setTicketOpen] = useState(false);
   const [paqueteCtx, setPaqueteCtx] = useState<PaqueteCtx | null>(null);
+  const [charging, setCharging] = useState(false);
 
   const items = useCartStore((s) => s.items);
   const ensureOwner = useCartStore((s) => s.ensureOwner);
@@ -33,10 +35,51 @@ const PosPage = () => {
   const updateNotas = useCartStore((s) => s.updateNotas);
   const removeItem = useCartStore((s) => s.removeItem);
   const clear = useCartStore((s) => s.clear);
+  const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
+  const clienteNombre = useCartStore((s) => s.clienteNombre);
+  const tarifaUpsells = useCartStore((s) => s.tarifaUpsells);
+  const setActiveCoworkingSession = useCartStore((s) => s.setActiveCoworkingSession);
+  const setTarifaUpsells = useCartStore((s) => s.setTarifaUpsells);
 
   useEffect(() => {
     ensureOwner(user?.id ?? null);
   }, [user?.id, ensureOwner]);
+
+  // Detección de contexto: cargar sesión de coworking desde URL
+  useEffect(() => {
+    const sessionId = searchParams.get('session_id');
+    const clientName = searchParams.get('client_name');
+    if (!sessionId) {
+      setActiveCoworkingSession(null, null);
+      setTarifaUpsells({});
+      return;
+    }
+    setActiveCoworkingSession(sessionId, clientName);
+    (async () => {
+      const { data: sess } = await supabase
+        .from('coworking_sessions')
+        .select('tarifa_id, cliente_nombre')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (!sess) {
+        toast.error('Sesión de coworking no encontrada');
+        return;
+      }
+      if (!sess.tarifa_id) {
+        setTarifaUpsells({});
+        toast.success(`Cuenta abierta: ${sess.cliente_nombre}`);
+        return;
+      }
+      const { data: ups } = await supabase
+        .from('tarifa_upsells')
+        .select('producto_id, precio_especial')
+        .eq('tarifa_id', sess.tarifa_id);
+      const map: Record<string, number> = {};
+      (ups ?? []).forEach((u: any) => { map[u.producto_id] = Number(u.precio_especial); });
+      setTarifaUpsells(map);
+      toast.success(`Cuenta abierta: ${sess.cliente_nombre}${Object.keys(map).length ? ` · ${Object.keys(map).length} precios especiales` : ''}`);
+    })();
+  }, [searchParams, setActiveCoworkingSession, setTarifaUpsells]);
 
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
     if (p.tipo === 'paquete') {
