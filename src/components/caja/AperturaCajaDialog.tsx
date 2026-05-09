@@ -14,11 +14,12 @@ interface Props {
   open: boolean;
   onAbrirCaja: (monto: number) => Promise<{ error: string | null }>;
   onClose?: () => void;
+  allowSkip?: boolean;
 }
 
 const MAX_FONDO_FIJO = 10000;
 
-export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
+export function AperturaCajaDialog({ open, onAbrirCaja, onClose, allowSkip = false }: Props) {
   const [monto, setMonto] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmHigh, setConfirmHigh] = useState(false);
@@ -80,7 +81,7 @@ export function AperturaCajaDialog({ open, onAbrirCaja, onClose }: Props) {
         <DialogFooter className="gap-2">
           {onClose && (
             <Button variant="outline" onClick={onClose} disabled={saving}>
-              Cancelar
+              {allowSkip ? 'Cerrar (revisar historial)' : 'Cancelar'}
             </Button>
           )}
           <Button onClick={handleSubmit} disabled={saving} className="flex-1">

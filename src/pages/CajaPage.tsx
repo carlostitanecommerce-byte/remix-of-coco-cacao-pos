@@ -28,9 +28,11 @@ const CajaPage = () => {
   const importCoworkingSession = useCartStore((s) => s.importCoworkingSession);
   const coworkingSessionId = useCartStore((s) => s.coworkingSessionId);
   const [cierreOpen, setCierreOpen] = useState(false);
+  const [aperturaCerrada, setAperturaCerrada] = useState(false);
 
   const isAdmin = roles.includes('administrador');
   const isSupervisor = roles.includes('supervisor');
+  const puedeOmitirApertura = isAdmin || isSupervisor;
 
   useSolicitudCancelacionToasts();
 
@@ -81,7 +83,14 @@ const CajaPage = () => {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No hay caja abierta. Abre la caja para iniciar operaciones.</p>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">No hay caja abierta. Abre la caja para iniciar operaciones.</p>
+              {puedeOmitirApertura && aperturaCerrada && (
+                <Button onClick={() => setAperturaCerrada(false)}>
+                  Abrir Caja
+                </Button>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -97,7 +106,7 @@ const CajaPage = () => {
 
       {(isAdmin || isSupervisor) && <SolicitudesCancelacionPanel />}
 
-      <VentasTurnoPanel isAdmin={isAdmin} />
+      {(cajaAbierta || puedeOmitirApertura) && <VentasTurnoPanel isAdmin={isAdmin} />}
     </div>
   );
 
@@ -117,9 +126,16 @@ const CajaPage = () => {
       )}
 
       <AperturaCajaDialog
-        open={!cajaAbierta}
+        open={!cajaAbierta && !(puedeOmitirApertura && aperturaCerrada)}
         onAbrirCaja={abrirCaja}
-        onClose={() => navigate('/')}
+        allowSkip={puedeOmitirApertura}
+        onClose={() => {
+          if (puedeOmitirApertura) {
+            setAperturaCerrada(true);
+          } else {
+            navigate('/');
+          }
+        }}
       />
 
       {cajaAbierta && (
