@@ -1,31 +1,32 @@
-## Objetivo
+## Cambios a implementar en la sección POS
 
-Convertir la barra lateral en una barra siempre visible en modo "icon" (colapsada mostrando solo íconos), con el botón de toggle dentro de la barra arriba, y eliminar la franja blanca superior de todas las páginas para ganar espacio.
+### 1. Aprovechar el espacio inferior (franja blanca)
 
-## Cambios
+`src/pages/PosPage.tsx` usa `h-[calc(100vh-7rem)]` en ambas ramas (desktop y tablet/mobile). Ese `7rem` se calculaba con el header `h-14` ya eliminado. Ahora sobran ~3.5rem al fondo.
 
-### 1. `src/components/DashboardLayout.tsx`
-- Cambiar `defaultOpen` a `true` para que arranque expandida la primera vez (luego el usuario puede colapsar). Mantener persistencia vía cookie del propio shadcn.
-- Eliminar el `<header className="h-14 ...">` con el `SidebarTrigger`.
-- Eliminar el componente `SidebarBackdrop` y su uso (ya no aplica overlay porque la barra siempre está visible en modo icon).
-- Reducir padding del contenedor principal si hace falta para "subir" el contenido (mantener `p-6` lateral, pero el header ya no resta espacio vertical).
+- Línea 287 (desktop) y línea 321 (tablet/mobile): cambiar `h-[calc(100vh-7rem)]` → `h-[calc(100vh-3rem)]` (solo descuenta el `p-6` vertical del layout). El grid de productos y el panel del ticket se extenderán hasta el borde inferior.
 
-### 2. `src/components/AppSidebar.tsx`
-- Pasar `collapsible="icon"` al `<Sidebar>` para que en estado colapsado quede una franja angosta con íconos en lugar de desaparecer (offcanvas actual).
-- Añadir un `SidebarHeader` arriba que contenga el `SidebarTrigger` (siempre visible, tanto colapsado como expandido), reemplazando o acompañando el bloque actual de marca "Coco & Cacao". En modo colapsado el bloque de marca se oculta con `group-data-[collapsible=icon]:hidden`, dejando solo el trigger + íconos.
-- Asegurar tooltips en cada `SidebarMenuButton` (prop `tooltip={item.title}`) para que en modo colapsado se vea el nombre al hacer hover.
-- Quitar el cierre manual de la barra al navegar (`handleNavClick` con `setOpen(false)`), ya que la barra debe permanecer en su estado actual.
-- En el `SidebarFooter`, ocultar nombre/rol en colapsado y dejar solo el ícono de logout.
+### 2. Mostrar más nombre del producto en cada tarjeta
 
-### 3. `src/index.css`
-- Eliminar/ajustar el bloque `@media (min-width: 768px)` que neutraliza el spacer en modo `expanded` (`width: 0 !important`). Con `collapsible="icon"` queremos que el sidebar empuje el contenido (no flotar encima), para que nada quede tapado. Se elimina también el `z-index: 40` forzado del overlay.
+Problema actual en `src/components/pos/ProductGrid.tsx`: el nombre se renderiza con `truncate` en una sola línea (`text-[11px]` en compacto, `text-sm` en cómodo). Nombres largos como "Café Latte Vainilla Grande" se cortan a "Café Latte Vai…", y con tantas tarjetas pequeñas es difícil reconocer el producto.
 
-### 4. Páginas
-- No requieren cambios: ya renderizan su propio `<h1>` como encabezado. Al quitar el `header` del layout, su contenido sube automáticamente y aprovecha el espacio.
+Solución profesional: permitir **2 líneas** de nombre con `line-clamp-2` (truncado limpio al final de la 2ª línea), reducir un poco la altura/aspect de la imagen para no perder densidad, y mantener el atributo `title={p.nombre}` que ya existe (tooltip nativo con el nombre completo al hacer hover).
 
-## Resultado esperado
+Cambios concretos en `ProductGrid.tsx`:
 
-- Barra lateral siempre visible. Por defecto en modo icono (angosta) mostrando solo íconos de POS, Caja, Cocina, Coworking, Inventarios, Menú, Usuarios, Reportes y logout.
-- Botón de toggle arriba dentro de la barra; al expandir, aparecen los textos y la marca.
-- Click en cualquier ícono navega a su sección sin colapsar/expandir.
-- Desaparece la franja blanca superior fija; cada página comienza directamente con su título.
+- **Imagen un poco más baja** para dejar aire al texto sin agrandar la tarjeta:
+  - Compacto: `h-16` → `h-14`.
+  - Cómodo: `aspect-[4/3]` → `aspect-[5/3]` (más ancho que alto, deja más espacio para el texto debajo).
+  - Aplica también al skeleton (línea 122) para mantener simetría.
+- **Texto del nombre en 2 líneas con clamp** (línea 162):
+  - Reemplazar `truncate` por `line-clamp-2`.
+  - Añadir `min-h-[2.2em]` para que todas las tarjetas tengan la misma altura aunque el nombre ocupe 1 sola línea (alineación visual).
+  - Mantener `leading-tight` y los tamaños actuales (`text-[11px]` / `text-sm`).
+- **Padding del bloque de texto** (línea 161): subir de `p-1.5` a `px-1.5 py-1` para que el texto respire un poco más sin crecer demasiado.
+- Mantener el `title={p.nombre}` actual (línea 137) como tooltip nativo para casos donde aún se trunque al final de la 2ª línea.
+
+### Resultado esperado
+
+- Sin franja blanca abajo: el grid + ticket llegan al borde inferior de la pantalla.
+- Cada tarjeta muestra hasta 2 líneas del nombre, lo que duplica el texto visible sin alterar la cuadrícula. Los nombres muy largos se cortan limpiamente al final de la 2ª línea, y el tooltip al hover siempre muestra el nombre completo.
+- No cambia el comportamiento de selección, categorías, densidad ni la lógica de carga.
