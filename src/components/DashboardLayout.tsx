@@ -1,8 +1,19 @@
+import { useEffect } from 'react';
 import { SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 
 const SidebarBackdrop = () => {
   const { open, setOpen, isMobile } = useSidebar();
+
+  useEffect(() => {
+    if (isMobile || !open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isMobile, open, setOpen]);
+
   if (isMobile || !open) return null;
   return (
     <div
