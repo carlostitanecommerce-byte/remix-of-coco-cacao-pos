@@ -14,6 +14,7 @@ interface Props {
   open: boolean;
   onAbrirCaja: (monto: number) => Promise<{ error: string | null }>;
   onClose?: () => void;
+  allowSkip?: boolean;
 }
 
 const MAX_FONDO_FIJO = 10000;
