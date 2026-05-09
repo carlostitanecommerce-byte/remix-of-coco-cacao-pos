@@ -113,9 +113,12 @@ export const useCartStore = create<CartState>()(
         }),
       removeItem: (key) =>
         set({ items: get().items.filter((i) => keyOf(i) !== key) }),
-      clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null }),
+      clear: () => set({ items: [], coworkingSessionId: null, clienteNombre: null, tarifaUpsells: {} }),
       importCoworkingSession: (items, sessionId, clienteNombre) =>
         set({ items: items.map(ensureLineId), coworkingSessionId: sessionId, clienteNombre }),
+      setActiveCoworkingSession: (sessionId, clienteNombre) =>
+        set({ coworkingSessionId: sessionId, clienteNombre }),
+      setTarifaUpsells: (map) => set({ tarifaUpsells: map }),
     }),
     {
       name: 'pos-cart',
