@@ -1,5 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ProductosTab from '@/components/inventarios/ProductosTab';
+import PaquetesDinamicosTab from '@/components/menu/PaquetesDinamicosTab';
+import PreciosDeliveryTab from '@/components/menu/PreciosDeliveryTab';
 import { useAuth } from '@/hooks/useAuth';
 
 const MenuPage = () => {
@@ -27,17 +29,11 @@ const MenuPage = () => {
         </TabsContent>
 
         <TabsContent value="paquetes" className="mt-4">
-          <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
-            <p className="font-medium">Próximamente</p>
-            <p className="text-sm mt-1">Gestión de paquetes dinámicos con grupos de selección.</p>
-          </div>
+          <PaquetesDinamicosTab isAdmin={isAdmin} />
         </TabsContent>
 
         <TabsContent value="delivery" className="mt-4">
-          <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
-            <p className="font-medium">Próximamente</p>
-            <p className="text-sm mt-1">Precios de productos por plataforma de delivery.</p>
-          </div>
+          <PreciosDeliveryTab isAdmin={isAdmin} />
         </TabsContent>
       </Tabs>
     </div>
