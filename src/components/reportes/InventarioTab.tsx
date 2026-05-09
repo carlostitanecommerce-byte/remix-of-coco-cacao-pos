@@ -177,11 +177,13 @@ export default function InventarioTab() {
         }
       }
 
-      // 2) UPSELLS de coworking posteriores
+      // 2) Consumos coworking (amenities/upsells/extras) en detalle_ventas con venta_id NULL
       const upsQ = supabase
-        .from('coworking_session_upsells')
+        .from('detalle_ventas')
         .select('producto_id, cantidad, created_at')
         .gt('created_at', desde)
+        .is('venta_id', null)
+        .not('coworking_session_id', 'is', null)
         .limit(LIM_UPSELLS);
       const { data: upsellsData, error: upsErr } = await (signal ? upsQ.abortSignal(signal) : upsQ);
       if (upsErr) throw upsErr;
@@ -189,7 +191,7 @@ export default function InventarioTab() {
       if (upsellsData && upsellsData.length >= LIM_UPSELLS) truncatedLocal = true;
 
       if (upsellsData) {
-        for (const u of upsellsData) {
+        for (const u of (upsellsData as any[])) {
           if (!u.producto_id) continue;
           productoCantidad.set(u.producto_id, (productoCantidad.get(u.producto_id) ?? 0) + (u.cantidad ?? 0));
         }

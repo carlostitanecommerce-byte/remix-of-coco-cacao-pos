@@ -351,9 +351,10 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
       supabase.from('paquete_componentes').select('paquete_id').eq('producto_id', p.id),
       supabase.from('tarifa_upsells').select('tarifa_id').eq('producto_id', p.id),
       supabase.from('tarifa_amenities_incluidos').select('tarifa_id').eq('producto_id', p.id),
-      supabase.from('coworking_session_upsells')
-        .select('session_id, coworking_sessions!inner(estado)')
+      supabase.from('detalle_ventas')
+        .select('coworking_session_id, coworking_sessions!inner(estado)')
         .eq('producto_id', p.id)
+        .is('venta_id', null)
         .eq('coworking_sessions.estado', 'activo'),
       supabase.from('detalle_ventas').select('id', { count: 'exact', head: true }).eq('producto_id', p.id),
       supabase.from('kds_order_items').select('id', { count: 'exact', head: true }).eq('producto_id', p.id),

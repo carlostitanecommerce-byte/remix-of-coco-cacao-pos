@@ -17,9 +17,10 @@ export async function fetchSessionUpsellsForCancel(
   sessionId: string,
 ): Promise<SessionUpsellRow[]> {
   const { data, error } = await supabase
-    .from('coworking_session_upsells')
-    .select('id, producto_id, precio_especial, cantidad, productos:producto_id(nombre)')
-    .eq('session_id', sessionId)
+    .from('detalle_ventas')
+    .select('id, producto_id, precio_unitario, cantidad, tipo_concepto, productos:producto_id(nombre)')
+    .eq('coworking_session_id', sessionId)
+    .is('venta_id', null)
     .order('created_at', { ascending: true });
 
   if (error || !data) return [];
@@ -27,10 +28,10 @@ export async function fetchSessionUpsellsForCancel(
   return (data as any[]).map(u => ({
     id: u.id,
     producto_id: u.producto_id,
-    precio_especial: Number(u.precio_especial) || 0,
+    precio_especial: Number(u.precio_unitario) || 0,
     cantidad: u.cantidad,
     nombre: u.productos?.nombre ?? 'Producto',
-    isAmenity: Number(u.precio_especial) === 0,
+    isAmenity: u.tipo_concepto === 'amenity' || Number(u.precio_unitario) === 0,
   }));
 }
 
