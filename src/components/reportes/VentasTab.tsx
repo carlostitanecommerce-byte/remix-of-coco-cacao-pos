@@ -10,7 +10,7 @@ import { toast } from '@/hooks/use-toast';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const HORAS_RETAIL = Array.from({ length: 18 }, (_, i) => i + 6);
-const HORAS_COWORK = Array.from({ length: 13 }, (_, i) => i + 8);
+const HORAS_COWORK = Array.from({ length: 17 }, (_, i) => i + 7); // 7 AM – 11 PM
 
 interface CellData {
   total: number;
