@@ -84,6 +84,10 @@ const PosPage = () => {
   }, [searchParams, setActiveCoworkingSession, setTarifaUpsells]);
 
   const addProduct = useCallback(async (p: { id: string; nombre: string; precio_venta: number; tipo?: 'simple' | 'paquete' }) => {
+    // M3: anti doble-clic — si ya hay una operación en curso para este producto, ignorar.
+    if (addingLockRef.current.has(p.id)) return;
+    addingLockRef.current.add(p.id);
+    try {
     // M2: validar stock acumulado considerando lo que ya está en el carrito
     const currentItems = useCartStore.getState().items;
     if (p.tipo === 'paquete') {
