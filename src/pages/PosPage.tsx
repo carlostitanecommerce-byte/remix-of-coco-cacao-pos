@@ -208,18 +208,8 @@ const PosPage = () => {
     if (!coworkingSessionId || items.length === 0) return;
     setCharging(true);
     try {
-      // Validar stock por línea (productos simples; paquetes ya validan internamente al agregar)
-      for (const it of items) {
-        if (it.tipo_concepto === 'producto') {
-          const v = await verificarStock(it.producto_id, it.cantidad);
-          if (!v.valido) { toast.error(v.error ?? 'Stock insuficiente'); setCharging(false); return; }
-        }
-      }
-
-      const rows = items.map((it) => ({
-        venta_id: null,
-        coworking_session_id: coworkingSessionId,
-        producto_id: it.producto_id,
+      const payloadItems = items.map((it) => ({
+        producto_id: it.tipo_concepto === 'paquete' ? null : it.producto_id,
         paquete_id: it.tipo_concepto === 'paquete' ? (it.paquete_id ?? it.producto_id) : null,
         paquete_nombre: it.tipo_concepto === 'paquete' ? it.nombre.replace(/^📦\s*/, '') : null,
         tipo_concepto: it.tipo_concepto === 'paquete' ? 'paquete' : 'producto',
@@ -227,17 +217,11 @@ const PosPage = () => {
         precio_unitario: it.precio_unitario,
         subtotal: it.subtotal,
         descripcion: it.notas ?? null,
+        componentes: it.tipo_concepto === 'paquete' && it.componentes
+          ? it.componentes.map((c) => ({ producto_id: c.producto_id, cantidad: c.cantidad }))
+          : null,
       }));
 
-      const { error: insErr } = await supabase.from('detalle_ventas').insert(rows as any);
-      if (insErr) {
-        console.error(insErr);
-        toast.error('Error al cargar a la cuenta: ' + insErr.message);
-        setCharging(false);
-        return;
-      }
-
-      // Enviar a KDS (productos simples + componentes de paquetes)
       const kdsItems = items.flatMap((it) => {
         if (it.tipo_concepto === 'paquete' && it.componentes && it.componentes.length > 0) {
           return it.componentes.map((c) => ({
@@ -255,25 +239,25 @@ const PosPage = () => {
         }];
       });
 
-      await enviarASesionKDS({
-        context: { sessionId: coworkingSessionId, clienteNombre: clienteNombre ?? '', motivo: 'add' },
-        items: kdsItems,
+      const { error } = await supabase.rpc('registrar_consumo_coworking' as any, {
+        p_session_id: coworkingSessionId,
+        p_items: payloadItems as any,
+        p_kds_items: kdsItems as any,
       });
 
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id,
-        accion: 'coworking_open_account_charge',
-        descripcion: `Cargo a cuenta abierta de ${clienteNombre ?? 'sesión'} · ${items.length} líneas · $${subtotal.toFixed(2)}`,
-        metadata: { session_id: coworkingSessionId, total: subtotal, lineas: items.length },
-      });
+      if (error) {
+        console.error(error);
+        toast.error(error.message || 'Error al cargar a la cuenta');
+        return;
+      }
 
-      toast.success(`Cargado a la cuenta de ${clienteNombre ?? 'sesión'}`);
+      toast.success(`Consumos cargados a la cuenta de ${clienteNombre ?? 'sesión'}`);
       clear();
       navigate('/coworking');
     } finally {
       setCharging(false);
     }
-  }, [coworkingSessionId, clienteNombre, items, subtotal, user?.id, clear, navigate]);
+  }, [coworkingSessionId, clienteNombre, items, clear, navigate]);
 
   const goToCheckout = () => {
     setTicketOpen(false);
