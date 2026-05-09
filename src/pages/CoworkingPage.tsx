@@ -121,7 +121,17 @@ const CoworkingPage = () => {
     }));
 
     const upsellsTotal = upsells.reduce((sum: number, u: any) => sum + u.precio_especial * u.cantidad, 0);
-    const total = subtotalContratado + cargoExtra + upsellsTotal;
+
+    // Sumar consumos POS abiertos (detalle_ventas con venta_id NULL para esta sesión)
+    const { data: openLines } = await supabase
+      .from('detalle_ventas')
+      .select('subtotal')
+      .eq('coworking_session_id', session.id)
+      .is('venta_id', null);
+    const consumosPosLineas = openLines?.length ?? 0;
+    const consumosPosTotal = (openLines ?? []).reduce((s: number, r: any) => s + (Number(r.subtotal) || 0), 0);
+
+    const total = subtotalContratado + cargoExtra + upsellsTotal + consumosPosTotal;
 
     setCheckoutSummary({
       session, area,
@@ -134,6 +144,8 @@ const CoworkingPage = () => {
       minCobrar: Math.max(0, minCobrar),
       precioBaseSnapshot: precioBase,
       paxMultiplier,
+      consumosPosTotal,
+      consumosPosLineas,
     });
   };
 
