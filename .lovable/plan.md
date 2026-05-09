@@ -1,83 +1,44 @@
-## POS: paquetes dinámicos con selección de opciones
+## Épica 5 · Tarea 5.1 — Descuento atómico de insumos por opciones reales
 
-Adaptar el flujo de POS para que al tocar un producto `tipo='paquete'` se abra un modal de selección de grupos antes de añadir al carrito, y que el ticket muestre y cobre las opciones elegidas (con sus precios adicionales).
+### Diagnóstico
 
-### 1. Estructura del CartItem (`src/components/pos/types.ts`)
+Tras revisar el flujo actual (`PosPage.tsx` → `cartStore` → `ConfirmVentaDialog.tsx` → RPC `crear_venta_completa` → trigger `descontar_inventario_venta`), **la lógica ya descuenta inventario por la opción real elegida** gracias a Épica 4:
 
-Agregar soporte para opciones anidadas y para que múltiples paquetes "iguales" coexistan con distinta configuración:
+1. Cuando el cajero elige las opciones del paquete dinámico, `PosPage.handlePaqueteConfirm` mapea cada `opcion.producto_id` a un `componente { producto_id, cantidad }` y lo guarda en el `CartItem`.
+2. `ConfirmVentaDialog` **no inserta una fila para el "shell" del paquete**. En su lugar expande cada paquete en N filas de `detalle_ventas` con `tipo_concepto='producto'` y el `producto_id` del hijo elegido (con el precio prorrateado y `paquete_id`/`paquete_nombre` para trazabilidad).
+3. El trigger `descontar_inventario_venta` corre por cada fila de `detalle_ventas` y consulta `recetas` por el `producto_id` real → descuenta los insumos base correctos (vasos, leche, pan, etc.).
+4. La pre-validación `validar_stock_carrito` ya acumula consumo por `producto_id` real (incluyendo el de los componentes de paquetes), así que tampoco hay falsos positivos de stock.
 
-```ts
-export interface PaqueteOpcionSeleccionada {
-  grupo_id: string;
-  nombre_grupo: string;
-  producto_id: string;
-  nombre_producto: string;
-  precio_adicional: number; // 0 si no aplica
-}
+**Conclusión:** la "fuga" que describe la épica no ocurre — el descuento ya es atómico por la elección real. Esta tarea consiste en **endurecer y verificar** ese contrato, no en reescribirlo.
 
-export interface CartItem {
-  lineId: string;        // NUEVO — identificador único de línea (uuid para paquetes; = producto_id para simples)
-  // ... campos existentes
-  opciones?: PaqueteOpcionSeleccionada[]; // NUEVO — solo para paquetes dinámicos
-  // `componentes` se mantiene para paquetes legacy (compatibilidad con KDS y prorrateo en ConfirmVentaDialog)
-}
-```
+### Cambios propuestos (mínimos, defensivos)
 
-`precio_unitario` del paquete = `precio_base + Σ precio_adicional` de las opciones; `subtotal = precio_unitario * cantidad`.
+1. **`src/pages/PosPage.tsx` — guardia contra paquetes sin selección:**
+   - Si `handlePaqueteConfirm` recibe `opciones` vacío o `componentes` derivados con longitud 0, abortar con toast `"Selecciona al menos una opción del paquete"` (hoy el modal lo bloquea, pero falta cinturón en la capa de carrito).
 
-### 2. Cart store (`src/stores/cartStore.ts`)
+2. **`src/components/caja/ConfirmVentaDialog.tsx` — validación previa al RPC:**
+   - Al recorrer `paqueteItems`, si algún `pq.componentes` está vacío o tiene `producto_id` no-uuid, lanzar error claro (`"El paquete '<nombre>' no tiene opciones válidas"`) y no enviar la venta. Evita insertar un paquete fantasma sin descuento.
+   - Confirmar que el `producto_id` del shell del paquete **nunca** entra a `detalle_ventas` (ya es así; solo añadir comentario explicativo y un `assert` defensivo).
 
-- Cambiar todas las operaciones de carrito para usar `lineId` en lugar de `producto_id`: `updateQty(lineId, delta)`, `setQty`, `updateNotas`, `removeItem`.
-- `addOrIncrementProduct`: sigue mergeando por `producto_id` y reusa `lineId = producto_id`.
-- `addOrIncrementPaquete`:
-  - Si el paquete es **dinámico** (tiene `opciones`): NO mergear. Crear siempre línea nueva con `lineId = crypto.randomUUID()`.
-  - Si es **legacy** (sin `opciones`, viene con `componentes`): mantener merge actual por `producto_id`.
-- `importCoworkingSession`: rellenar `lineId` con `producto_id` si falta (compatibilidad con items históricos en sessionStorage).
-- Migración suave: al hidratar desde sessionStorage, si un item no trae `lineId`, asignar `lineId = producto_id`.
+3. **Trigger `descontar_inventario_venta` (Supabase) — endurecimiento:**
+   - Añadir guardia: si `NEW.producto_id IS NULL` y `tipo_concepto='producto'`, lanzar excepción (`"Detalle de venta sin producto_id"`). Hoy podría pasar silenciosamente.
+   - Mantener el comportamiento actual de saltar `tipo_concepto='coworking'` (ya descontó stock al enviar a cocina).
+   - No se requiere lógica especial para `tipo_concepto='paquete'` porque ya no se insertan filas con ese tipo desde el POS dinámico.
 
-### 3. Modal de selección (`src/components/pos/PaqueteSelectorDialog.tsx`, nuevo)
+4. **Prueba manual / QA (sin código):**
+   - Crear paquete "Combo Desayuno" con grupo "Bebida" (Café Americano vs Latte) y grupo "Pan".
+   - Vender 2 combos eligiendo Latte en uno y Americano en otro.
+   - Validar en `insumos`: leche descontada solo 1 vez (no 2), café descontado en ambos, vasos según receta del producto elegido.
+   - Validar `detalle_ventas`: 4 filas (2 bebidas + 2 panes) con `paquete_id` y `paquete_nombre` poblados.
 
-Props: `paquete: { id, nombre, precio_venta }`, `open`, `onOpenChange`, `onConfirm(opciones, precioFinal)`.
+### Detalles técnicos
 
-Comportamiento:
-- Al abrir, carga `paquete_grupos` + `paquete_opciones_grupo` con join a `productos(nombre, activo)` filtrando opciones inactivas.
-- Renderiza cada grupo como card con título, badge "Obligatorio" y contador `seleccionadas / cantidad_incluida`.
-- Cada opción es un botón clickeable; muestra `+ $X.XX` cuando `precio_adicional > 0`.
-- Selección con repetición permitida: el cajero puede tocar la misma opción `cantidad_incluida` veces; cada toque empuja una entrada a `opciones[grupo_id]`. Se puede quitar tocando un chip "✕" sobre las elegidas.
-- Resumen pegajoso al pie: `Precio base + extras = Total`. Botón "Agregar al ticket" deshabilitado hasta cumplir todas las cantidades obligatorias.
-- Validación: si un grupo `es_obligatorio = false`, permitir 0 selecciones.
+- **Sin migración de schema.** Solo una migración para reemplazar la función trigger `descontar_inventario_venta` con la guardia adicional.
+- **Sin cambios en `cartStore`** ni en `PaqueteSelectorDialog`.
+- **Sin cambios** en `crear_venta_completa` (sigue recibiendo `p_detalles` con filas ya expandidas desde el cliente).
+- Archivos editados: `src/pages/PosPage.tsx`, `src/components/caja/ConfirmVentaDialog.tsx`, una migración SQL para la función trigger.
 
-### 4. Integración en `PosPage.tsx`
+### Fuera de alcance
 
-- Estado `paqueteSeleccionado: Producto | null`.
-- En `addProduct`, si `p.tipo === 'paquete'`:
-  - Mantener la validación de stock (`validar_stock_paquete`).
-  - **Cambio**: en vez de leer `paquete_componentes` directamente, abrir `PaqueteSelectorDialog`. Si el paquete no tiene `paquete_grupos` (legacy), mantener el flujo actual (componentes fijos). Detectar con un count rápido a `paquete_grupos`.
-- `onConfirm` del modal: construir `componentes` derivado de `opciones` (para que KDS y prorrateo en `ConfirmVentaDialog` sigan funcionando sin cambios) y llamar `addOrIncrementPaquete` con `lineId = uuid`, `opciones`, `componentes`, `precio_unitario = base + Σ extras`.
-
-### 5. CartPanel (`src/components/pos/CartPanel.tsx`)
-
-- Cambiar handlers a `lineId` (props: `onUpdateQty(lineId, delta)`, `onRemove(lineId)`, etc.).
-- En el render del item, si es paquete con `opciones`, listar las opciones agrupadas por `nombre_grupo` indentadas bajo el nombre, con `+ $X.XX` cuando aplique. Si no tiene `opciones`, conservar el render actual de `componentes`.
-- Subtotal por línea ya viene calculado; nada cambia ahí.
-
-### 6. Persistencia y KDS (sin migración de DB)
-
-- `ConfirmVentaDialog.tsx` ya consume `pq.componentes` para prorratear precios y construir KDS. Como en el paso 4 generamos `componentes` a partir de las opciones elegidas (mapeando cada opción a `{ producto_id, nombre, cantidad: 1 }`), no se requiere modificar la persistencia.
-- El nombre que llega al KDS seguirá viendo `Componente (📦 Paquete)`. Aceptable.
-- No se requiere migración SQL en esta épica.
-
-### 7. Validación post-cambio
-
-- Probar paquete legacy (con `paquete_componentes`, sin `paquete_grupos`) → flujo actual sin modal, sigue funcionando.
-- Paquete dinámico → abre modal, valida obligatorios, agrega al ticket con extras sumados.
-- Dos paquetes dinámicos del mismo producto con distintas opciones → dos líneas separadas en el ticket.
-- Cobro normal en `/caja` → venta y KDS generados correctamente.
-
-### Archivos afectados
-
-- `src/components/pos/types.ts` (editar)
-- `src/stores/cartStore.ts` (editar — refactor a `lineId`)
-- `src/components/pos/PaqueteSelectorDialog.tsx` (crear)
-- `src/pages/PosPage.tsx` (editar — abrir modal + cablear handlers por `lineId`)
-- `src/components/pos/CartPanel.tsx` (editar — handlers por `lineId` + render de opciones)
+- Reescribir el descuento dentro del RPC `crear_venta_completa` para mover la expansión de paquetes al servidor — útil a futuro pero rompe contrato actual y no aporta a esta tarea.
+- Cambiar el modelo de `paquete_componentes` legacy.
