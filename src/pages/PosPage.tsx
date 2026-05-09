@@ -202,10 +202,91 @@ const PosPage = () => {
   const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
   const itemCount = items.reduce((s, i) => s + i.cantidad, 0);
 
+  const isOpenAccount = !!coworkingSessionId;
+
+  const chargeToOpenAccount = useCallback(async () => {
+    if (!coworkingSessionId || items.length === 0) return;
+    setCharging(true);
+    try {
+      // Validar stock por línea (productos simples; paquetes ya validan internamente al agregar)
+      for (const it of items) {
+        if (it.tipo_concepto === 'producto') {
+          const v = await verificarStock(it.producto_id, it.cantidad);
+          if (!v.valido) { toast.error(v.error ?? 'Stock insuficiente'); setCharging(false); return; }
+        }
+      }
+
+      const rows = items.map((it) => ({
+        venta_id: null,
+        coworking_session_id: coworkingSessionId,
+        producto_id: it.producto_id,
+        paquete_id: it.tipo_concepto === 'paquete' ? (it.paquete_id ?? it.producto_id) : null,
+        paquete_nombre: it.tipo_concepto === 'paquete' ? it.nombre.replace(/^📦\s*/, '') : null,
+        tipo_concepto: it.tipo_concepto === 'paquete' ? 'paquete' : 'producto',
+        cantidad: it.cantidad,
+        precio_unitario: it.precio_unitario,
+        subtotal: it.subtotal,
+        descripcion: it.notas ?? null,
+      }));
+
+      const { error: insErr } = await supabase.from('detalle_ventas').insert(rows as any);
+      if (insErr) {
+        console.error(insErr);
+        toast.error('Error al cargar a la cuenta: ' + insErr.message);
+        setCharging(false);
+        return;
+      }
+
+      // Enviar a KDS (productos simples + componentes de paquetes)
+      const kdsItems = items.flatMap((it) => {
+        if (it.tipo_concepto === 'paquete' && it.componentes && it.componentes.length > 0) {
+          return it.componentes.map((c) => ({
+            producto_id: c.producto_id,
+            nombre: c.nombre,
+            cantidad: c.cantidad * it.cantidad,
+            notas: it.notas ?? null,
+          }));
+        }
+        return [{
+          producto_id: it.producto_id,
+          nombre: it.nombre,
+          cantidad: it.cantidad,
+          notas: it.notas ?? null,
+        }];
+      });
+
+      await enviarASesionKDS({
+        context: { sessionId: coworkingSessionId, clienteNombre: clienteNombre ?? '', motivo: 'add' },
+        items: kdsItems,
+      });
+
+      await supabase.from('audit_logs').insert({
+        user_id: user?.id,
+        accion: 'coworking_open_account_charge',
+        descripcion: `Cargo a cuenta abierta de ${clienteNombre ?? 'sesión'} · ${items.length} líneas · $${subtotal.toFixed(2)}`,
+        metadata: { session_id: coworkingSessionId, total: subtotal, lineas: items.length },
+      });
+
+      toast.success(`Cargado a la cuenta de ${clienteNombre ?? 'sesión'}`);
+      clear();
+      navigate('/coworking');
+    } finally {
+      setCharging(false);
+    }
+  }, [coworkingSessionId, clienteNombre, items, subtotal, user?.id, clear, navigate]);
+
   const goToCheckout = () => {
     setTicketOpen(false);
-    navigate('/caja');
+    if (isOpenAccount) {
+      chargeToOpenAccount();
+    } else {
+      navigate('/caja');
+    }
   };
+
+  const checkoutLabel = isOpenAccount ? 'Cargar a Cuenta' : 'Procesar pago en Caja';
+  const checkoutLabelMobile = isOpenAccount ? 'Cargar a Cuenta' : 'Cobrar';
+  const CheckoutIcon = isOpenAccount ? ClipboardCheck : ArrowRight;
 
   const paqueteDialog = (
     <PaqueteSelectorDialog
