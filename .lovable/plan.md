@@ -1,31 +1,30 @@
-## Cambios en `/caja`
+## Mejoras a la Matriz de Precios por Plataforma
 
-### 1. `src/pages/CajaPage.tsx`
-- Calcular `puedeOmitirApertura = isAdmin || isSupervisor`.
-- Pasar al `AperturaCajaDialog` un nuevo prop `allowSkip` con ese valor; el botón Cancelar del modal pasará a llamarse "Cerrar (revisar historial)" para esos roles y simplemente cerrará el diálogo sin navegar fuera (en vez del `navigate('/')` actual).
-- Manejar un nuevo estado local `aperturaCerrada` (bool). Cuando admin/supervisor cierra el modal sin abrir caja, se pone en `true` y se mantiene oculto el modal hasta que el usuario lo reabra manualmente (botón "Abrir caja" en la card de Control de Caja).
-- Para roles operativos (caja, recepción, barista), el modal sigue siendo bloqueante: el botón Cancelar mantiene su comportamiento actual (`navigate('/')`).
-- En la columna izquierda, cuando NO hay caja abierta:
-  - Mostrar `VentasTurnoPanel` SOLO si `isAdmin || isSupervisor`.
-  - Ocultar `CoworkingSessionSelector`, `CajaCheckoutPanel` y `MovimientosCajaPanel` (ya están condicionados a `cajaAbierta`, OK).
-  - Mostrar en la card "Control de Caja" un botón "Abrir Caja" que vuelva a poner el modal visible.
-- `SolicitudesCancelacionPanel` también se mantiene visible para admin/supervisor sin caja abierta (ya cumple la condición).
+Archivo a modificar: `src/components/menu/PreciosDeliveryTab.tsx`
 
-### 2. `src/components/caja/AperturaCajaDialog.tsx`
-- Agregar prop opcional `allowSkip?: boolean` (default `false`).
-- Cuando `allowSkip === true`: el botón secundario dice "Cerrar (revisar historial)" en vez de "Cancelar"; al clic ejecuta `onClose?.()` sin navegar fuera de la página.
-- Cuando `allowSkip === false`: comportamiento actual ("Cancelar" → `onClose` que en CajaPage hace `navigate('/')`).
-- Mantener el bloqueo `if (!v && !saving) onClose?.()` para que solo se pueda cerrar vía botón explícito.
+### 1. Nuevo filtro por tipo (Producto / Paquete)
 
-### 3. `src/components/caja/VentasTurnoPanel.tsx`
-- Sin cambios funcionales internos. La restricción de visibilidad la aplica `CajaPage` cuando no hay caja abierta. Cuando hay caja abierta el panel sigue visible para todos los roles que ya pueden estar en la página (sin cambios respecto a hoy).
+Agregar un `Select` ubicado **entre** el buscador y el filtro de categorías. Opciones:
+- Todos los tipos (default)
+- Producto individual (`tipo === 'producto'`)
+- Paquete / Combo (`tipo === 'paquete'`)
 
-### Comportamiento resultante
-- **Admin / Supervisor sin caja abierta**: ven el modal de apertura, pueden cerrarlo y se quedan en `/caja` con acceso al historial (`VentasTurnoPanel`) y a `SolicitudesCancelacionPanel`. Pueden reabrir el modal cuando quieran iniciar turno.
-- **Caja / Recepción / Barista sin caja abierta**: el modal sigue siendo obligatorio; al cancelar son redirigidos a `/`. No pueden ver el historial sin abrir caja.
-- **Cualquier rol con caja abierta**: experiencia idéntica a la actual.
+El orden final de la barra de filtros será:
+`[ Buscar producto ] [ Tipo ] [ Categoría ] [ Solo activos ]`
 
-### Verificación manual
-1. Login como admin con caja cerrada → entrar a `/caja` → cerrar modal → confirmar que se ve el historial de ventas y se puede reabrir el modal desde la card.
-2. Login como caja con caja cerrada → entrar a `/caja` → cancelar modal → confirmar redirect a `/`.
-3. Login como supervisor con caja abierta → confirmar que la página luce idéntica a antes.
+Se aplica al `useMemo` de `productosFiltrados` junto con los filtros existentes.
+
+### 2. Paginación
+
+Agregar paginación en el cliente sobre `productosFiltrados`:
+- Estado `paginaActual` (default 1) y `porPagina` (default 25, con selector 10/25/50/100).
+- Componente `Pagination` de `@/components/ui/pagination` debajo de la tabla, mostrando: anterior, números de página (con elipsis si son muchas), siguiente.
+- Indicador "Mostrando X–Y de Z productos".
+- Al cambiar cualquier filtro (búsqueda, tipo, categoría, solo activos) o `porPagina`, resetear `paginaActual` a 1 (vía `useEffect`).
+- La tabla solo renderiza el slice correspondiente a la página actual.
+
+### Notas técnicas
+
+- Sin cambios de backend, RLS, ni esquema. Es puramente UI/presentación.
+- Se mantiene la lógica de borrador, guardado por celda, márgenes y permisos (`isAdmin`) sin cambios.
+- Se respetan tokens semánticos del design system existentes en el archivo.
