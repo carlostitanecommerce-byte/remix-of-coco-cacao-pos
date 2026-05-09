@@ -170,6 +170,9 @@ const PosPage = () => {
       tipo_concepto: 'producto',
       precio_especial: especial != null,
     });
+    } finally {
+      addingLockRef.current.delete(p.id);
+    }
   }, [addOrIncrementProduct, addOrIncrementPaquete, tarifaUpsells]);
 
   const handlePaqueteConfirm = useCallback(({ opciones, precioFinal }: { opciones: PaqueteOpcionSeleccionada[]; precioFinal: number }) => {
