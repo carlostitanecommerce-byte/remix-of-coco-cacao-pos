@@ -1,36 +1,83 @@
-## Categorías por ámbito en POS y Delivery
+## Épica 1: Cuentas Abiertas — venta_id nullable
 
-### Problema
-
-`useCategorias()` se llama sin parámetro en `ProductGrid.tsx` (POS) y `PreciosDeliveryTab.tsx` (Delivery), por lo que mezclan categorías de los tres ámbitos (`insumo`, `producto`, `paquete`). Como ambas pantallas listan productos vendibles (productos simples + paquetes, ambos viven en `productos`), aparecen categorías de insumos que nunca contienen ítems vendibles → tabs/filtros vacíos y ruido visual.
-
-### Solución
-
-Permitir que `useCategorias` acepte **múltiples ámbitos** y pedir solo `['producto','paquete']` en POS y Delivery. Insumos queda intacto.
+### Objetivo
+Permitir guardar ítems de consumo en `detalle_ventas` vinculados a una `coworking_session_id` antes de generar la venta financiera. El `venta_id` se llenará (UPDATE) al momento del checkout en Caja.
 
 ### Cambios
 
-1. **`src/hooks/useCategorias.ts`**
-   - Cambiar firma a `useCategorias(ambito?: CategoriaAmbito | CategoriaAmbito[])`.
-   - Si es array, usar `.in('ambito', ambitos)`; si es string, mantener `.eq` actual.
-   - Deduplicar nombres (un mismo nombre puede existir en varios ámbitos tras el índice compuesto).
-   - Memoizar el array en el `useEffect` (serializar a string para deps estable).
+**1. Migración SQL (`supabase/migration`)**
 
-2. **`src/components/pos/ProductGrid.tsx`**
-   - Reemplazar `useCategorias()` → `useCategorias(['producto','paquete'])`.
-   - Mantener el filtro `categoriasConProductos` (ya filtra por categorías que tienen al menos un producto cargado), así si una categoría queda vacía no aparece como tab.
+```sql
+-- Hacer venta_id opcional para soportar cuentas abiertas de coworking
+ALTER TABLE public.detalle_ventas
+  ALTER COLUMN venta_id DROP NOT NULL;
 
-3. **`src/components/menu/PreciosDeliveryTab.tsx`**
-   - Reemplazar `useCategorias()` → `useCategorias(['producto','paquete'])`.
-   - El select "Filtrar por categoría" mostrará solo categorías relevantes a ítems vendibles.
+-- Garantizar consistencia: cada renglón debe pertenecer a una venta
+-- O bien a una sesión de coworking abierta (cuenta abierta)
+ALTER TABLE public.detalle_ventas
+  ADD CONSTRAINT detalle_ventas_venta_o_sesion_chk
+  CHECK (venta_id IS NOT NULL OR coworking_session_id IS NOT NULL);
 
-### Fuera de alcance
+-- Índice para búsquedas rápidas de cuentas abiertas por sesión
+CREATE INDEX IF NOT EXISTS idx_detalle_ventas_session_open
+  ON public.detalle_ventas (coworking_session_id)
+  WHERE venta_id IS NULL;
+```
 
-- `InsumosTab`, `ProductosTab`, `PaquetesTab/PaquetesDinamicosTab` ya usan el ámbito correcto desde la épica anterior — no se tocan.
-- No se requiere migración de BD.
+**2. RLS de `detalle_ventas`**
+
+La política actual de INSERT exige `EXISTS (... ventas WHERE id = venta_id AND usuario_id = auth.uid())`. Eso bloquea inserts con `venta_id IS NULL`. Hay que reescribirla para permitir el caso "cuenta abierta":
+
+```sql
+DROP POLICY "Authenticated users can insert detalle_ventas" ON public.detalle_ventas;
+
+CREATE POLICY "Authenticated users can insert detalle_ventas"
+ON public.detalle_ventas FOR INSERT TO authenticated
+WITH CHECK (
+  -- Caso 1: línea ligada a una venta propia
+  (venta_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.ventas v
+    WHERE v.id = detalle_ventas.venta_id AND v.usuario_id = auth.uid()
+  ))
+  OR
+  -- Caso 2: cuenta abierta de coworking (sin venta aún)
+  (venta_id IS NULL AND coworking_session_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.coworking_sessions s
+    WHERE s.id = detalle_ventas.coworking_session_id
+      AND s.estado IN ('activo', 'pendiente_pago')
+  ))
+);
+
+-- Permitir UPDATE de venta_id al cerrar la cuenta (ligar línea a la venta nueva)
+CREATE POLICY "Authenticated can attach venta to open lines"
+ON public.detalle_ventas FOR UPDATE TO authenticated
+USING (venta_id IS NULL AND coworking_session_id IS NOT NULL)
+WITH CHECK (venta_id IS NOT NULL);
+```
+
+**3. Tipos (`src/integrations/supabase/types.ts`)**
+
+Se regeneran automáticamente tras aprobar la migración. `Row.venta_id` pasará a `string | null`, `Insert.venta_id` quedará opcional. No editar a mano.
+
+**4. Trigger `descontar_inventario_venta`**
+
+Actualmente se ejecuta al insertar en `detalle_ventas` y descuenta inventario. Si insertamos líneas de cuenta abierta (sin `venta_id`), **no debemos descontar todavía** — el inventario se descuenta al cobrar. Hay que añadir guarda al inicio del trigger:
+
+```sql
+-- Si es cuenta abierta (sin venta_id), no descontar inventario aún
+IF NEW.venta_id IS NULL THEN
+  RETURN NEW;
+END IF;
+```
+
+El descuento real ocurrirá cuando la épica 2/3 haga el `UPDATE detalle_ventas SET venta_id = ...` al cerrar la cuenta. Para eso habrá que migrar el trigger a `AFTER INSERT OR UPDATE OF venta_id` y disparar solo cuando `venta_id` pase de NULL a NOT NULL. (Confirmar en épica posterior; en esta épica basta con la guarda de NULL para no romper nada.)
+
+### Fuera de alcance (épicas siguientes)
+- UI para añadir productos a la sesión desde Coworking.
+- Migración del trigger a UPDATE-aware (descuento al cerrar cuenta).
+- Migración de datos existentes de `coworking_session_upsells` → `detalle_ventas`.
+- Borrado de `coworking_session_upsells` (al final, tras refactor del front).
 
 ### Archivos
-
-- `src/hooks/useCategorias.ts`
-- `src/components/pos/ProductGrid.tsx`
-- `src/components/menu/PreciosDeliveryTab.tsx`
+- Nueva migración SQL (alter column + check + índice + RLS + guarda en trigger).
+- `src/integrations/supabase/types.ts` (regenerado automáticamente).
