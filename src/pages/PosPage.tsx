@@ -193,45 +193,48 @@ const PosPage = () => {
 
   // Tablet / mobile layout: products full-width + bottom bar + ticket Sheet
   return (
-    <div className="flex flex-col h-[calc(100vh-7rem)] -mx-6 -my-6">
-      <div className="flex-1 min-h-0 overflow-hidden px-4 pt-4">
-        <ProductGrid onAdd={addProduct} />
+    <>
+      <div className="flex flex-col h-[calc(100vh-7rem)] -mx-6 -my-6">
+        <div className="flex-1 min-h-0 overflow-hidden px-4 pt-4">
+          <ProductGrid onAdd={addProduct} />
+        </div>
+
+        <StickyCheckoutBar
+          itemCount={itemCount}
+          total={subtotal}
+          onViewTicket={() => setTicketOpen(true)}
+          onCheckout={goToCheckout}
+        />
+
+        <Sheet open={ticketOpen} onOpenChange={setTicketOpen}>
+          <SheetContent side="right" className="w-full sm:max-w-md p-4 flex flex-col">
+            <SheetHeader className="mb-2">
+              <SheetTitle>Ticket actual</SheetTitle>
+            </SheetHeader>
+            <div className="flex-1 min-h-0 flex flex-col">
+              <CartPanel
+                items={items}
+                onUpdateQty={handleUpdateQty}
+                onUpdateNotas={updateNotas}
+                onRemove={removeItem}
+                onClear={clear}
+                subtotal={subtotal}
+              />
+            </div>
+            <Button
+              className="mt-3 w-full"
+              size="lg"
+              disabled={items.length === 0}
+              onClick={goToCheckout}
+            >
+              Cobrar
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </SheetContent>
+        </Sheet>
       </div>
-
-      <StickyCheckoutBar
-        itemCount={itemCount}
-        total={subtotal}
-        onViewTicket={() => setTicketOpen(true)}
-        onCheckout={goToCheckout}
-      />
-
-      <Sheet open={ticketOpen} onOpenChange={setTicketOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md p-4 flex flex-col">
-          <SheetHeader className="mb-2">
-            <SheetTitle>Ticket actual</SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 min-h-0 flex flex-col">
-            <CartPanel
-              items={items}
-              onUpdateQty={handleUpdateQty}
-              onUpdateNotas={updateNotas}
-              onRemove={removeItem}
-              onClear={clear}
-              subtotal={subtotal}
-            />
-          </div>
-          <Button
-            className="mt-3 w-full"
-            size="lg"
-            disabled={items.length === 0}
-            onClick={goToCheckout}
-          >
-            Cobrar
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        </SheetContent>
-      </Sheet>
-    </div>
+      {paqueteDialog}
+    </>
   );
 };
 
