@@ -10,12 +10,14 @@ import type { CartItem } from './types';
 
 interface Props {
   items: CartItem[];
-  onUpdateQty: (productoId: string, delta: number) => void;
-  onUpdateNotas?: (productoId: string, notas: string) => void;
-  onRemove: (productoId: string) => void;
+  onUpdateQty: (lineId: string, delta: number) => void;
+  onUpdateNotas?: (lineId: string, notas: string) => void;
+  onRemove: (lineId: string) => void;
   onClear: () => void;
   subtotal: number;
 }
+
+const keyOf = (i: CartItem) => i.lineId ?? i.producto_id;
 
 function NotesPopover({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [draft, setDraft] = useState(value);
