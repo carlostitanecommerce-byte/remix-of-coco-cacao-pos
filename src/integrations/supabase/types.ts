@@ -452,7 +452,7 @@ export type Database = {
           producto_id: string | null
           subtotal: number
           tipo_concepto: Database["public"]["Enums"]["tipo_concepto"]
-          venta_id: string
+          venta_id: string | null
         }
         Insert: {
           cantidad?: number
@@ -466,7 +466,7 @@ export type Database = {
           producto_id?: string | null
           subtotal?: number
           tipo_concepto?: Database["public"]["Enums"]["tipo_concepto"]
-          venta_id: string
+          venta_id?: string | null
         }
         Update: {
           cantidad?: number
@@ -480,7 +480,7 @@ export type Database = {
           producto_id?: string | null
           subtotal?: number
           tipo_concepto?: Database["public"]["Enums"]["tipo_concepto"]
-          venta_id?: string
+          venta_id?: string | null
         }
         Relationships: [
           {
