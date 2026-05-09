@@ -21,8 +21,6 @@ interface ActiveSession {
   fecha_fin_estimada: string;
   fecha_salida_real: string | null;
   es_privado: boolean;
-  upsell_producto_id: string | null;
-  upsell_precio: number | null;
   tarifa_id: string | null;
   tarifa_snapshot: TarifaSnapshot | null;
 }
