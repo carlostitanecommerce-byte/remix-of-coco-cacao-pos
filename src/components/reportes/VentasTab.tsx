@@ -474,12 +474,23 @@ export default function VentasTab() {
               <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
                 <Loader2 className="h-4 w-4 animate-spin" /> Cargando datos…
               </div>
-            ) : Object.values(coworkMap).every(c => c.personas === 0) ? (
+            ) : sessionsCount === 0 ? (
               <div className="text-center text-sm text-muted-foreground py-16">
                 No hay sesiones de coworking en este período.
               </div>
             ) : (
               <TooltipProvider delayDuration={100}>
+                {sessionsCount > 0 && Object.values(coworkMap).every(c => c.personas === 0) && (
+                  <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium">Sesiones fuera del rango horario mostrado</p>
+                      <p className="text-xs opacity-90">
+                        Hay {sessionsCount} sesión{sessionsCount > 1 ? 'es' : ''} registrada{sessionsCount > 1 ? 's' : ''} en este período que ocurrieron fuera del horario 7:00 AM – 11:59 PM.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <div className="min-w-[600px]">
                     <div className="grid gap-1" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
@@ -514,7 +525,7 @@ export default function VentasTab() {
                               <TooltipContent side="top" className="text-xs">
                                 <p className="font-semibold">{dia}, {fmtHoraFull(hora)}</p>
                                 <p>Personas en sitio: {cell.personas}</p>
-                                <p>% Ocupación: {pct}%</p>
+                                {totalCapacidad > 0 && <p>% Ocupación: {pct}%</p>}
                               </TooltipContent>
                             </Tooltip>
                           );
