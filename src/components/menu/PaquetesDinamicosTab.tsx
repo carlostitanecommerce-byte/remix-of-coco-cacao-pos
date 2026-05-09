@@ -470,7 +470,7 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
                 <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
               ) : filtrados.length === 0 ? (
                 <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">{busqueda ? 'Sin resultados' : 'Sin paquetes registrados'}</TableCell></TableRow>
-              ) : filtrados.map(p => (
+              ) : paquetesPagina.map(p => (
                 <TableRow key={p.id} className={!p.activo ? 'opacity-60' : ''}>
                   <TableCell className="font-medium">{p.nombre}</TableCell>
                   <TableCell>{p.categoria}</TableCell>
