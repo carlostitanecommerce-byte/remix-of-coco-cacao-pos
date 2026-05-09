@@ -238,7 +238,7 @@ export function CajaCheckoutPanel() {
                 className="h-8 text-sm mt-1"
               />
             )}
-            {metodoPago !== 'efectivo' && propina > 0 && (
+            {propina > 0 && metodoPago !== 'mixto' && (
               <div className="flex items-center gap-2 mt-1">
                 <Checkbox
                   id="propina-digital"
@@ -246,7 +246,9 @@ export function CajaCheckoutPanel() {
                   onCheckedChange={(v) => setPropinaEnDigital(!!v)}
                 />
                 <Label htmlFor="propina-digital" className="text-xs cursor-pointer">
-                  Propina cobrada por método digital
+                  {metodoPago === 'efectivo'
+                    ? 'Propina cobrada por terminal (tarjeta)'
+                    : 'Propina cobrada por método digital'}
                 </Label>
               </div>
             )}
