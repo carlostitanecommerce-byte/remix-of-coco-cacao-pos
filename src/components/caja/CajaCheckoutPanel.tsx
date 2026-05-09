@@ -119,19 +119,20 @@ export function CajaCheckoutPanel() {
         ) : (
           items.map((item) => {
             const esCoworking = item.tipo_concepto === 'coworking' || !!item.coworking_session_id;
+            const k = item.lineId ?? item.producto_id;
             return (
-              <div key={item.producto_id} className="flex items-center gap-2 text-sm border border-border rounded-md p-2">
+              <div key={k} className="flex items-center gap-2 text-sm border border-border rounded-md p-2">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{item.nombre}</p>
                   <p className="text-xs text-muted-foreground">${item.precio_unitario.toFixed(2)} c/u</p>
                 </div>
                 {!esCoworking ? (
                   <div className="flex items-center gap-1">
-                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(item.producto_id, -1)}>
+                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(k, -1)}>
                       <Minus className="h-3 w-3" />
                     </Button>
                     <span className="w-5 text-center text-xs">{item.cantidad}</span>
-                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(item.producto_id, 1)}>
+                    <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQty(k, 1)}>
                       <Plus className="h-3 w-3" />
                     </Button>
                   </div>
@@ -140,7 +141,7 @@ export function CajaCheckoutPanel() {
                 )}
                 <span className="font-bold w-16 text-right">${item.subtotal.toFixed(2)}</span>
                 {!esCoworking && (
-                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem(item.producto_id)}>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem(k)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
                 )}
