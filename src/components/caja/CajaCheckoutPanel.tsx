@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -43,21 +43,23 @@ export function CajaCheckoutPanel() {
     return +(subtotal * (propinaPct / 100)).toFixed(2);
   }, [propinaPct, propinaManual, subtotal]);
 
-  const comision = metodoPago === 'tarjeta'
-    ? +(subtotal * (config.comision_bancaria_porcentaje / 100)).toFixed(2)
-    : metodoPago === 'mixto'
-      ? +(mixed.tarjeta * (config.comision_bancaria_porcentaje / 100)).toFixed(2)
-      : 0;
+  // F2: Comisión bancaria SIEMPRE sobre subtotal de productos cobrados con tarjeta,
+  // nunca sobre propina. En mixto, restamos la propina si está marcada como digital
+  // (asumimos que en ese caso el cajero la metió dentro de mixed.tarjeta).
+  const tarjetaBaseProductos = (() => {
+    if (metodoPago === 'tarjeta') return subtotal;
+    if (metodoPago === 'mixto') {
+      const propinaEnTarjeta = propinaEnDigital ? propina : 0;
+      return Math.max(0, mixed.tarjeta - propinaEnTarjeta);
+    }
+    return 0;
+  })();
+  const comision = +(tarjetaBaseProductos * (config.comision_bancaria_porcentaje / 100)).toFixed(2);
 
   const total = +(subtotal + propina).toFixed(2);
 
   const sumaMixta = +(mixed.efectivo + mixed.tarjeta + mixed.transferencia).toFixed(2);
   const mixtoValido = metodoPago !== 'mixto' || Math.abs(sumaMixta - total) < 0.01;
-
-  // Reset propina_en_digital when method changes
-  useEffect(() => {
-    if (metodoPago === 'efectivo') setPropinaEnDigital(false);
-  }, [metodoPago]);
 
   const handleCobrar = () => {
     if (items.length === 0) { toast.error('Agrega productos al ticket'); return; }
@@ -236,7 +238,7 @@ export function CajaCheckoutPanel() {
                 className="h-8 text-sm mt-1"
               />
             )}
-            {metodoPago !== 'efectivo' && propina > 0 && (
+            {propina > 0 && metodoPago !== 'mixto' && (
               <div className="flex items-center gap-2 mt-1">
                 <Checkbox
                   id="propina-digital"
@@ -244,7 +246,9 @@ export function CajaCheckoutPanel() {
                   onCheckedChange={(v) => setPropinaEnDigital(!!v)}
                 />
                 <Label htmlFor="propina-digital" className="text-xs cursor-pointer">
-                  Propina cobrada por método digital
+                  {metodoPago === 'efectivo'
+                    ? 'Propina cobrada por terminal (tarjeta)'
+                    : 'Propina cobrada por método digital'}
                 </Label>
               </div>
             )}

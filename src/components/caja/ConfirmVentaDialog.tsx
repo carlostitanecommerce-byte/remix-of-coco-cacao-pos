@@ -83,18 +83,30 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
       }
 
       // 1. Calcular distribución de pagos (incluye propina)
+      // F1: Respetar propina_en_digital. Si el método principal es efectivo
+      // pero el cajero marcó la propina como digital, enrutarla a tarjeta.
+      // En mixto, la distribución viene completa del usuario (incluye propina);
+      // no se vuelve a sumar.
       const propinaAmount = summary.propina || 0;
+      const propinaDigital = !!summary.propina_en_digital;
 
       let montoEfectivo = summary.mixed_payment?.efectivo ?? (summary.metodo_pago === 'efectivo' ? summary.subtotal : 0);
       let montoTarjeta = summary.mixed_payment?.tarjeta ?? (summary.metodo_pago === 'tarjeta' ? summary.subtotal : 0);
       let montoTransferencia = summary.mixed_payment?.transferencia ?? (summary.metodo_pago === 'transferencia' ? summary.subtotal : 0);
 
-      if (summary.metodo_pago === 'tarjeta') {
-        montoTarjeta += propinaAmount;
-      } else if (summary.metodo_pago === 'transferencia') {
-        montoTransferencia += propinaAmount;
-      } else if (summary.metodo_pago === 'efectivo') {
-        montoEfectivo += propinaAmount;
+      if (summary.metodo_pago !== 'mixto' && propinaAmount > 0) {
+        if (summary.metodo_pago === 'tarjeta') {
+          montoTarjeta += propinaAmount;
+        } else if (summary.metodo_pago === 'transferencia') {
+          montoTransferencia += propinaAmount;
+        } else if (summary.metodo_pago === 'efectivo') {
+          if (propinaDigital) {
+            // Propina cobrada por terminal aunque la venta fue en efectivo
+            montoTarjeta += propinaAmount;
+          } else {
+            montoEfectivo += propinaAmount;
+          }
+        }
       }
 
       const comisionAmount = summary.comision || 0;
