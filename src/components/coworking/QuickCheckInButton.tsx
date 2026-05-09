@@ -133,7 +133,7 @@ export function QuickCheckInButton({ reservacion, area, getAvailablePax, onSucce
           subtotal: 0,
           tipo_concepto: 'amenity',
         }));
-        const { error: amenityErr } = await supabase
+        const { error: amenityErr } = await (supabase as any)
           .from('detalle_ventas')
           .insert(amenityRows);
         if (amenityErr) {
