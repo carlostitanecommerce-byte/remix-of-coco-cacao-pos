@@ -139,7 +139,7 @@ export function ProductGrid({ onAdd }: Props) {
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAdd(p); } }}
                     className="group relative flex flex-col rounded-md border border-border bg-card overflow-hidden cursor-pointer transition hover:border-primary hover:shadow-md active:scale-[0.98]"
                   >
-                    <div className={cn('relative w-full bg-muted', isCompacto ? 'h-16' : 'aspect-[4/3]')}>
+                    <div className={cn('relative w-full bg-muted', isCompacto ? 'h-14' : 'aspect-[5/3]')}>
                       {p.imagen_url ? (
                         <img
                           src={p.imagen_url}
@@ -158,8 +158,8 @@ export function ProductGrid({ onAdd }: Props) {
                         </Badge>
                       )}
                     </div>
-                    <div className="p-1.5">
-                      <span className={cn('block font-medium leading-tight truncate', isCompacto ? 'text-[11px]' : 'text-sm')}>
+                    <div className="px-1.5 py-1">
+                      <span className={cn('block font-medium leading-tight line-clamp-2 min-h-[2.2em]', isCompacto ? 'text-[11px]' : 'text-sm')}>
                         {p.nombre}
                       </span>
                     </div>
