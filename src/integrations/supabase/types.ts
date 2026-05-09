@@ -1389,6 +1389,10 @@ export type Database = {
         Args: { p_insumo_id?: string }
         Returns: number
       }
+      registrar_consumo_coworking: {
+        Args: { p_items: Json; p_kds_items: Json; p_session_id: string }
+        Returns: Json
+      }
       registrar_merma: {
         Args: { p_cantidad: number; p_insumo_id: string; p_motivo: string }
         Returns: Json
