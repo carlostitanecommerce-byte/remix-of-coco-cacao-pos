@@ -350,7 +350,7 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
                     <TableRow><TableCell colSpan={4 + plataformasActivas.length * 2} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
                   ) : productosFiltrados.length === 0 ? (
                     <TableRow><TableCell colSpan={4 + plataformasActivas.length * 2} className="text-center py-8 text-muted-foreground">Sin resultados</TableCell></TableRow>
-                  ) : productosFiltrados.map(prod => (
+                  ) : productosPagina.map(prod => (
                     <TableRow key={prod.id} className={!prod.activo ? 'opacity-60' : ''}>
                       <TableCell className="font-medium">
                         {prod.nombre}
@@ -367,8 +367,8 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
                         const neto = numeric - (numeric * Number(pl.comision_porcentaje) / 100) - Number(prod.costo_total);
                         const netoPct = numeric > 0 ? (neto / numeric) * 100 : 0;
                         return (
-                          <>
-                            <TableCell key={`${pl.id}-p`} className="border-l p-1">
+                          <Fragment key={pl.id}>
+                            <TableCell className="border-l p-1">
                               <Input
                                 type="number" min={0} step={0.01}
                                 value={value}
@@ -379,11 +379,11 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
                                 disabled={!isAdmin}
                               />
                             </TableCell>
-                            <TableCell key={`${pl.id}-m`} className={`text-right text-sm font-semibold ${value ? margenColor(netoPct) : 'text-muted-foreground'}`}>
+                            <TableCell className={`text-right text-sm font-semibold ${value ? margenColor(netoPct) : 'text-muted-foreground'}`}>
                               {value ? `$${neto.toFixed(2)}` : '—'}
                               {value && <div className="text-[10px] font-normal">{netoPct.toFixed(1)}%</div>}
                             </TableCell>
-                          </>
+                          </Fragment>
                         );
                       })}
                     </TableRow>
