@@ -109,11 +109,42 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
   const productosFiltrados = useMemo(() => {
     return productos.filter(p => {
       if (soloActivos && !p.activo) return false;
+      if (tipoFiltro !== '__all__' && p.tipo !== tipoFiltro) return false;
       if (catFiltro !== '__all__' && p.categoria !== catFiltro) return false;
       if (busqueda && !p.nombre.toLowerCase().includes(busqueda.toLowerCase())) return false;
       return true;
     });
-  }, [productos, busqueda, catFiltro, soloActivos]);
+  }, [productos, busqueda, tipoFiltro, catFiltro, soloActivos]);
+
+  // Reset página al cambiar filtros o tamaño
+  useEffect(() => {
+    setPaginaActual(1);
+  }, [busqueda, tipoFiltro, catFiltro, soloActivos, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(productosFiltrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const fin = inicio + porPagina;
+  const productosPagina = productosFiltrados.slice(inicio, fin);
+
+  const numerosPagina = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    const total = totalPaginas;
+    const cur = paginaSegura;
+    const push = (n: number | 'ellipsis') => pages.push(n);
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) push(i);
+    } else {
+      push(1);
+      if (cur > 3) push('ellipsis');
+      const start = Math.max(2, cur - 1);
+      const end = Math.min(total - 1, cur + 1);
+      for (let i = start; i <= end; i++) push(i);
+      if (cur < total - 2) push('ellipsis');
+      push(total);
+    }
+    return pages;
+  }, [totalPaginas, paginaSegura]);
 
   // ============ CRUD Plataformas ============
   const openNewPlat = () => {
