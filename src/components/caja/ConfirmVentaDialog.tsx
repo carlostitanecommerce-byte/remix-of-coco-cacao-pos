@@ -32,9 +32,15 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
     setSaving(true);
     try {
       // 0. Pre-validar inventario unificado vía RPC (considera consumos comprometidos en coworking)
+      // Los items con open_account_detalle_id YA existen en detalle_ventas y su stock ya se descontó
+      // al crearlos vía registrar_consumo_coworking — no validar ni reinsertar.
+      const isOpenItem = (it: typeof summary.items[number]) => !!it.open_account_detalle_id;
+      const openItems = summary.items.filter(isOpenItem);
+      const newItems = summary.items.filter(it => !isOpenItem(it));
+
       const qtyByProduct = new Map<string, number>();
 
-      const productoItems = summary.items.filter(
+      const productoItems = newItems.filter(
         (item) => item.tipo_concepto === 'producto' && !!item.producto_id && !item.producto_id.startsWith('coworking-')
       );
       for (const item of productoItems) {
@@ -42,7 +48,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         qtyByProduct.set(productId, (qtyByProduct.get(productId) ?? 0) + item.cantidad);
       }
 
-      const paqueteItems = summary.items.filter(item => item.tipo_concepto === 'paquete');
+      const paqueteItems = newItems.filter(item => item.tipo_concepto === 'paquete');
       // Guardia: cada paquete debe haber expandido sus opciones a componentes con producto_id válido,
       // de lo contrario el trigger descontar_inventario_venta no podría descontar insumos correctamente.
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -123,7 +129,7 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         for (const p of prods ?? []) costoMap.set(p.id, Number(p.costo_total) || 0);
       }
 
-      for (const item of summary.items) {
+      for (const item of newItems) {
         if (item.tipo_concepto === 'paquete') {
           const pq = item;
           const componentes = pq.componentes ?? [];
