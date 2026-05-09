@@ -21,7 +21,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Pencil, Trash2, Truck, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Truck, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Plataforma {
@@ -67,8 +67,13 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
 
   // Filtros matriz
   const [busqueda, setBusqueda] = useState('');
+  const [tipoFiltro, setTipoFiltro] = useState<string>('__all__');
   const [catFiltro, setCatFiltro] = useState<string>('__all__');
   const [soloActivos, setSoloActivos] = useState(true);
+
+  // Paginación
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
 
   // Borrador local de precios { "<prodId>:<plataId>": stringValue }
   const [borrador, setBorrador] = useState<Record<string, string>>({});
@@ -104,11 +109,42 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
   const productosFiltrados = useMemo(() => {
     return productos.filter(p => {
       if (soloActivos && !p.activo) return false;
+      if (tipoFiltro !== '__all__' && p.tipo !== tipoFiltro) return false;
       if (catFiltro !== '__all__' && p.categoria !== catFiltro) return false;
       if (busqueda && !p.nombre.toLowerCase().includes(busqueda.toLowerCase())) return false;
       return true;
     });
-  }, [productos, busqueda, catFiltro, soloActivos]);
+  }, [productos, busqueda, tipoFiltro, catFiltro, soloActivos]);
+
+  // Reset página al cambiar filtros o tamaño
+  useEffect(() => {
+    setPaginaActual(1);
+  }, [busqueda, tipoFiltro, catFiltro, soloActivos, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(productosFiltrados.length / porPagina));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const inicio = (paginaSegura - 1) * porPagina;
+  const fin = inicio + porPagina;
+  const productosPagina = productosFiltrados.slice(inicio, fin);
+
+  const numerosPagina = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    const total = totalPaginas;
+    const cur = paginaSegura;
+    const push = (n: number | 'ellipsis') => pages.push(n);
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) push(i);
+    } else {
+      push(1);
+      if (cur > 3) push('ellipsis');
+      const start = Math.max(2, cur - 1);
+      const end = Math.min(total - 1, cur + 1);
+      for (let i = start; i <= end; i++) push(i);
+      if (cur < total - 2) push('ellipsis');
+      push(total);
+    }
+    return pages;
+  }, [totalPaginas, paginaSegura]);
 
   // ============ CRUD Plataformas ============
   const openNewPlat = () => {
@@ -258,6 +294,14 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Buscar producto..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="pl-9" />
             </div>
+            <Select value={tipoFiltro} onValueChange={setTipoFiltro}>
+              <SelectTrigger className="w-44"><SelectValue placeholder="Tipo" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos los tipos</SelectItem>
+                <SelectItem value="producto">Producto individual</SelectItem>
+                <SelectItem value="paquete">Paquete / Combo</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={catFiltro} onValueChange={setCatFiltro}>
               <SelectTrigger className="w-48"><SelectValue placeholder="Categoría" /></SelectTrigger>
               <SelectContent>
@@ -306,7 +350,7 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
                     <TableRow><TableCell colSpan={4 + plataformasActivas.length * 2} className="text-center py-8 text-muted-foreground">Cargando...</TableCell></TableRow>
                   ) : productosFiltrados.length === 0 ? (
                     <TableRow><TableCell colSpan={4 + plataformasActivas.length * 2} className="text-center py-8 text-muted-foreground">Sin resultados</TableCell></TableRow>
-                  ) : productosFiltrados.map(prod => (
+                  ) : productosPagina.map(prod => (
                     <TableRow key={prod.id} className={!prod.activo ? 'opacity-60' : ''}>
                       <TableCell className="font-medium">
                         {prod.nombre}
@@ -323,8 +367,8 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
                         const neto = numeric - (numeric * Number(pl.comision_porcentaje) / 100) - Number(prod.costo_total);
                         const netoPct = numeric > 0 ? (neto / numeric) * 100 : 0;
                         return (
-                          <>
-                            <TableCell key={`${pl.id}-p`} className="border-l p-1">
+                          <Fragment key={pl.id}>
+                            <TableCell className="border-l p-1">
                               <Input
                                 type="number" min={0} step={0.01}
                                 value={value}
@@ -335,17 +379,59 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
                                 disabled={!isAdmin}
                               />
                             </TableCell>
-                            <TableCell key={`${pl.id}-m`} className={`text-right text-sm font-semibold ${value ? margenColor(netoPct) : 'text-muted-foreground'}`}>
+                            <TableCell className={`text-right text-sm font-semibold ${value ? margenColor(netoPct) : 'text-muted-foreground'}`}>
                               {value ? `$${neto.toFixed(2)}` : '—'}
                               {value && <div className="text-[10px] font-normal">{netoPct.toFixed(1)}%</div>}
                             </TableCell>
-                          </>
+                          </Fragment>
                         );
                       })}
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {plataformasActivas.length > 0 && productosFiltrados.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+              <div className="text-xs text-muted-foreground">
+                Mostrando {inicio + 1}–{Math.min(fin, productosFiltrados.length)} de {productosFiltrados.length} productos
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Por página</Label>
+                  <Select value={String(porPagina)} onValueChange={v => setPorPagina(Number(v))}>
+                    <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[10, 25, 50, 100].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === 1} onClick={() => setPaginaActual(p => Math.max(1, p - 1))}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  {numerosPagina.map((n, idx) =>
+                    n === 'ellipsis' ? (
+                      <span key={`e-${idx}`} className="px-2 text-muted-foreground text-sm">…</span>
+                    ) : (
+                      <Button
+                        key={n}
+                        variant={n === paginaSegura ? 'default' : 'outline'}
+                        size="icon"
+                        className="h-8 w-8 text-xs"
+                        onClick={() => setPaginaActual(n)}
+                      >
+                        {n}
+                      </Button>
+                    )
+                  )}
+                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === totalPaginas} onClick={() => setPaginaActual(p => Math.min(totalPaginas, p + 1))}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
