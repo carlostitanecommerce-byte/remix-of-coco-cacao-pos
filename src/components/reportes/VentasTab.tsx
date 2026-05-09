@@ -36,6 +36,7 @@ export default function VentasTab() {
   const [periodoTransacciones, setPeriodoTransacciones] = useState(0);
   const [retailLimitHit, setRetailLimitHit] = useState(false);
   const [coworkLimitHit, setCoworkLimitHit] = useState(false);
+  const [sessionsCount, setSessionsCount] = useState(0);
 
   const RETAIL_LIMIT = 5000;
   const COWORK_LIMIT = 2000;
