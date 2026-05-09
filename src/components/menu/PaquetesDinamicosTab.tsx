@@ -79,6 +79,8 @@ const PaquetesDinamicosTab = ({ isAdmin }: Props) => {
   const [paquetes, setPaquetes] = useState<Paquete[]>([]);
   const [productosSimples, setProductosSimples] = useState<ProductoSimple[]>([]);
   const [busqueda, setBusqueda] = useState('');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
