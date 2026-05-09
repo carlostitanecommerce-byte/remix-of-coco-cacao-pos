@@ -392,6 +392,48 @@ const PreciosDeliveryTab = ({ isAdmin }: Props) => {
               </Table>
             </div>
           )}
+
+          {plataformasActivas.length > 0 && productosFiltrados.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+              <div className="text-xs text-muted-foreground">
+                Mostrando {inicio + 1}–{Math.min(fin, productosFiltrados.length)} de {productosFiltrados.length} productos
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Por página</Label>
+                  <Select value={String(porPagina)} onValueChange={v => setPorPagina(Number(v))}>
+                    <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[10, 25, 50, 100].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === 1} onClick={() => setPaginaActual(p => Math.max(1, p - 1))}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  {numerosPagina.map((n, idx) =>
+                    n === 'ellipsis' ? (
+                      <span key={`e-${idx}`} className="px-2 text-muted-foreground text-sm">…</span>
+                    ) : (
+                      <Button
+                        key={n}
+                        variant={n === paginaSegura ? 'default' : 'outline'}
+                        size="icon"
+                        className="h-8 w-8 text-xs"
+                        onClick={() => setPaginaActual(n)}
+                      >
+                        {n}
+                      </Button>
+                    )
+                  )}
+                  <Button variant="outline" size="icon" className="h-8 w-8" disabled={paginaSegura === totalPaginas} onClick={() => setPaginaActual(p => Math.min(totalPaginas, p + 1))}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
