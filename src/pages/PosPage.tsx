@@ -145,7 +145,11 @@ const PosPage = () => {
       return;
     }
 
-    const validacion = await verificarStock(p.id, 1);
+    const existenteProd = currentItems.find(
+      (i) => i.tipo_concepto === 'producto' && i.producto_id === p.id
+    );
+    const cantidadProdValidar = (existenteProd?.cantidad ?? 0) + 1;
+    const validacion = await verificarStock(p.id, cantidadProdValidar);
     if (!validacion.valido) { toast.error(validacion.error); return; }
 
     const especial = tarifaUpsells[p.id];
