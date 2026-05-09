@@ -1,47 +1,48 @@
-# Corrección profesional del Heatmap de Coworking
+# Rediseño columna "En uso" — Categorías
 
-## Causa raíz
+## Problema
+Actualmente la columna muestra dos badges separados (`7 ins.` / `6 prod.`) tipo "pastilla" con borde y texto en dos líneas. Ocupa mucho espacio vertical, se ve repetitivo y poco profesional.
 
-1. **Rango horario insuficiente**: el heatmap solo dibuja de **8 AM a 8 PM** (`HORAS_COWORK = 8..20`). La sesión real de ayer ocurrió a las **21:40 CDMX**, por lo que nunca se renderiza ni se cuenta.
-2. **Timezone frágil**: los slots horarios se calculan con `Date.setHours()` en la zona horaria del navegador, pero los timestamps de BD son UTC y los rangos de query están fijados a `-06:00`. Si el navegador no está en CDMX, todo se descuadra.
-3. **Estado vacío engañoso**: muestra "No hay sesiones de coworking" incluso cuando sí hubo sesiones pero fuera del rango horario.
+## Propuesta de diseño
 
-## Cambios (frontend, `src/components/reportes/VentasTab.tsx`)
+Reemplazar los dos badges por **un solo "chip" compacto e inline** que combine ambos conteos con iconos semánticos en lugar de abreviaciones de texto.
 
-### 1. Ampliar y simetrizar rango horario con el de retail
-- Cambiar `HORAS_COWORK` a **7 AM – 11 PM** (7..23) para cubrir toda la operación real del coworking, incluyendo sesiones de noche.
-- Mantener `HORAS_RETAIL` igual (6..23 ya lo cubre).
+### Estructura visual (por celda)
+```
+[🧪 7]  [📦 6]
+```
 
-### 2. Calcular slots en CDMX (UTC-6) de forma explícita
-- Reemplazar `new Date(day).setHours(hora, …)` por construcción vía string ISO con offset fijo:
+- Cada conteo se muestra con un **icono pequeño + número**, sin bordes ni mayúsculas.
+- Iconos:
+  - **Insumos:** `FlaskConical` (lucide) — color `text-muted-foreground`
+  - **Productos:** `Package` (lucide) — color `text-muted-foreground`
+- Tipografía: `text-sm tabular-nums font-medium text-foreground` para el número.
+- Separador sutil vertical entre ambos: `divide-x divide-border/60` o un punto `·`.
+- Si un conteo es 0, se muestra atenuado (`opacity-40`) en lugar de ocultarlo, para que la celda mantenga ancho consistente y se lea como "estructurado".
+- Si **ambos son 0**: un guión `—` sutil en `text-muted-foreground`, alineado a la derecha.
+- Tooltip al hacer hover sobre cada par mostrando el texto completo: "7 insumos en esta categoría" / "6 productos en esta categoría".
+
+### Detalle de implementación (`src/components/inventarios/CategoriasTab.tsx`)
+- Eliminar los `<Badge>` actuales (líneas 200–212).
+- Reemplazar por un contenedor `flex items-center justify-end gap-3` con dos sub-elementos:
+  ```tsx
+  <Tooltip><TooltipTrigger>
+    <span className="inline-flex items-center gap-1.5 text-sm tabular-nums">
+      <FlaskConical className="h-3.5 w-3.5 text-muted-foreground" />
+      <span className={cn("font-medium", uso_insumos === 0 && "opacity-40")}>{uso_insumos}</span>
+    </span>
+  </TooltipTrigger><TooltipContent>...</TooltipContent></Tooltip>
   ```
-  new Date(`${format(day,'yyyy-MM-dd')}T${HH}:00:00-06:00`)
-  ```
-- Mismo patrón para `slotEnd` (`:59:59.999-06:00`).
-- Esto elimina la dependencia de la TZ del navegador y se alinea con `desdeISO/hastaISO` que ya usan `-06:00` (memoria del proyecto: timezone CDMX global).
+- Envolver toda la tabla con `<TooltipProvider delayDuration={150}>` (verificar si ya existe arriba).
+- Importar `FlaskConical, Package` de `lucide-react` y `cn` de `@/lib/utils`.
+- Quitar `font-mono` para alinearlo con el estilo limpio del resto.
 
-### 3. Detección real de sesiones fuera de rango
-- Calcular un contador `sessionsCount = sessionsRes.data.length` (sesiones cargadas en el período) y guardarlo en estado.
-- Cambiar la condición de estado vacío:
-  - Si `sessionsCount === 0` → "No hay sesiones de coworking en este período."
-  - Si `sessionsCount > 0` y todas las celdas son 0 → mostrar el grid igualmente (todas las celdas en color base) **y** un aviso amber: "Hay N sesiones registradas que ocurrieron fuera del rango horario mostrado."
+### Beneficios
+- Misma altura de fila para todas las categorías → tabla más uniforme.
+- Iconos > abreviaciones de texto: lectura más rápida y profesional.
+- Tooltip aporta accesibilidad y claridad sin saturar la celda.
+- Mantiene el principio "diseño limpio, tonos cálidos, traceabilidad" de la memoria del proyecto.
 
-### 4. Aviso de capacidad cuando no hay áreas configuradas
-- Si `totalCapacidad === 0` y hay sesiones, no calcular `% Ocupación` (ya está protegido) pero ocultar la línea en el tooltip para no mostrar "0%" confuso.
-
-### 5. Pequeñas mejoras de robustez
-- Manejar el `signal?.aborted` también después de `setLoadingCowork(false)` para no actualizar estado de un fetch abortado.
-- Garantizar que `pax_count` se sume como número (`Number(s.pax_count) || 0`).
-
-## Lo que NO se cambia
-
-- Esquema de BD, RPCs, RLS — el problema es 100% de presentación.
-- Lógica de retail heatmap (funciona; ya cubre 6 AM – 11 PM).
-- KPIs ni `CoworkingAnalysis.tsx`.
-
-## Verificación post-cambio
-
-1. Recargar `/reportes` → tab "Ventas" → semana actual.
-2. La celda **Jueves 9 PM** (`diaIdx=3`, `hora=21`) debe mostrar `1` con color teal.
-3. Tooltip: "Personas en sitio: 1 · % Ocupación: 4%" (1/27 cap).
-4. Probar `periodo='mes'` → la sesión debe seguir apareciendo (promediada entre los jueves del mes).
+## Fuera de alcance
+- No se cambian datos, queries, RLS ni la lógica de conteo.
+- No se modifica el resto de la tabla (nombre, descripción, acciones).
