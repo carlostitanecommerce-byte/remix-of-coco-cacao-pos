@@ -168,6 +168,7 @@ const CategoriasTab = ({ isAdmin }: Props) => {
 
       <Card>
         <CardContent className="p-0">
+          <TooltipProvider delayDuration={150}>
           <Table>
             <TableHeader>
               <TableRow>
