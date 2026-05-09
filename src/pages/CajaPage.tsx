@@ -126,9 +126,16 @@ const CajaPage = () => {
       )}
 
       <AperturaCajaDialog
-        open={!cajaAbierta}
+        open={!cajaAbierta && !(puedeOmitirApertura && aperturaCerrada)}
         onAbrirCaja={abrirCaja}
-        onClose={() => navigate('/')}
+        allowSkip={puedeOmitirApertura}
+        onClose={() => {
+          if (puedeOmitirApertura) {
+            setAperturaCerrada(true);
+          } else {
+            navigate('/');
+          }
+        }}
       />
 
       {cajaAbierta && (
