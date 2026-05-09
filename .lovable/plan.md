@@ -1,45 +1,63 @@
-## Épica 2: Puente Coworking → POS
+## Épica 3: POS en modo "Cuenta Abierta"
 
-### Objetivo
-Mantener en `ManageSessionAccountDialog` solo lo que pertenece a la **gestión de la sala** (PAX + amenities incluidos). Eliminar la venta de productos extra desde ese modal y reemplazarla por un botón que redirige al POS llevando contexto de la sesión.
+Adapta el POS para reconocer cuándo está cargando consumo a una sesión de coworking en lugar de procesar una venta normal, mostrando un banner contextual, cambiando el CTA, y aplicando precios especiales de la tarifa de la sesión automáticamente.
 
 ### Cambios
 
-**1. `src/components/coworking/ManageSessionAccountDialog.tsx`**
+**1. `src/stores/cartStore.ts` — Activación sin importar items**
 
-Conservar:
-- Header con cliente + edición de PAX (privadas) y diálogo de recálculo de amenities (`pendingAmenityUpdate`).
-- Sección "Estado de la Cuenta" (lista actual de items de la sesión) **solo en modo lectura**: mostrar nombre, cantidad y "Incluido"/precio. Quitar botones +/−, eliminar y "Solicitar cancelación" en esta épica.
-  - *Nota:* mantenemos visualización porque el cajero necesita ver lo ya consumido. La gestión de cancelaciones ahora vive en el POS / pestaña de cocina.
-- Sección "Beneficios por reclamar" (`missingAmenities`) con su botón "Reclamar" — esto es parte de los amenities incluidos en la tarifa, sigue siendo gestión de sala.
-- Realtime de `cancelaciones_items_sesion` y reload — para que la lista se refresque si cocina decide algo.
+Reutilizamos los campos existentes `coworkingSessionId` / `clienteNombre` (ya están en el store). Añadimos:
 
-Eliminar:
-- Sección completa "Añadir Consumo Extra" (search + lista `productos` + `handleAdd` / `doAdd`).
-- Botones de +/−, eliminar y solicitar cancelación dentro de "Estado de la Cuenta" (los handlers `handleRemove`, `handleUpdateQuantity`, `openCancelDialog`, `submitCancelRequest`, `cancelTarget` state y su `AlertDialog`).
-- Imports y estado ya no necesarios: `Search`, `Trash2`, `Ban`, `Textarea`, `Label`, `productos`, `search`, `cancelTarget`, `cancelQty`, `cancelMotivo`, `verificarStock`, `enviarASesionKDS` (queda solo si lo usa la restauración de amenity — sí lo usa en `doRestoreAmenity`, conservarlo).
-- El `useEffect` que carga `productos` se reduce a solo `reloadItemsAndCancels()`.
+- `setActiveCoworkingSession(sessionId: string | null, clienteNombre: string | null)`: activa el modo cuenta abierta sin tocar `items` (el flujo actual de `importCoworkingSession` queda intacto para Caja).
+- `tarifaUpsells: Record<string, number>` (mapa `producto_id → precio_especial`) y `setTarifaUpsells(map)`.
+- En `clear()` también resetea `tarifaUpsells`.
 
-Agregar:
-- Botón **"Agregar Consumo en POS"** en el `DialogFooter` (variante `default`, ícono `ShoppingCart`), a la izquierda del botón "Cerrar".
-- Handler `handleGoToPos`:
-  ```ts
-  const handleGoToPos = () => {
-    if (!session) return;
-    const params = new URLSearchParams({
-      session_id: session.id,
-      client_name: session.cliente_nombre,
-    });
-    onClose();
-    navigate(`/pos?${params.toString()}`);
-  };
-  ```
-- Importar `useNavigate` de `react-router-dom` y `ShoppingCart` de `lucide-react`.
+**2. `src/pages/PosPage.tsx` — Detección de contexto + motor de upsells**
 
-**2. Fuera de alcance (épicas siguientes)**
-- `PosPage.tsx` leyendo `?session_id` y `?client_name` para abrir cuenta abierta — Épica 3.
-- Eliminación física de `coworking_session_upsells` — al final.
-- Migrar amenities/cancelaciones a `detalle_ventas` — al final.
+- Leer `useSearchParams()` al montar. Si hay `session_id`:
+  - Llamar `setActiveCoworkingSession(session_id, client_name)`.
+  - Consultar `coworking_sessions` para obtener `tarifa_id`, luego `tarifa_upsells` (`producto_id`, `precio_especial`) y guardar el mapa con `setTarifaUpsells`.
+  - Mostrar `toast.success` con el cliente.
+- Si NO hay `session_id` en la URL, limpiar el modo (`setActiveCoworkingSession(null, null)` + `setTarifaUpsells({})`) para no arrastrar estado entre visitas.
+- En `addProduct`: antes de pushear al carrito, si el `producto_id` existe en `tarifaUpsells`, reemplazar `precio_venta` por el precio especial. Pasar también una pista visual al item (`precio_especial: true`) — opcional sólo para mostrar badge.
+- En `goToCheckout`: si hay `coworkingSessionId`, en lugar de navegar a `/caja` (flujo de cobro tradicional), invocar la lógica de "Cargar a Cuenta" → insertar líneas en `detalle_ventas` con `coworking_session_id` y `venta_id = NULL` (reutilizando la base preparada en Épica 1), enviar a KDS, limpiar carrito, navegar de regreso a `/coworking`.
+  - Esta inserción se encapsula en un helper `chargeToOpenAccount()` dentro de la misma página (o en un hook nuevo `useChargeOpenAccount.ts` si crece). Incluye `verificarStock` por línea antes de insertar.
 
-### Archivos
-- `src/components/coworking/ManageSessionAccountDialog.tsx` (refactor: quitar UI de venta, agregar botón puente).
+**3. `src/components/pos/CartPanel.tsx` — Banner y CTA**
+
+Aceptar dos props nuevas opcionales:
+- `coworkingSessionActive?: boolean`
+- `clienteNombre?: string | null`
+
+Cuando `coworkingSessionActive` sea true, renderizar arriba del listado un banner:
+
+```
+┌────────────────────────────────────────────┐
+│ 📌 Cargando a sesión de Coworking          │
+│    Cliente: {clienteNombre}                │
+└────────────────────────────────────────────┘
+```
+
+Estilo: `bg-primary/10 border border-primary/30 rounded-md p-2 text-sm text-primary`.
+
+El botón principal de checkout se queda en `PosPage.tsx` (no en CartPanel). Allí cambiamos el texto/icono condicional:
+- Modo normal → "Procesar pago en Caja" (desktop) / "Cobrar" (mobile sheet).
+- Modo cuenta abierta → "Cargar a Cuenta" con icono `ClipboardCheck` o `Receipt`.
+
+**4. UX: badge de precio especial en items**
+
+En `CartPanel.tsx`, si un item tiene `precio_especial === true`, agregar un mini-badge "Tarifa Coworking" junto al precio unitario para que el cajero vea por qué el precio bajó.
+
+### Fuera de alcance (siguientes épicas)
+
+- Implementación del checkout final que convierte líneas abiertas en una venta cerrada (UPDATE `venta_id`).
+- Eliminación física de `coworking_session_upsells`.
+- Migración del flujo amenities a `detalle_ventas`.
+
+### Detalles técnicos
+
+- `tarifaUpsells` se hidrata cada vez que `session_id` cambie en la URL; si la sesión no tiene `tarifa_id`, queda vacío.
+- El URL-effect debe correr ANTES de que el usuario interactúe — usar `useEffect` con `[searchParams]` y un guard de carga (`isLoadingTarifa`) opcional para evitar agregar productos sin upsells aún cargados.
+- Mantener `sessionStorage` persistence pero sobreescribir en cada montaje del POS según la URL (la URL es la fuente de verdad del modo).
+- RLS ya permite INSERT en `detalle_ventas` con `venta_id IS NULL` cuando la sesión está activa (Épica 1).
+- Tipos: extender `CartItem` opcional con `precio_especial?: boolean`.
