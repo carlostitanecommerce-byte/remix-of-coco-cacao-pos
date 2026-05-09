@@ -65,6 +65,8 @@ const ProductosTab = ({ isAdmin, roles }: Props) => {
   const canEditInstructions = isAdmin || roles.includes('supervisor');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [porPagina, setPorPagina] = useState(25);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
