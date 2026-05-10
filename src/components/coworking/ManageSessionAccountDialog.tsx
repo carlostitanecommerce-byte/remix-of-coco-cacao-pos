@@ -16,7 +16,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X, ShoppingCart } from 'lucide-react';
+import { Plus, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X, ShoppingCart, Ban } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import type { Area, CoworkingSession } from './types';
 import { enviarASesionKDS } from './sendToKitchen';
 
