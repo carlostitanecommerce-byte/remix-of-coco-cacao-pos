@@ -566,14 +566,19 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           )}
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background gap-2">
-          <Button variant="outline" onClick={handleClose}>
-            Cerrar
-          </Button>
-          <Button onClick={handleGoToPos} className="gap-2">
-            <ShoppingCart className="h-4 w-4" />
-            Agregar Consumo en POS
-          </Button>
+        <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background gap-2 flex-col sm:flex-row sm:items-center">
+          <p className="text-[11px] text-muted-foreground sm:mr-auto sm:text-left text-center leading-tight">
+            Las cancelaciones se envían a cocina para registrar merma o devolver al stock antes del cobro en POS.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleClose}>
+              Cerrar
+            </Button>
+            <Button onClick={handleGoToPos} className="gap-2">
+              <ShoppingCart className="h-4 w-4" />
+              Agregar Consumo en POS
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
 
