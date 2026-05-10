@@ -1,33 +1,14 @@
-# Eliminar "Añadir Consumo Extra" del diálogo de Registrar Entrada
+# Compactar botones de acciones en Sesiones Activas
 
-Ya existe la lógica de cargar consumos a una sesión activa desde el POS, por lo que la búsqueda de productos en el check-in es redundante. Se elimina por completo, conservando intactos:
+En `src/components/coworking/ActiveSessionsTable.tsx` (columna de acciones, líneas ~115-151), los botones se envuelven a varias filas porque sus labels son largos. Para mantenerlos en una sola fila horizontal:
 
-- Selección de área, tarifa, pax y horas.
-- **Amenities automáticos** incluidos por la tarifa (sección "Entregar al cliente ahora").
-- Snapshot de tarifa, validación de capacidad/reservaciones, envío a KDS de amenities, y audit log.
+1. **Acortar labels** de los botones del estado activo:
+   - "Gestionar Cuenta" → **"Cuenta"**
+   - "Registrar Salida" → **"Salida"**
+   - "Cancelar" se mantiene
 
-## Cambios en `src/components/coworking/CheckInDialog.tsx`
+2. **Forzar alineación horizontal**: cambiar el contenedor de `flex items-center gap-1.5 flex-wrap` a `flex items-center gap-1 flex-nowrap justify-end` para que no se envuelvan y queden compactos.
 
-1. **Eliminar UI**: bloque completo "Búsqueda unificada de consumos extra" (líneas ~408–513), incluyendo lista de `extraItems`, input de búsqueda, y resultados con badge "Precio Especial / Regular".
+3. **Conservar tooltips** (`title`) con los nombres completos (p. ej. "Gestionar cuenta de la sesión", "Registrar salida", "Cancelar sesión") para no perder contexto.
 
-2. **Eliminar estado y tipos**:
-   - Interfaces `Producto` y `ExtraItem`.
-   - Estados `productos`, `extraItems`, `search`.
-   - `inputs` no usados (`Search`, `Plus`, `Sparkles` si quedan huérfanos; `Gift` se queda por amenities).
-
-3. **Eliminar fetch de productos**: en `useEffect` de apertura, dejar solo la consulta a `tarifas_coworking`.
-
-4. **Eliminar reset**: quitar `setExtraItems([])` del `useEffect` que reacciona a `selectedTarifaId`.
-
-5. **Eliminar inserción en `handleCheckIn`**:
-   - Quitar `firstUpsell` (no se usa).
-   - Construir `detalleRows` solo con amenities (eliminar el `for (const it of extraItems)`).
-   - Quitar `...extraItems.map(...)` del arreglo `kitchenItems` enviado al KDS.
-   - Quitar `extra_items` del `metadata` del audit log.
-
-6. **Verificar imports**: limpiar iconos (`Sparkles`, `Search`, `Plus`) y `verificarStock` si ya no se usan tras la limpieza.
-
-## Validación
-
-- Smoke test manual: abrir diálogo, seleccionar área/tarifa con amenities, registrar entrada → verificar que la sesión se crea, los amenities se insertan en `detalle_ventas` y se envían al KDS, sin errores en consola.
-- Confirmar que añadir consumo desde POS sobre la sesión activa sigue funcionando (flujo ya existente, no se toca).
+4. No se modifica la lógica ni los handlers; tampoco los botones del estado `pendiente_pago` (Reabrir / Cancelar), aunque también recibirán `flex-nowrap` por consistencia.
