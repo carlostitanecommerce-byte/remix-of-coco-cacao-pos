@@ -21,6 +21,18 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
   const inFlightRef = useRef(false);
+  const confirmedRef = useRef(false);
+
+  const handleClose = async () => {
+    if (!confirmedRef.current && summary && summary.session.estado === 'activo') {
+      try {
+        await supabase.rpc('unfreeze_checkout_coworking' as any, { p_session_id: summary.session.id });
+      } catch (e) {
+        console.error('unfreeze_checkout_coworking failed', e);
+      }
+    }
+    onClose();
+  };
 
   if (!summary) return null;
 
@@ -49,6 +61,7 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
         return;
       }
+      confirmedRef.current = true;
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         accion: 'checkout_coworking',
@@ -85,7 +98,7 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
     : new Date();
 
   return (
-    <Dialog open={!!summary} onOpenChange={() => onClose()}>
+    <Dialog open={!!summary} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <DialogContent className="sm:max-w-md print:shadow-none print:border-0 print:max-w-full">
         <style>{`
           @media print {
