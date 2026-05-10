@@ -16,7 +16,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X, ShoppingCart } from 'lucide-react';
+import { Plus, Gift, Sparkles, ShoppingBag, Users, Pencil, Check, X, ShoppingCart, Ban } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import type { Area, CoworkingSession } from './types';
 import { enviarASesionKDS } from './sendToKitchen';
 
@@ -57,6 +59,43 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
   const mutationLockRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<SessionItem | null>(null);
+  const [cancelQty, setCancelQty] = useState('1');
+  const [cancelMotivo, setCancelMotivo] = useState('');
+
+  const openCancel = (item: SessionItem) => {
+    const max = item.cantidad - item.pendingCancelQty;
+    setCancelTarget(item);
+    setCancelQty(String(max));
+    setCancelMotivo('');
+  };
+
+  const handleConfirmCancel = () => withLock(async () => {
+    if (!session || !cancelTarget) return;
+    const qty = parseInt(cancelQty, 10);
+    const max = cancelTarget.cantidad - cancelTarget.pendingCancelQty;
+    if (isNaN(qty) || qty < 1 || qty > max) {
+      toast({ variant: 'destructive', title: 'Cantidad inválida', description: `Debe estar entre 1 y ${max}.` });
+      return;
+    }
+    if (cancelMotivo.trim().length < 4) {
+      toast({ variant: 'destructive', title: 'Motivo requerido', description: 'Mínimo 4 caracteres.' });
+      return;
+    }
+    const { error } = await supabase.rpc('solicitar_cancelacion_item_sesion' as any, {
+      p_session_id: session.id,
+      p_detalle_id: cancelTarget.id,
+      p_cantidad: qty,
+      p_motivo: cancelMotivo.trim(),
+    });
+    if (error) {
+      toast({ variant: 'destructive', title: 'No se pudo solicitar', description: error.message });
+      return;
+    }
+    toast({ title: 'Solicitud enviada a cocina', description: 'Cocina decidirá si retorna al stock o registra merma.' });
+    setCancelTarget(null);
+    await reloadItemsAndCancels();
+  });
 
   const withLock = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
     if (mutationLockRef.current) return undefined;
@@ -476,13 +515,25 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                           )}
                         </div>
                       </div>
-                      <span
-                        className={
-                          isAmenity ? 'text-primary font-medium' : 'text-foreground font-medium'
-                        }
-                      >
-                        {isAmenity ? 'Incluido' : `$${(item.precio_especial * item.cantidad).toFixed(2)}`}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={
+                            isAmenity ? 'text-primary font-medium' : 'text-foreground font-medium'
+                          }
+                        >
+                          {isAmenity ? 'Incluido' : `$${(item.precio_especial * item.cantidad).toFixed(2)}`}
+                        </span>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => openCancel(item)}
+                          disabled={busy || item.pendingCancelQty >= item.cantidad}
+                          title="Solicitar cancelación de este item"
+                        >
+                          <Ban className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   );
                 })}
@@ -515,14 +566,19 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           )}
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background gap-2">
-          <Button variant="outline" onClick={handleClose}>
-            Cerrar
-          </Button>
-          <Button onClick={handleGoToPos} className="gap-2">
-            <ShoppingCart className="h-4 w-4" />
-            Agregar Consumo en POS
-          </Button>
+        <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background gap-2 flex-col sm:flex-row sm:items-center">
+          <p className="text-[11px] text-muted-foreground sm:mr-auto sm:text-left text-center leading-tight">
+            Las cancelaciones se envían a cocina para registrar merma o devolver al stock antes del cobro en POS.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleClose}>
+              Cerrar
+            </Button>
+            <Button onClick={handleGoToPos} className="gap-2">
+              <ShoppingCart className="h-4 w-4" />
+              Agregar Consumo en POS
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
 
@@ -539,6 +595,46 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           <AlertDialogFooter>
             <AlertDialogCancel>No, dejar como está</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmAmenityRecalc}>Sí, actualizar amenities</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Solicitar cancelación de item</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cancelTarget?.nombre} — disponible para cancelar: {cancelTarget ? cancelTarget.cantidad - cancelTarget.pendingCancelQty : 0}.
+              Cocina decidirá si los insumos se devuelven al stock o se registran como merma.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="cancel-qty">Cantidad a cancelar</Label>
+              <Input
+                id="cancel-qty"
+                type="number"
+                min={1}
+                max={cancelTarget ? cancelTarget.cantidad - cancelTarget.pendingCancelQty : 1}
+                value={cancelQty}
+                onChange={e => setCancelQty(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cancel-motivo">Motivo</Label>
+              <Textarea
+                id="cancel-motivo"
+                placeholder="Ej. Cliente cambió de opinión, error en pedido, etc."
+                value={cancelMotivo}
+                onChange={e => setCancelMotivo(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cerrar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmCancel} disabled={busy}>
+              Enviar a cocina
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
