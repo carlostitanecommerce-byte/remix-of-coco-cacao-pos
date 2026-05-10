@@ -62,11 +62,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [upsellOptions, setUpsellOptions] = useState<UpsellOption[]>([]);
   const [amenityOptions, setAmenityOptions] = useState<AmenityOption[]>([]);
 
-  // Unified product search for extra consumption at check-in
-  const [productos, setProductos] = useState<Producto[]>([]);
-  const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
-  const [search, setSearch] = useState('');
-
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const isPublicArea = selectedArea ? !selectedArea.es_privado : false;
 
@@ -77,16 +72,12 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     }
   }, [isPublicArea]);
 
-  // Load tarifas + productos on open
+  // Load tarifas on open
   useEffect(() => {
     if (!open) return;
     const fetchOpenData = async () => {
-      const [tarifasRes, prodRes] = await Promise.all([
-        supabase.from('tarifas_coworking').select('*').eq('activo', true),
-        supabase.from('productos').select('id, nombre, categoria, precio_venta').eq('activo', true).eq('tipo', 'simple').order('nombre'),
-      ]);
+      const tarifasRes = await supabase.from('tarifas_coworking').select('*').eq('activo', true);
       setTarifas((tarifasRes.data as Tarifa[]) ?? []);
-      setProductos((prodRes.data as Producto[]) ?? []);
     };
     fetchOpenData();
   }, [open]);
