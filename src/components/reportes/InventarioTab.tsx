@@ -234,10 +234,11 @@ export default function InventarioTab() {
         }
       }
 
-      // 5) COMPRAS posteriores → RESTAR
+      // 5) COMPRAS posteriores → RESTAR (excluir anuladas)
       const comQ = supabase
         .from('compras_insumos')
         .select('insumo_id, cantidad_unidades')
+        .eq('anulada', false)
         .gt('fecha', desde)
         .limit(LIM_COMPRAS);
       const { data: comprasData, error: comErr } = await (signal ? comQ.abortSignal(signal) : comQ);
