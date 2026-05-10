@@ -59,6 +59,43 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
   const mutationLockRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<SessionItem | null>(null);
+  const [cancelQty, setCancelQty] = useState('1');
+  const [cancelMotivo, setCancelMotivo] = useState('');
+
+  const openCancel = (item: SessionItem) => {
+    const max = item.cantidad - item.pendingCancelQty;
+    setCancelTarget(item);
+    setCancelQty(String(max));
+    setCancelMotivo('');
+  };
+
+  const handleConfirmCancel = () => withLock(async () => {
+    if (!session || !cancelTarget) return;
+    const qty = parseInt(cancelQty, 10);
+    const max = cancelTarget.cantidad - cancelTarget.pendingCancelQty;
+    if (isNaN(qty) || qty < 1 || qty > max) {
+      toast({ variant: 'destructive', title: 'Cantidad inválida', description: `Debe estar entre 1 y ${max}.` });
+      return;
+    }
+    if (cancelMotivo.trim().length < 4) {
+      toast({ variant: 'destructive', title: 'Motivo requerido', description: 'Mínimo 4 caracteres.' });
+      return;
+    }
+    const { error } = await supabase.rpc('solicitar_cancelacion_item_sesion' as any, {
+      p_session_id: session.id,
+      p_detalle_id: cancelTarget.id,
+      p_cantidad: qty,
+      p_motivo: cancelMotivo.trim(),
+    });
+    if (error) {
+      toast({ variant: 'destructive', title: 'No se pudo solicitar', description: error.message });
+      return;
+    }
+    toast({ title: 'Solicitud enviada a cocina', description: 'Cocina decidirá si retorna al stock o registra merma.' });
+    setCancelTarget(null);
+    await reloadItemsAndCancels();
+  });
 
   const withLock = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
     if (mutationLockRef.current) return undefined;
