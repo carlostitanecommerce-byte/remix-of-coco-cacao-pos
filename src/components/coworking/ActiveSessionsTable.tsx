@@ -113,7 +113,7 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
                       {new Date(s.fecha_fin_estimada).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-1 flex-nowrap justify-end">
                         {isPendientePago ? (
                           <>
                             {canReopen && (
@@ -128,7 +128,7 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
                                 {reopeningId === s.id ? 'Reabriendo...' : 'Reabrir'}
                               </Button>
                             )}
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onCancel(s)}>
+                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onCancel(s)} title="Cancelar sesión">
                               <XCircle className="h-3 w-3 mr-1" />Cancelar
                             </Button>
                           </>
@@ -136,13 +136,13 @@ export function ActiveSessionsTable({ sessions, areas, onCheckOut, onCancel, onM
                           <>
                             {onManageAccount && (
                               <Button variant="default" size="sm" onClick={() => onManageAccount(s)} title="Gestionar cuenta de la sesión">
-                                <ShoppingBag className="h-3 w-3 mr-1" />Gestionar Cuenta
+                                <ShoppingBag className="h-3 w-3 mr-1" />Cuenta
                               </Button>
                             )}
-                            <Button variant="outline" size="sm" onClick={() => onCheckOut(s)}>
-                              <LogOutIcon className="h-3 w-3 mr-1" />Registrar Salida
+                            <Button variant="outline" size="sm" onClick={() => onCheckOut(s)} title="Registrar salida">
+                              <LogOutIcon className="h-3 w-3 mr-1" />Salida
                             </Button>
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onCancel(s)}>
+                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onCancel(s)} title="Cancelar sesión">
                               <XCircle className="h-3 w-3 mr-1" />Cancelar
                             </Button>
                           </>
