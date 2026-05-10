@@ -508,7 +508,8 @@ const ComprasTab = ({ isAdmin }: Props) => {
               <div className="space-y-3">
                 <p>
                   Se descontarán <strong>{anularTarget?.cantidad_unidades}</strong> unidades de{' '}
-                  <strong>"{anularTarget?.insumo_nombre}"</strong> del stock actual y la compra se eliminará del historial.
+                  <strong>"{anularTarget?.insumo_nombre}"</strong> del stock actual. La compra quedará marcada como{' '}
+                  <strong>anulada</strong> en el historial (no se elimina, para conservar la traza).
                   Si el insumo ya fue consumido, el sistema bloqueará la operación.
                 </p>
                 <div className="space-y-1">
