@@ -38,20 +38,6 @@ interface AmenityOption {
   cantidad_incluida: number;
 }
 
-interface Producto {
-  id: string;
-  nombre: string;
-  categoria: string;
-  precio_venta: number;
-}
-
-interface ExtraItem {
-  producto_id: string;
-  nombre: string;
-  precio: number;
-  isSpecial: boolean;
-}
-
 interface Props {
   areas: Area[];
   getOccupancy: (areaId: string) => number;
