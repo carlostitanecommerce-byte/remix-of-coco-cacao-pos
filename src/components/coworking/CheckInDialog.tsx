@@ -245,21 +245,13 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         }
       }
 
-      // Enviar a Cocina los amenities + extras añadidos en check-in
-      const kitchenItems: KitchenItemInput[] = [
-        ...amenityOptions.map(a => ({
-          producto_id: a.producto_id,
-          nombre: a.nombre,
-          cantidad: a.cantidad_incluida * pax,
-          isAmenity: true,
-        })),
-        ...extraItems.map(it => ({
-          producto_id: it.producto_id,
-          nombre: it.nombre,
-          cantidad: 1,
-          isAmenity: false,
-        })),
-      ];
+      // Enviar a Cocina los amenities añadidos en check-in
+      const kitchenItems: KitchenItemInput[] = amenityOptions.map(a => ({
+        producto_id: a.producto_id,
+        nombre: a.nombre,
+        cantidad: a.cantidad_incluida * pax,
+        isAmenity: true,
+      }));
 
       let kdsFolio: number | null = null;
       if (kitchenItems.length > 0) {
