@@ -1389,6 +1389,10 @@ export type Database = {
             }
             Returns: Json
           }
+      unfreeze_checkout_coworking: {
+        Args: { p_session_id: string }
+        Returns: boolean
+      }
       validar_stock_carrito: { Args: { p_items: Json }; Returns: Json }
       validar_stock_disponible: {
         Args: { p_cantidad: number; p_producto_id: string }

@@ -1,58 +1,48 @@
-# Permitir solicitar cancelación de items (productos y amenities) desde Gestionar Cuenta
+# Bug: Sesiones activas se quedan "Congeladas"
 
-## Contexto
+## Causa raíz
 
-El backend ya tiene todo el flujo de cancelación por item con trazabilidad:
+Confirmé en la base de datos que la sesión de **Carlos Alberto Trejo Berumen** está en estado `activo` pero tiene `fecha_salida_real` ya guardada (00:22:55). Por eso el cronómetro se quedó parado en ~5 minutos y aparece el badge "Congelado".
 
-- Tabla `cancelaciones_items_sesion` (estado `pendiente_decision` por defecto).
-- Realtime ya conectado en `ManageSessionAccountDialog` (la columna `pendingCancelQty` se actualiza sola).
-- `CocinaPage` lista las cancelaciones y resuelve con `resolver_cancelacion_item_sesion(p_decision = 'retornado_stock' | 'merma' | 'rechazado')`, que:
-  - Devuelve insumos a stock o registra merma según receta (productos simples y paquetes).
-  - Reduce / borra la línea de `detalle_ventas` para que ya no se cobre en POS.
-  - Ajusta `kds_order_items` cuando hay vínculo.
-  - Inserta `audit_logs`.
+Esto ocurre así:
 
-Falta (a) la UI para que el cajero/recepción solicite la cancelación desde el diálogo "Cuenta de la sesión" y (b) un RPC que encapsule la creación de la solicitud (en lugar de hacer un INSERT directo desde el frontend).
+1. Alguien abre la sesión y pulsa **Salida** (botón "Registrar salida").
+2. `CoworkingPage.handleCheckOut` llama al RPC `freeze_checkout_coworking`, que **congela** `fecha_salida_real = now()` para que el monto a cobrar no siga aumentando mientras se confirma el cierre.
+3. Se abre el `CheckoutDialog` con el resumen.
+4. Si el usuario **cierra el diálogo sin pulsar "Finalizar Estancia y Pasar a Caja"** (cambia de pantalla, hace click fuera, presiona Escape, etc.), la sesión queda en `activo` pero con `fecha_salida_real` ya escrito. El timer entonces deja de avanzar y muestra "Congelado" para siempre.
 
-## Cambios
+No hay actualmente ningún flujo que libere ese congelamiento si el cierre se cancela.
 
-### 1. Migración SQL — nuevo RPC `solicitar_cancelacion_item_sesion`
+## Solución
 
-`SECURITY DEFINER`, `search_path = public`, parámetros:
-`p_session_id uuid`, `p_detalle_id uuid`, `p_cantidad integer`, `p_motivo text`.
+### 1. Migración SQL
 
-Lógica:
-1. `auth.uid()` → `v_user`; rechazar si NULL.
-2. Validar que `p_motivo` no esté vacío y que `p_cantidad >= 1`.
-3. `SELECT FOR UPDATE` sobre `detalle_ventas` filtrando `id = p_detalle_id`, `coworking_session_id = p_session_id` y `venta_id IS NULL`. Si no existe → error legible "Línea no encontrada o ya facturada".
-4. Validar que `p_cantidad <= cantidad - SUM(cantidad pendientes ya creadas para este detalle_id en estado pendiente_decision)`; si excede → error.
-5. Buscar opcionalmente el `kds_order_items` abierto que corresponda: por `producto_id` + `coworking_session_id` (vía join con `kds_orders`) y `kds_orders.estado <> 'listo'`, último creado. Capturar `kds_order_id` y `kds_item_id` (pueden quedar NULL).
-6. `INSERT` en `cancelaciones_items_sesion` con `session_id`, `detalle_id`, `producto_id`, `nombre_producto`, `cantidad`, `motivo`, `solicitante_id = v_user`, `kds_order_id`, `kds_item_id`. Estado queda en `pendiente_decision` por default.
-7. `INSERT` en `audit_logs` con acción `solicitar_cancelacion_item_sesion` y metadata (cancelacion_id, detalle_id, cantidad).
-8. Retorna `json_build_object('ok', true, 'cancelacion_id', v_id)`.
+**Nuevo RPC `unfreeze_checkout_coworking(p_session_id uuid)`** (`SECURITY DEFINER`, `search_path = public`):
+- Limpia `fecha_salida_real = NULL` **solo si** `estado = 'activo'` (nunca toca sesiones en `pendiente_pago` o `finalizado`).
+- Devuelve `boolean` (true si se liberó).
+- `GRANT EXECUTE` a `authenticated`.
 
-`GRANT EXECUTE` al rol `authenticated`.
+**Limpieza de datos existentes** (one-shot dentro de la misma migración):
+```sql
+UPDATE coworking_sessions
+SET fecha_salida_real = NULL, updated_at = now()
+WHERE estado = 'activo' AND fecha_salida_real IS NOT NULL;
+```
+Esto recupera la sesión actualmente atascada.
 
-### 2. UI — `src/components/coworking/ManageSessionAccountDialog.tsx`
+### 2. `src/components/coworking/CheckoutDialog.tsx`
 
-1. **Botón "Cancelar" por línea** en cada item del listado "Estado de la Cuenta" (productos y amenities por igual). Se deshabilita cuando `pendingCancelQty >= item.cantidad`.
+- Agregar un `confirmedRef` que se marque `true` solo cuando `handleConfirm` actualiza la sesión a `pendiente_pago` con éxito.
+- Modificar `onOpenChange`/`onClose`: si el diálogo se cierra **sin** que `confirmedRef.current` sea true y la sesión todavía está `activo`, llamar `supabase.rpc('unfreeze_checkout_coworking', { p_session_id: summary.session.id })` antes de invocar `onClose()`.
+- Tras el unfreeze, refrescar la lista (la realtime de `coworking_sessions` ya está suscrita en `useCoworkingData`, así que basta con disparar el `onClose` normal; el badge "Congelado" desaparecerá automáticamente).
 
-2. **Diálogo de confirmación** (`AlertDialog` o subcomponente) que pide:
-   - **Cantidad a cancelar** (input numérico, default `item.cantidad - pendingCancelQty`, máximo el mismo valor).
-   - **Motivo** (textarea obligatorio, mínimo 4 caracteres).
-   - Aviso: "La cocina decidirá si los insumos se devuelven al stock o se registran como merma".
+### 3. Sin cambios en otros archivos
 
-3. **Acción al confirmar** (envuelta en `withLock`):
-   - Llamar `supabase.rpc('solicitar_cancelacion_item_sesion', { p_session_id, p_detalle_id, p_cantidad, p_motivo })`.
-   - Toast "Solicitud enviada a cocina" y refrescar (Realtime ya marca `pendingCancelQty`).
-
-4. Mantener el indicador existente `Cancelación pendiente (n)` y añadir un texto pequeño en el footer: "Las cancelaciones se envían a cocina para registrar merma o devolver al stock antes del cobro en POS."
+`CoworkingSessionSelector` (caja) **no** dispara el freeze, solo lee `fecha_salida_real`; no requiere cambios. El flujo de cancelar sesión y el de checkout completo siguen iguales.
 
 ## Validación
 
-- Cargar una sesión con productos y un amenity reclamado.
-- Cancelar un amenity (motivo + cantidad) → verificar `cancelaciones_items_sesion` insertada vía RPC y badge "Cancelación pendiente" visible.
-- En `Cocina`, resolver como **merma** → la línea desaparece de la cuenta y se crea registro en `mermas`.
-- Repetir con un producto cobrable resolviendo como **retornado_stock** → línea reducida/eliminada y `insumos.stock_actual` aumentado.
-- Confirmar que al pasar a POS la sesión ya no incluye los items cancelados.
-- Probar caso de error: solicitar cantidad mayor a la disponible → el RPC rechaza con mensaje legible.
+- Sesión actual de Carlos: tras correr la migración, vuelve a estado normal con cronómetro corriendo.
+- Caso A: pulsar **Salida** → cerrar el diálogo sin confirmar → la sesión vuelve a correr y el badge "Congelado" desaparece.
+- Caso B: pulsar **Salida** → "Finalizar Estancia y Pasar a Caja" → la sesión pasa a `pendiente_pago` con `fecha_salida_real` intacto (no se desfreezza).
+- Caso C: el RPC nunca toca sesiones que ya estén en `pendiente_pago`/`finalizado`.
