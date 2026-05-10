@@ -61,6 +61,7 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
         return;
       }
+      confirmedRef.current = true;
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         accion: 'checkout_coworking',
@@ -97,7 +98,7 @@ export function CheckoutDialog({ summary, onClose, onSuccess }: Props) {
     : new Date();
 
   return (
-    <Dialog open={!!summary} onOpenChange={() => onClose()}>
+    <Dialog open={!!summary} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <DialogContent className="sm:max-w-md print:shadow-none print:border-0 print:max-w-full">
         <style>{`
           @media print {
