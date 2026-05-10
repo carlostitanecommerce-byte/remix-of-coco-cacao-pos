@@ -598,6 +598,46 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Solicitar cancelación de item</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cancelTarget?.nombre} — disponible para cancelar: {cancelTarget ? cancelTarget.cantidad - cancelTarget.pendingCancelQty : 0}.
+              Cocina decidirá si los insumos se devuelven al stock o se registran como merma.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="cancel-qty">Cantidad a cancelar</Label>
+              <Input
+                id="cancel-qty"
+                type="number"
+                min={1}
+                max={cancelTarget ? cancelTarget.cantidad - cancelTarget.pendingCancelQty : 1}
+                value={cancelQty}
+                onChange={e => setCancelQty(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cancel-motivo">Motivo</Label>
+              <Textarea
+                id="cancel-motivo"
+                placeholder="Ej. Cliente cambió de opinión, error en pedido, etc."
+                value={cancelMotivo}
+                onChange={e => setCancelMotivo(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cerrar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmCancel} disabled={busy}>
+              Enviar a cocina
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
