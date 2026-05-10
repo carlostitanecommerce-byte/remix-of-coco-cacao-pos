@@ -214,19 +214,8 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         return;
       }
 
-      // Insertar amenities + extras directamente en detalle_ventas (cuenta abierta)
+      // Insertar amenities directamente en detalle_ventas (cuenta abierta)
       const detalleRows: any[] = [];
-      for (const it of extraItems) {
-        detalleRows.push({
-          coworking_session_id: sessionData.id,
-          venta_id: null,
-          producto_id: it.producto_id,
-          cantidad: 1,
-          precio_unitario: it.precio,
-          subtotal: it.precio,
-          tipo_concepto: it.isSpecial ? 'producto' : 'producto',
-        });
-      }
       for (const a of amenityOptions) {
         const qty = a.cantidad_incluida * pax;
         detalleRows.push({
