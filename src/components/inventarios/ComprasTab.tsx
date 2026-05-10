@@ -323,33 +323,46 @@ const ComprasTab = ({ isAdmin }: Props) => {
               </TableHeader>
               <TableBody>
                 {comprasFiltradas.map((c) => (
-                  <TableRow key={c.id}>
+                  <TableRow key={c.id} className={c.anulada ? 'opacity-60' : ''}>
                     <TableCell>
-                      {new Date(c.fecha).toLocaleString('es-MX', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      <div className="flex flex-col">
+                        <span>
+                          {new Date(c.fecha).toLocaleString('es-MX', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                        {c.anulada && (
+                          <span className="text-xs font-semibold text-destructive uppercase">Anulada</span>
+                        )}
+                      </div>
                     </TableCell>
-                    <TableCell className="font-medium">{c.insumo_nombre}</TableCell>
+                    <TableCell className={`font-medium ${c.anulada ? 'line-through' : ''}`}>{c.insumo_nombre}</TableCell>
                     <TableCell className="text-right">{c.cantidad_presentaciones}</TableCell>
                     <TableCell className="text-right">{c.cantidad_unidades}</TableCell>
                     <TableCell className="text-right">{fmtMoney(c.costo_total)}</TableCell>
-                    <TableCell className="max-w-[200px] truncate">{c.nota || '—'}</TableCell>
+                    <TableCell className="max-w-[200px] truncate" title={c.anulada ? `Anulada: ${c.motivo_anulacion ?? ''}` : (c.nota ?? '')}>
+                      {c.anulada ? (
+                        <span className="text-destructive">Anulada — {c.motivo_anulacion || 'sin motivo'}</span>
+                      ) : (c.nota || '—')}
+                    </TableCell>
                     <TableCell>{c.usuario_nombre}</TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive gap-1"
-                          onClick={() => { setAnularTarget(c); setMotivoAnular(''); }}
-                          title="Anular compra (revierte stock)"
-                        >
-                          <Ban className="h-3.5 w-3.5" /> Anular
-                        </Button>
+                        {!c.anulada && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive gap-1"
+                            onClick={() => { setAnularTarget(c); setMotivoAnular(''); }}
+                            title="Anular compra (revierte stock)"
+                          >
+                            <Ban className="h-3.5 w-3.5" /> Anular
+                          </Button>
+                        )}
                       </TableCell>
                     )}
                   </TableRow>
