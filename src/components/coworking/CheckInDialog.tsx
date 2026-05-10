@@ -278,7 +278,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
           horas: horasNum,
           tarifa_id: selectedTarifaId || null,
           kds_folio: kdsFolio,
-          extra_items: extraItems.map(i => ({ producto_id: i.producto_id, precio: i.precio, isSpecial: i.isSpecial })),
           tarifa_snapshot_resumen: selectedTarifa
             ? {
                 nombre: selectedTarifa.nombre,
