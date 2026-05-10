@@ -6,10 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { UserPlus, X, Plus, Search, Sparkles, Gift } from 'lucide-react';
+
+import { UserPlus, Gift } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { verificarStock } from '@/hooks/useValidarStock';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
 import { enviarASesionKDS, type KitchenItemInput } from './sendToKitchen';
@@ -39,20 +38,6 @@ interface AmenityOption {
   cantidad_incluida: number;
 }
 
-interface Producto {
-  id: string;
-  nombre: string;
-  categoria: string;
-  precio_venta: number;
-}
-
-interface ExtraItem {
-  producto_id: string;
-  nombre: string;
-  precio: number;
-  isSpecial: boolean;
-}
-
 interface Props {
   areas: Area[];
   getOccupancy: (areaId: string) => number;
@@ -77,11 +62,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [upsellOptions, setUpsellOptions] = useState<UpsellOption[]>([]);
   const [amenityOptions, setAmenityOptions] = useState<AmenityOption[]>([]);
 
-  // Unified product search for extra consumption at check-in
-  const [productos, setProductos] = useState<Producto[]>([]);
-  const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
-  const [search, setSearch] = useState('');
-
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const isPublicArea = selectedArea ? !selectedArea.es_privado : false;
 
@@ -92,16 +72,12 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     }
   }, [isPublicArea]);
 
-  // Load tarifas + productos on open
+  // Load tarifas on open
   useEffect(() => {
     if (!open) return;
     const fetchOpenData = async () => {
-      const [tarifasRes, prodRes] = await Promise.all([
-        supabase.from('tarifas_coworking').select('*').eq('activo', true),
-        supabase.from('productos').select('id, nombre, categoria, precio_venta').eq('activo', true).eq('tipo', 'simple').order('nombre'),
-      ]);
+      const tarifasRes = await supabase.from('tarifas_coworking').select('*').eq('activo', true);
       setTarifas((tarifasRes.data as Tarifa[]) ?? []);
-      setProductos((prodRes.data as Producto[]) ?? []);
     };
     fetchOpenData();
   }, [open]);
@@ -122,7 +98,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
 
   // Load upsell options and amenities when tarifa changes
   useEffect(() => {
-    setExtraItems([]);
     setUpsellOptions([]);
     setAmenityOptions([]);
     if (!selectedTarifaId) return;
@@ -200,7 +175,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       const fechaInicio = new Date();
       const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
 
-      const firstUpsell = extraItems.find(i => i.isSpecial) ?? null;
+      
 
       // Build immutable tarifa snapshot at check-in time
       const selectedTarifa = selectedTarifaId
@@ -239,19 +214,8 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         return;
       }
 
-      // Insertar amenities + extras directamente en detalle_ventas (cuenta abierta)
+      // Insertar amenities directamente en detalle_ventas (cuenta abierta)
       const detalleRows: any[] = [];
-      for (const it of extraItems) {
-        detalleRows.push({
-          coworking_session_id: sessionData.id,
-          venta_id: null,
-          producto_id: it.producto_id,
-          cantidad: 1,
-          precio_unitario: it.precio,
-          subtotal: it.precio,
-          tipo_concepto: it.isSpecial ? 'producto' : 'producto',
-        });
-      }
       for (const a of amenityOptions) {
         const qty = a.cantidad_incluida * pax;
         detalleRows.push({
@@ -281,21 +245,13 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         }
       }
 
-      // Enviar a Cocina los amenities + extras añadidos en check-in
-      const kitchenItems: KitchenItemInput[] = [
-        ...amenityOptions.map(a => ({
-          producto_id: a.producto_id,
-          nombre: a.nombre,
-          cantidad: a.cantidad_incluida * pax,
-          isAmenity: true,
-        })),
-        ...extraItems.map(it => ({
-          producto_id: it.producto_id,
-          nombre: it.nombre,
-          cantidad: 1,
-          isAmenity: false,
-        })),
-      ];
+      // Enviar a Cocina los amenities añadidos en check-in
+      const kitchenItems: KitchenItemInput[] = amenityOptions.map(a => ({
+        producto_id: a.producto_id,
+        nombre: a.nombre,
+        cantidad: a.cantidad_incluida * pax,
+        isAmenity: true,
+      }));
 
       let kdsFolio: number | null = null;
       if (kitchenItems.length > 0) {
@@ -322,7 +278,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
           horas: horasNum,
           tarifa_id: selectedTarifaId || null,
           kds_folio: kdsFolio,
-          extra_items: extraItems.map(i => ({ producto_id: i.producto_id, precio: i.precio, isSpecial: i.isSpecial })),
           tarifa_snapshot_resumen: selectedTarifa
             ? {
                 nombre: selectedTarifa.nombre,
@@ -339,7 +294,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         description: kdsFolio ? `Comanda enviada a cocina (#${String(kdsFolio).padStart(4, '0')})` : undefined,
       });
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
-      setSelectedTarifaId(''); setExtraItems([]); setSearch('');
+      setSelectedTarifaId('');
       setAmenityOptions([]);
 
       setOpen(false);
@@ -405,112 +360,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             </div>
           )}
 
-          {/* Búsqueda unificada de consumos extra */}
-          {selectedAreaId && (
-            <div className="space-y-2">
-              <Label>
-                Añadir Consumo Extra <span className="text-muted-foreground text-xs">— opcional</span>
-              </Label>
 
-              {extraItems.length > 0 && (
-                <div className="space-y-1">
-                  {extraItems.map((it, idx) => (
-                    <div key={`${it.producto_id}-${idx}`} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-sm">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {it.isSpecial ? (
-                          <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-                        ) : (
-                          <Gift className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        )}
-                        <span className="truncate">{it.nombre}</span>
-                        <span className="text-muted-foreground shrink-0">${it.precio.toFixed(2)}</span>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => setExtraItems(prev => prev.filter((_, i) => i !== idx))}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar producto por nombre o categoría..."
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-
-              {search.trim() !== '' && (
-                <div className="space-y-1 max-h-48 overflow-y-auto border border-border/60 rounded-md p-1">
-                  {(() => {
-                    const filtered = productos.filter(
-                      p =>
-                        p.nombre.toLowerCase().includes(search.toLowerCase()) ||
-                        p.categoria.toLowerCase().includes(search.toLowerCase()),
-                    );
-                    if (filtered.length === 0) {
-                      return <p className="text-xs text-muted-foreground text-center py-2">Sin resultados</p>;
-                    }
-                    return filtered.map(p => {
-                      const upsell = upsellOptions.find(u => u.producto_id === p.id);
-                      const isSpecial = !!upsell;
-                      const precio = isSpecial ? upsell!.precio_especial : p.precio_venta;
-                      return (
-                        <div
-                          key={p.id}
-                          className="flex items-center justify-between rounded-md border border-transparent hover:border-border hover:bg-muted/40 p-1.5 text-sm transition-colors"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium truncate">{p.nombre}</span>
-                              {isSpecial ? (
-                                <Badge variant="default" className="text-[10px] px-1.5 py-0">Precio Especial</Badge>
-                              ) : (
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Precio Regular</Badge>
-                              )}
-                            </div>
-                            <span className="text-muted-foreground text-xs">{p.categoria}</span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="font-medium">${precio.toFixed(2)}</span>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-7"
-                              onClick={async () => {
-                                const validacion = await verificarStock(p.id, 1);
-                                if (!validacion.valido) {
-                                  toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
-                                  return;
-                                }
-                                setExtraItems(prev => [
-                                  ...prev,
-                                  { producto_id: p.id, nombre: p.nombre, precio, isSpecial },
-                                ]);
-                                setSearch('');
-                              }}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Amenities informativos (Solo lectura) */}
           {selectedTarifaId && amenityOptions.length > 0 && (
