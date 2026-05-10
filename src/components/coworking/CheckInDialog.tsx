@@ -175,7 +175,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       const fechaInicio = new Date();
       const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
 
-      const firstUpsell = extraItems.find(i => i.isSpecial) ?? null;
+      
 
       // Build immutable tarifa snapshot at check-in time
       const selectedTarifa = selectedTarifaId
