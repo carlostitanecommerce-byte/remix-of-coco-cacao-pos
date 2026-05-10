@@ -37,6 +37,9 @@ interface CompraRow {
   nota: string | null;
   usuario_id: string;
   fecha: string;
+  anulada?: boolean;
+  motivo_anulacion?: string | null;
+  anulada_at?: string | null;
   insumo_nombre?: string;
   usuario_nombre?: string;
 }
