@@ -199,6 +199,9 @@ export type Database = {
       }
       compras_insumos: {
         Row: {
+          anulada: boolean
+          anulada_at: string | null
+          anulada_por: string | null
           cantidad_presentaciones: number
           cantidad_unidades: number
           costo_presentacion: number
@@ -207,10 +210,14 @@ export type Database = {
           fecha: string
           id: string
           insumo_id: string
+          motivo_anulacion: string | null
           nota: string | null
           usuario_id: string
         }
         Insert: {
+          anulada?: boolean
+          anulada_at?: string | null
+          anulada_por?: string | null
           cantidad_presentaciones?: number
           cantidad_unidades?: number
           costo_presentacion?: number
@@ -219,10 +226,14 @@ export type Database = {
           fecha?: string
           id?: string
           insumo_id: string
+          motivo_anulacion?: string | null
           nota?: string | null
           usuario_id: string
         }
         Update: {
+          anulada?: boolean
+          anulada_at?: string | null
+          anulada_por?: string | null
           cantidad_presentaciones?: number
           cantidad_unidades?: number
           costo_presentacion?: number
@@ -231,6 +242,7 @@ export type Database = {
           fecha?: string
           id?: string
           insumo_id?: string
+          motivo_anulacion?: string | null
           nota?: string | null
           usuario_id?: string
         }
