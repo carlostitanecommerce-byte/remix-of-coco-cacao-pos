@@ -294,7 +294,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
         description: kdsFolio ? `Comanda enviada a cocina (#${String(kdsFolio).padStart(4, '0')})` : undefined,
       });
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
-      setSelectedTarifaId(''); setExtraItems([]); setSearch('');
+      setSelectedTarifaId('');
       setAmenityOptions([]);
 
       setOpen(false);
