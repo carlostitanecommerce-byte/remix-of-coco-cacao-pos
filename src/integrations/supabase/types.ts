@@ -1375,10 +1375,20 @@ export type Database = {
         Args: { p_cancelacion_id: string; p_decision: string; p_notas?: string }
         Returns: Json
       }
-      solicitar_cancelacion_item_sesion: {
-        Args: { p_cantidad: number; p_detalle_id: string; p_motivo: string }
-        Returns: Json
-      }
+      solicitar_cancelacion_item_sesion:
+        | {
+            Args: { p_cantidad: number; p_detalle_id: string; p_motivo: string }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_cantidad: number
+              p_detalle_id: string
+              p_motivo: string
+              p_session_id: string
+            }
+            Returns: Json
+          }
       validar_stock_carrito: { Args: { p_items: Json }; Returns: Json }
       validar_stock_disponible: {
         Args: { p_cantidad: number; p_producto_id: string }
