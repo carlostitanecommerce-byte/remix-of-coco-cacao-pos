@@ -98,7 +98,6 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
 
   // Load upsell options and amenities when tarifa changes
   useEffect(() => {
-    setExtraItems([]);
     setUpsellOptions([]);
     setAmenityOptions([]);
     if (!selectedTarifaId) return;
