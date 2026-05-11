@@ -137,11 +137,12 @@ export default function CocinaPage() {
 
   const fetchOrders = useCallback(async () => {
     const myToken = ++fetchTokenRef.current;
+    const twoMinsAgo = new Date(Date.now() - 120_000).toISOString();
     const { data: rawOrders, error } = await supabase
       .from('kds_orders')
       .select('*')
       .gte('created_at', fetchWindowIso())
-      .in('estado', ACTIVE_STATES as any)
+      .or(`estado.eq.pendiente,estado.eq.en_preparacion,and(estado.eq.listo,updated_at.gte.${twoMinsAgo})`)
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -644,6 +645,7 @@ export default function CocinaPage() {
   const handleStart = (orderId: string) => updateEstado(orderId, 'en_preparacion');
   const handleMarkReady = (orderId: string) => updateEstado(orderId, 'listo');
   const handleRevert = (orderId: string) => updateEstado(orderId, 'en_preparacion');
+  const handleDismiss = (orderId: string) => updateEstado(orderId, 'expirada' as any);
 
   // ------- Cancelaciones de items de sesión coworking -------
   const fetchCancelaciones = useCallback(async () => {
@@ -770,6 +772,7 @@ export default function CocinaPage() {
           onStart={handleStart}
           onMarkReady={handleMarkReady}
           onRevert={handleRevert}
+          onDismiss={handleDismiss}
           cancelacionesPorOrden={cancelacionesPorOrden}
           onResolveCancel={handleResolveCancel}
           resolvingCancelId={resolvingCancelId}

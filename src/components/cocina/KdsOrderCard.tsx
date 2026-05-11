@@ -51,6 +51,7 @@ interface Props {
   onStart?: (orderId: string) => void;
   onMarkReady?: (orderId: string) => void;
   onRevert?: (orderId: string) => void;
+  onDismiss?: (orderId: string) => void;
   /** Cancelaciones pendientes asociadas a esta orden, indexadas por kds_item_id */
   cancelaciones?: KdsItemCancelacion[];
   /** Resolver una cancelación (cocina decide retorno o merma, con notas opcionales) */
@@ -72,7 +73,7 @@ const ConsumoIcon = ({ tipo }: { tipo: string }) => {
   return <Coffee className="h-3 w-3" />;
 };
 
-export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelaciones, onResolveCancel, resolvingCancelId, busy }: Props) {
+export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, onDismiss, cancelaciones, onResolveCancel, resolvingCancelId, busy }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [resolveDialog, setResolveDialog] = useState<{ cancelId: string; decision: 'retornado_stock' | 'merma'; nombre: string } | null>(null);
   const [notas, setNotas] = useState('');
@@ -121,7 +122,7 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
   const coworkingCardStyle = isCoworking && !isReady && !isInProgress
     ? 'border-amber-500/60 bg-amber-500/10 shadow-amber-500/20'
     : '';
-  const cancelCardStyle = hasCancel ? 'border-destructive/70 bg-destructive/5 animate-pulse' : '';
+  const cancelCardStyle = hasCancel ? 'border-destructive/70 bg-destructive/5' : '';
 
   return (
     <Card
@@ -273,17 +274,32 @@ export function KdsOrderCard({ order, onStart, onMarkReady, onRevert, cancelacio
           </Button>
         )}
 
-        {isReady && onRevert && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="w-full mt-1 h-8 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => onRevert(order.id)}
-            disabled={busy}
-          >
-            <Undo2 className="h-3 w-3 mr-1.5" />
-            Revertir a "En preparación"
-          </Button>
+        {isReady && (
+          <div className="flex flex-col gap-1.5 mt-2">
+            {onDismiss && (
+              <Button
+                size="lg"
+                className="w-full h-11 text-base font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                onClick={() => onDismiss(order.id)}
+                disabled={busy}
+              >
+                <Check className="h-5 w-5 mr-2" />
+                Entregado
+              </Button>
+            )}
+            {onRevert && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-full h-8 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => onRevert(order.id)}
+                disabled={busy}
+              >
+                <Undo2 className="h-3 w-3 mr-1.5" />
+                Revertir a "En preparación"
+              </Button>
+            )}
+          </div>
         )}
       </CardContent>
 

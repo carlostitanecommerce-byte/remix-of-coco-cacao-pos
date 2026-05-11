@@ -7,6 +7,7 @@ interface Props {
   onStart: (orderId: string) => void;
   onMarkReady: (orderId: string) => void;
   onRevert: (orderId: string) => void;
+  onDismiss?: (orderId: string) => void;
   cancelacionesPorOrden?: Record<string, KdsItemCancelacion[]>;
   onResolveCancel?: (cancelId: string, decision: 'retornado_stock' | 'merma', notas?: string | null) => void;
   resolvingCancelId?: string | null;
@@ -44,7 +45,7 @@ function Column({ title, icon, iconColor, orders, empty, children }: ColumnProps
   );
 }
 
-export function KdsBoard({ orders, onStart, onMarkReady, onRevert, cancelacionesPorOrden, onResolveCancel, resolvingCancelId, busyId }: Props) {
+export function KdsBoard({ orders, onStart, onMarkReady, onRevert, onDismiss, cancelacionesPorOrden, onResolveCancel, resolvingCancelId, busyId }: Props) {
   const pendientes = orders.filter((o) => o.estado === 'pendiente');
   const enPrep = orders.filter((o) => o.estado === 'en_preparacion');
   const listos = orders.filter((o) => o.estado === 'listo');
@@ -105,6 +106,7 @@ export function KdsBoard({ orders, onStart, onMarkReady, onRevert, cancelaciones
             key={order.id}
             order={order}
             onRevert={onRevert}
+            onDismiss={onDismiss}
             cancelaciones={cancelsFor(order.id)}
             onResolveCancel={onResolveCancel}
             resolvingCancelId={resolvingCancelId}
