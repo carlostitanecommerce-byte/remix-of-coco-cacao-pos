@@ -1,48 +1,42 @@
-# Bug: Sesiones activas se quedan "Congeladas"
+## Diagnóstico
 
-## Causa raíz
+El error `invalid input value for enum tipo_concepto: "paquete"` se dispara cuando, al cancelar la sesión, el RPC `cancelar_sesion_coworking` ejecuta el casteo literal `'paquete'::tipo_concepto` dentro de su loop sobre `detalle_ventas`. El enum `public.tipo_concepto` en la base sólo contiene los valores `producto`, `coworking` y `amenity`, así que el casteo aborta toda la transacción de cancelación.
 
-Confirmé en la base de datos que la sesión de **Carlos Alberto Trejo Berumen** está en estado `activo` pero tiene `fecha_salida_real` ya guardada (00:22:55). Por eso el cronómetro se quedó parado en ~5 minutos y aparece el badge "Congelado".
+### Por qué pasa ahora
 
-Esto ocurre así:
+Existen tres migraciones del 11-may que precisamente arreglaban esto, pero **no quedaron aplicadas** en la base (no aparecen en `supabase_migrations.schema_migrations`):
 
-1. Alguien abre la sesión y pulsa **Salida** (botón "Registrar salida").
-2. `CoworkingPage.handleCheckOut` llama al RPC `freeze_checkout_coworking`, que **congela** `fecha_salida_real = now()` para que el monto a cobrar no siga aumentando mientras se confirma el cierre.
-3. Se abre el `CheckoutDialog` con el resumen.
-4. Si el usuario **cierra el diálogo sin pulsar "Finalizar Estancia y Pasar a Caja"** (cambia de pantalla, hace click fuera, presiona Escape, etc.), la sesión queda en `activo` pero con `fecha_salida_real` ya escrito. El timer entonces deja de avanzar y muestra "Congelado" para siempre.
+- `20260511002329_fix_paquete_cancellations.sql` — reescribe `cancelar_sesion_coworking` y `resolver_cancelacion_item_sesion` para distinguir paquetes por `paquete_id IS NOT NULL` en lugar del enum.
+- `20260511004038_add_paquete_to_tipo_concepto.sql` — añadía el valor `paquete` al enum (alternativa).
+- `20260511004555_fix_consumo_coworking_enum.sql` — hacía que `registrar_consumo_coworking` insertara paquetes con `tipo_concepto = 'producto'` y la marca real en `paquete_id`/`paquete_nombre`.
 
-No hay actualmente ningún flujo que libere ese congelamiento si el cierre se cancela.
+La función desplegada hoy es la versión vieja (de `20260510000603`), por eso falla cualquier cancelación de sesión que tenga al menos una línea en `detalle_ventas` (con o sin paquetes), porque el casteo del enum se evalúa en cada iteración del loop.
 
 ## Solución
 
-### 1. Migración SQL
+Crear **una sola migración nueva** que vuelva a definir las tres funciones con la lógica correcta, sin tocar el enum (no hace falta agregar `paquete` porque la nueva lógica usa `paquete_id IS NOT NULL`). Esto es seguro y reversible.
 
-**Nuevo RPC `unfreeze_checkout_coworking(p_session_id uuid)`** (`SECURITY DEFINER`, `search_path = public`):
-- Limpia `fecha_salida_real = NULL` **solo si** `estado = 'activo'` (nunca toca sesiones en `pendiente_pago` o `finalizado`).
-- Devuelve `boolean` (true si se liberó).
-- `GRANT EXECUTE` a `authenticated`.
+### Migración nueva
 
-**Limpieza de datos existentes** (one-shot dentro de la misma migración):
-```sql
-UPDATE coworking_sessions
-SET fecha_salida_real = NULL, updated_at = now()
-WHERE estado = 'activo' AND fecha_salida_real IS NOT NULL;
-```
-Esto recupera la sesión actualmente atascada.
+`CREATE OR REPLACE FUNCTION` para:
 
-### 2. `src/components/coworking/CheckoutDialog.tsx`
+1. **`public.cancelar_sesion_coworking`** — distingue casos por `paquete_id IS NOT NULL` en lugar de `tipo_concepto = 'paquete'`. Mantiene exactamente la misma firma, retorno y semántica (mermas + retorno de stock + DELETE de upsells + update de sesión + audit + cierre de solicitud).
+2. **`public.resolver_cancelacion_item_sesion`** — misma corrección: detecta paquetes por `paquete_id IS NOT NULL`.
+3. **`public.registrar_consumo_coworking`** — al insertar en `detalle_ventas`, mapea `tipo_concepto = 'paquete'` → `'producto'` antes del cast al enum, y conserva la información del paquete en `paquete_id` y `paquete_nombre`.
 
-- Agregar un `confirmedRef` que se marque `true` solo cuando `handleConfirm` actualiza la sesión a `pendiente_pago` con éxito.
-- Modificar `onOpenChange`/`onClose`: si el diálogo se cierra **sin** que `confirmedRef.current` sea true y la sesión todavía está `activo`, llamar `supabase.rpc('unfreeze_checkout_coworking', { p_session_id: summary.session.id })` antes de invocar `onClose()`.
-- Tras el unfreeze, refrescar la lista (la realtime de `coworking_sessions` ya está suscrita en `useCoworkingData`, así que basta con disparar el `onClose` normal; el badge "Congelado" desaparecerá automáticamente).
+### Sin cambios en frontend
 
-### 3. Sin cambios en otros archivos
+`fetchSessionUpsellsForCancel`, `cancelarSesionAtomico` y `CancelSessionDialog` ya pasan los datos correctos. El bug es 100% en el RPC.
 
-`CoworkingSessionSelector` (caja) **no** dispara el freeze, solo lee `fecha_salida_real`; no requiere cambios. El flujo de cancelar sesión y el de checkout completo siguen iguales.
+### Validación
 
-## Validación
+Después de aplicar la migración:
 
-- Sesión actual de Carlos: tras correr la migración, vuelve a estado normal con cronómetro corriendo.
-- Caso A: pulsar **Salida** → cerrar el diálogo sin confirmar → la sesión vuelve a correr y el badge "Congelado" desaparece.
-- Caso B: pulsar **Salida** → "Finalizar Estancia y Pasar a Caja" → la sesión pasa a `pendiente_pago` con `fecha_salida_real` intacto (no se desfreezza).
-- Caso C: el RPC nunca toca sesiones que ya estén en `pendiente_pago`/`finalizado`.
+- Confirmar en `pg_proc` que la nueva definición está vigente (`pg_get_functiondef` no debe contener el literal `'paquete'::tipo_concepto`).
+- Probar cancelar una sesión activa con upsells de productos simples y otra con paquete asociado: ambos casos deben terminar OK, registrando merma para lo entregado y devolviendo stock para lo no entregado.
+- Probar `solicitar_cancelacion_item_sesion` + `resolver_cancelacion_item_sesion` sobre una línea de paquete.
+
+## Archivos
+
+- `supabase/migrations/<nuevo_timestamp>_reapply_paquete_cancel_fix.sql` — nueva migración (recrea las 3 funciones).
+- No se tocan archivos de frontend.
