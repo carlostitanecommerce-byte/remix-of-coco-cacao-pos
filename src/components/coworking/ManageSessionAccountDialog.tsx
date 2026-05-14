@@ -313,7 +313,10 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const handleClose = () => {
     setIsEditingPax(false);
     onClose();
-    onSuccess?.();
+    if (mutatedRef.current) {
+      mutatedRef.current = false;
+      onSuccess?.();
+    }
   };
 
   const handleGoToPos = () => {
