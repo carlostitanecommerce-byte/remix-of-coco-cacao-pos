@@ -304,6 +304,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     if (result.mermas_creadas > 0) partes.push(`${result.mermas_creadas} merma(s)`);
     if (kdsFolio) partes.push(`cocina #${String(kdsFolio).padStart(4, '0')}`);
 
+    mutatedRef.current = true;
     toast({
       title: `Amenities actualizados a ${pax} pax`,
       description: partes.length > 0 ? partes.join(' · ') : 'Sin cambios.',
