@@ -442,16 +442,18 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                         >
                           {isAmenity ? 'Incluido' : `$${(item.precio_especial * item.cantidad).toFixed(2)}`}
                         </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => openCancel(item)}
-                          disabled={busy || item.pendingCancelQty >= item.cantidad}
-                          title="Solicitar cancelación de este item"
-                        >
-                          <Ban className="h-3.5 w-3.5" />
-                        </Button>
+                        {!isAmenity && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => openCancel(item)}
+                            disabled={busy || item.pendingCancelQty >= item.cantidad}
+                            title="Solicitar cancelación de este item"
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
