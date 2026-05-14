@@ -368,17 +368,15 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               ) : (
                 <>
                   <span className="font-medium">{session.pax_count} pax</span>
-                  {sessionArea?.es_privado && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                      onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
-                      title="Editar pax"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
+                    title="Editar pax"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
                 </>
               )}
             </div>
