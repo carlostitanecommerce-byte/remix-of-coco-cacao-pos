@@ -94,6 +94,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       toast({ variant: 'destructive', title: 'No se pudo solicitar', description: error.message });
       return;
     }
+    mutatedRef.current = true;
     toast({ title: 'Solicitud enviada a cocina', description: 'Cocina decidirá si retorna al stock o registra merma.' });
     setCancelTarget(null);
     await reloadItemsAndCancels();
