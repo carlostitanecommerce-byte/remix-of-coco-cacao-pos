@@ -59,6 +59,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const [tempPax, setTempPax] = useState('');
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
   const mutationLockRef = useRef(false);
+  const mutatedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<SessionItem | null>(null);
   const [cancelQty, setCancelQty] = useState('1');
@@ -93,6 +94,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       toast({ variant: 'destructive', title: 'No se pudo solicitar', description: error.message });
       return;
     }
+    mutatedRef.current = true;
     toast({ title: 'Solicitud enviada a cocina', description: 'Cocina decidirá si retorna al stock o registra merma.' });
     setCancelTarget(null);
     await reloadItemsAndCancels();
@@ -136,28 +138,30 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const handleRestoreAmenity = (amenity: any) => withLock(() => doRestoreAmenity(amenity));
   const doRestoreAmenity = async (amenity: any) => {
     if (!session) return;
+    const qty = Math.max(1, Number(amenity.disponible) || 1);
     const { data, error } = await supabase.rpc('registrar_amenity_sesion' as any, {
       p_session_id: session.id,
       p_producto_id: amenity.producto_id,
-      p_cantidad: 1,
+      p_cantidad: qty,
     });
     if (error) {
       toast({ variant: 'destructive', title: 'No se pudo reclamar', description: error.message });
       return;
     }
     const result = data as { ok: boolean; nombre?: string };
+    mutatedRef.current = true;
 
     const kdsRes = await enviarASesionKDS({
       context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
       items: [{
         producto_id: amenity.producto_id,
         nombre: result.nombre || amenity.nombre || 'Amenity',
-        cantidad: 1,
+        cantidad: qty,
         isAmenity: true,
       }],
     });
     toast({
-      title: 'Beneficio restaurado',
+      title: qty > 1 ? `${qty} beneficios reclamados` : 'Beneficio reclamado',
       description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} enviada a cocina` : undefined,
     });
     await reloadItemsAndCancels();
@@ -249,6 +253,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       return;
     }
 
+    mutatedRef.current = true;
     toast({ title: `Pax actualizado a ${pax}` });
     setIsEditingPax(false);
     await onSuccess?.();
@@ -299,6 +304,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     if (result.mermas_creadas > 0) partes.push(`${result.mermas_creadas} merma(s)`);
     if (kdsFolio) partes.push(`cocina #${String(kdsFolio).padStart(4, '0')}`);
 
+    mutatedRef.current = true;
     toast({
       title: `Amenities actualizados a ${pax} pax`,
       description: partes.length > 0 ? partes.join(' · ') : 'Sin cambios.',
@@ -312,7 +318,10 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const handleClose = () => {
     setIsEditingPax(false);
     onClose();
-    onSuccess?.();
+    if (mutatedRef.current) {
+      mutatedRef.current = false;
+      onSuccess?.();
+    }
   };
 
   const handleGoToPos = () => {
@@ -359,17 +368,15 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
               ) : (
                 <>
                   <span className="font-medium">{session.pax_count} pax</span>
-                  {sessionArea?.es_privado && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                      onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
-                      title="Editar pax"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={() => { setTempPax(String(session.pax_count)); setIsEditingPax(true); }}
+                    title="Editar pax"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
                 </>
               )}
             </div>
@@ -435,16 +442,18 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
                         >
                           {isAmenity ? 'Incluido' : `$${(item.precio_especial * item.cantidad).toFixed(2)}`}
                         </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => openCancel(item)}
-                          disabled={busy || item.pendingCancelQty >= item.cantidad}
-                          title="Solicitar cancelación de este item"
-                        >
-                          <Ban className="h-3.5 w-3.5" />
-                        </Button>
+                        {!isAmenity && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => openCancel(item)}
+                            disabled={busy || item.pendingCancelQty >= item.cantidad}
+                            title="Solicitar cancelación de este item"
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
