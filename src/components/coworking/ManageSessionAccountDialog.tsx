@@ -400,7 +400,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
             ) : (
               <div className="space-y-1.5">
                 {items.map(item => {
-                  const isAmenity = item.precio_especial === 0;
+                  const isAmenity = item.tipo_concepto === 'amenity';
                   const hasPending = item.pendingCancelQty > 0;
                   return (
                     <div
