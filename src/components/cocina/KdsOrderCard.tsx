@@ -22,11 +22,15 @@ export interface KdsOrderItem {
 /** Solicitud de cancelación pendiente asociada a un item KDS */
 export interface KdsItemCancelacion {
   id: string;
-  kds_item_id: string;
+  kds_item_id: string | null;
   kds_order_id: string | null;
+  session_id?: string | null;
   cantidad: number;
   motivo: string;
   nombre_producto: string;
+  created_at?: string | null;
+  cliente_nombre?: string | null;
+  area_nombre?: string | null;
 }
 
 export type KdsEstado = 'pendiente' | 'en_preparacion' | 'listo';
