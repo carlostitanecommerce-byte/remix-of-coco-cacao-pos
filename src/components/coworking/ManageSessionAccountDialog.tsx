@@ -40,6 +40,7 @@ interface SessionItem {
   precio_especial: number;
   cantidad: number;
   pendingCancelQty: number;
+  tipo_concepto: string;
 }
 
 interface Props {
@@ -116,7 +117,9 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
     for (const a of snapshotAmenities) {
       const maxAllowed = (a.cantidad_incluida || 0) * session.pax_count;
-      const currentItem = items.find(i => i.producto_id === a.producto_id && i.precio_especial === 0);
+      const currentItem = items.find(
+        i => i.producto_id === a.producto_id && i.tipo_concepto === 'amenity',
+      );
       const currentQty = currentItem ? currentItem.cantidad : 0;
 
       if (maxAllowed > currentQty) {
@@ -133,81 +136,31 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const handleRestoreAmenity = (amenity: any) => withLock(() => doRestoreAmenity(amenity));
   const doRestoreAmenity = async (amenity: any) => {
     if (!session) return;
-    const validacion = await verificarStock(amenity.producto_id, 1);
-    if (!validacion.valido) {
-      toast({ variant: 'destructive', title: 'Sin stock', description: validacion.error });
+    const { data, error } = await supabase.rpc('registrar_amenity_sesion' as any, {
+      p_session_id: session.id,
+      p_producto_id: amenity.producto_id,
+      p_cantidad: 1,
+    });
+    if (error) {
+      toast({ variant: 'destructive', title: 'No se pudo reclamar', description: error.message });
       return;
     }
+    const result = data as { ok: boolean; nombre?: string };
 
-    if (amenity.currentItemId) {
-      const item = items.find(i => i.id === amenity.currentItemId);
-      if (!item) return;
-      const newQty = item.cantidad + 1;
-      const { error } = await (supabase as any)
-        .from('detalle_ventas')
-        .update({ cantidad: newQty, subtotal: 0 })
-        .eq('id', item.id);
-      if (error) {
-        toast({ variant: 'destructive', title: 'Error', description: error.message });
-        return;
-      }
-      setItems(prev => prev.map(i => (i.id === item.id ? { ...i, cantidad: newQty } : i)));
-
-      const kdsRes = await enviarASesionKDS({
-        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
-        items: [{
-          producto_id: item.producto_id,
-          nombre: item.nombre,
-          cantidad: 1,
-          isAmenity: true,
-        }],
-      });
-      toast({
-        title: 'Beneficio restaurado',
-        description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} a cocina` : undefined,
-      });
-    } else {
-      const { data, error } = await (supabase as any)
-        .from('detalle_ventas')
-        .insert({
-          coworking_session_id: session.id,
-          venta_id: null,
-          producto_id: amenity.producto_id,
-          cantidad: 1,
-          precio_unitario: 0,
-          subtotal: 0,
-          tipo_concepto: 'amenity',
-        })
-        .select('id')
-        .single();
-
-      if (error) {
-        toast({ variant: 'destructive', title: 'Error', description: error.message });
-        return;
-      }
-      setItems(prev => [...prev, {
-        id: data.id,
+    const kdsRes = await enviarASesionKDS({
+      context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
+      items: [{
         producto_id: amenity.producto_id,
-        nombre: amenity.nombre || 'Amenity',
-        precio_especial: 0,
+        nombre: result.nombre || amenity.nombre || 'Amenity',
         cantidad: 1,
-        pendingCancelQty: 0,
-      }]);
-
-      const kdsRes = await enviarASesionKDS({
-        context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
-        items: [{
-          producto_id: amenity.producto_id,
-          nombre: amenity.nombre || 'Amenity',
-          cantidad: 1,
-          isAmenity: true,
-        }],
-      });
-      toast({
-        title: 'Beneficio restaurado',
-        description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} enviada a cocina` : undefined,
-      });
-    }
+        isAmenity: true,
+      }],
+    });
+    toast({
+      title: 'Beneficio restaurado',
+      description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} enviada a cocina` : undefined,
+    });
+    await reloadItemsAndCancels();
   };
 
   // Recarga items + cancelaciones pendientes (para refrescar pendingCancelQty)
@@ -230,13 +183,14 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     (cancelRes.data ?? []).forEach((c: any) => {
       if (c.detalle_id) pendingByDetalle.set(c.detalle_id, (pendingByDetalle.get(c.detalle_id) ?? 0) + (c.cantidad || 0));
     });
-    const mapped = ((itemsRes.data ?? []) as any[]).map((u: any) => ({
+    const mapped: SessionItem[] = ((itemsRes.data ?? []) as any[]).map((u: any) => ({
       id: u.id,
       producto_id: u.producto_id,
       nombre: u.productos?.nombre ?? 'Producto',
       precio_especial: Number(u.precio_unitario) || 0,
       cantidad: u.cantidad,
       pendingCancelQty: pendingByDetalle.get(u.id) ?? 0,
+      tipo_concepto: u.tipo_concepto ?? 'producto',
     }));
     setItems(mapped);
   };
@@ -446,7 +400,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
             ) : (
               <div className="space-y-1.5">
                 {items.map(item => {
-                  const isAmenity = item.precio_especial === 0;
+                  const isAmenity = item.tipo_concepto === 'amenity';
                   const hasPending = item.pendingCancelQty > 0;
                   return (
                     <div
