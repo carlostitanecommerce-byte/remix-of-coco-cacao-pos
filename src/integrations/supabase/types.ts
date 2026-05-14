@@ -1355,6 +1355,10 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
+      recalcular_amenities_pax: {
+        Args: { p_new_pax: number; p_session_id: string }
+        Returns: Json
+      }
       recalcular_costo_producto: {
         Args: { p_producto_id: string }
         Returns: Json
