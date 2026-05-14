@@ -1,42 +1,64 @@
 ## Diagnóstico
 
-El error `invalid input value for enum tipo_concepto: "paquete"` se dispara cuando, al cancelar la sesión, el RPC `cancelar_sesion_coworking` ejecuta el casteo literal `'paquete'::tipo_concepto` dentro de su loop sobre `detalle_ventas`. El enum `public.tipo_concepto` en la base sólo contiene los valores `producto`, `coworking` y `amenity`, así que el casteo aborta toda la transacción de cancelación.
+El error `null value in column "producto_id" of relation "cancelaciones_items_sesion" violates not-null constraint` se dispara al cancelar una línea cuyo `detalle_ventas.producto_id` es `NULL`. Esto ocurre con **líneas de paquete**, donde el detalle solo tiene `paquete_id` y `paquete_nombre` poblados (el `producto_id` es nulo por diseño).
 
-### Por qué pasa ahora
+El RPC `solicitar_cancelacion_item_sesion(p_session_id, p_detalle_id, p_cantidad, p_motivo)` lee `v_dv.producto_id` y lo inserta tal cual en `cancelaciones_items_sesion.producto_id`, que actualmente es `NOT NULL` → violación de constraint.
 
-Existen tres migraciones del 11-may que precisamente arreglaban esto, pero **no quedaron aplicadas** en la base (no aparecen en `supabase_migrations.schema_migrations`):
+Errores latentes similares detectados:
 
-- `20260511002329_fix_paquete_cancellations.sql` — reescribe `cancelar_sesion_coworking` y `resolver_cancelacion_item_sesion` para distinguir paquetes por `paquete_id IS NOT NULL` en lugar del enum.
-- `20260511004038_add_paquete_to_tipo_concepto.sql` — añadía el valor `paquete` al enum (alternativa).
-- `20260511004555_fix_consumo_coworking_enum.sql` — hacía que `registrar_consumo_coworking` insertara paquetes con `tipo_concepto = 'producto'` y la marca real en `paquete_id`/`paquete_nombre`.
+1. **Misma RPC, búsqueda en KDS**: el bloque que busca `kds_order_items` para enlazar la cancelación filtra por `koi.producto_id = v_dv.producto_id`. Para paquetes esto no aplica y queda sin enlace al KDS.
+2. **Overload heredado de 3 argumentos** (`solicitar_cancelacion_item_sesion(p_detalle_id, p_cantidad, p_motivo)`) tiene exactamente el mismo bug y además fuerza el motivo mínimo distinto. El frontend usa la versión de 4 args; mantener dos firmas es riesgoso si algo legacy llama a la otra.
+3. **Resolver (`resolver_cancelacion_item_sesion`)** ya maneja correctamente paquete vía `detalle_ventas.paquete_id`, así que **no requiere cambios funcionales**, solo se beneficiará de los ajustes de esquema.
 
-La función desplegada hoy es la versión vieja (de `20260510000603`), por eso falla cualquier cancelación de sesión que tenga al menos una línea en `detalle_ventas` (con o sin paquetes), porque el casteo del enum se evalúa en cada iteración del loop.
+## Plan
 
-## Solución
+### 1. Esquema — `cancelaciones_items_sesion`
+- Hacer `producto_id` `NULL`-able (las líneas de paquete no tienen producto único).
+- Agregar columna opcional `paquete_id uuid` para trazabilidad cuando la cancelación es de un paquete.
+- Agregar constraint de validación: debe existir `producto_id` **o** `paquete_id` (no ambos nulos).
 
-Crear **una sola migración nueva** que vuelva a definir las tres funciones con la lógica correcta, sin tocar el enum (no hace falta agregar `paquete` porque la nueva lógica usa `paquete_id IS NOT NULL`). Esto es seguro y reversible.
+### 2. RPC `solicitar_cancelacion_item_sesion` (4 args, la que usa la app)
+- Detectar si la línea es paquete (`v_dv.paquete_id IS NOT NULL`) o producto simple.
+- Para paquete:
+  - `nombre_producto` = `paquete_nombre` (ya cae en el fallback actual).
+  - `producto_id` se inserta como `NULL`, `paquete_id` se rellena con `v_dv.paquete_id`.
+  - Saltar la búsqueda en `kds_order_items` por `producto_id` (los componentes del paquete pueden tener varias filas en KDS; el flujo de KDS para paquetes seguirá manejándose por la cocina, igual que hoy).
+- Para producto simple: comportamiento actual sin cambios.
 
-### Migración nueva
+### 3. RPC heredada de 3 argumentos
+- Eliminarla con `DROP FUNCTION` (firma específica). Evita futuros llamados accidentales con el bug.
 
-`CREATE OR REPLACE FUNCTION` para:
+### 4. Verificación post-migración
+- Probar cancelación de:
+  - Producto simple con KDS pendiente → enlaza KDS, registra solicitud.
+  - Paquete sin producto_id → ahora inserta correctamente con `paquete_id`.
+  - Amenity (si quedara alguno cancelable) → comportamiento sin cambios.
+- Confirmar que el resolver decrementa stock / registra merma correctamente para ambos tipos.
 
-1. **`public.cancelar_sesion_coworking`** — distingue casos por `paquete_id IS NOT NULL` en lugar de `tipo_concepto = 'paquete'`. Mantiene exactamente la misma firma, retorno y semántica (mermas + retorno de stock + DELETE de upsells + update de sesión + audit + cierre de solicitud).
-2. **`public.resolver_cancelacion_item_sesion`** — misma corrección: detecta paquetes por `paquete_id IS NOT NULL`.
-3. **`public.registrar_consumo_coworking`** — al insertar en `detalle_ventas`, mapea `tipo_concepto = 'paquete'` → `'producto'` antes del cast al enum, y conserva la información del paquete en `paquete_id` y `paquete_nombre`.
+## Detalles técnicos
 
-### Sin cambios en frontend
+```sql
+ALTER TABLE public.cancelaciones_items_sesion
+  ALTER COLUMN producto_id DROP NOT NULL,
+  ADD COLUMN paquete_id uuid,
+  ADD CONSTRAINT cancelaciones_items_sesion_target_chk
+    CHECK (producto_id IS NOT NULL OR paquete_id IS NOT NULL);
 
-`fetchSessionUpsellsForCancel`, `cancelarSesionAtomico` y `CancelSessionDialog` ya pasan los datos correctos. El bug es 100% en el RPC.
+DROP FUNCTION public.solicitar_cancelacion_item_sesion(uuid, integer, text);
 
-### Validación
+-- Reemplazo del RPC de 4 args con rama producto/paquete (resumen):
+-- IF v_dv.paquete_id IS NOT NULL THEN
+--   v_nombre := COALESCE(v_dv.paquete_nombre, 'Paquete');
+--   -- no buscar kds por producto_id
+-- ELSE
+--   -- flujo actual con v_dv.producto_id
+-- END IF;
+-- INSERT (..., producto_id, paquete_id, ...) VALUES (..., v_dv.producto_id, v_dv.paquete_id, ...);
+```
 
-Después de aplicar la migración:
+El resolver ya hace `IF v_dv.paquete_id IS NOT NULL THEN ... paquete_componentes ...`, por lo que no se toca.
 
-- Confirmar en `pg_proc` que la nueva definición está vigente (`pg_get_functiondef` no debe contener el literal `'paquete'::tipo_concepto`).
-- Probar cancelar una sesión activa con upsells de productos simples y otra con paquete asociado: ambos casos deben terminar OK, registrando merma para lo entregado y devolviendo stock para lo no entregado.
-- Probar `solicitar_cancelacion_item_sesion` + `resolver_cancelacion_item_sesion` sobre una línea de paquete.
+## Alcance
 
-## Archivos
-
-- `supabase/migrations/<nuevo_timestamp>_reapply_paquete_cancel_fix.sql` — nueva migración (recrea las 3 funciones).
-- No se tocan archivos de frontend.
+- Migración SQL única (esquema + RPC reemplazado + drop overload).
+- Sin cambios en frontend.

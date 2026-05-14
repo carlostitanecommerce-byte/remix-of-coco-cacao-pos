@@ -130,7 +130,8 @@ export type Database = {
           motivo: string
           nombre_producto: string
           notas_cocina: string | null
-          producto_id: string
+          paquete_id: string | null
+          producto_id: string | null
           session_id: string
           solicitante_id: string
         }
@@ -147,7 +148,8 @@ export type Database = {
           motivo: string
           nombre_producto: string
           notas_cocina?: string | null
-          producto_id: string
+          paquete_id?: string | null
+          producto_id?: string | null
           session_id: string
           solicitante_id: string
         }
@@ -164,7 +166,8 @@ export type Database = {
           motivo?: string
           nombre_producto?: string
           notas_cocina?: string | null
-          producto_id?: string
+          paquete_id?: string | null
+          producto_id?: string | null
           session_id?: string
           solicitante_id?: string
         }
@@ -1387,20 +1390,15 @@ export type Database = {
         Args: { p_cancelacion_id: string; p_decision: string; p_notas?: string }
         Returns: Json
       }
-      solicitar_cancelacion_item_sesion:
-        | {
-            Args: { p_cantidad: number; p_detalle_id: string; p_motivo: string }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_cantidad: number
-              p_detalle_id: string
-              p_motivo: string
-              p_session_id: string
-            }
-            Returns: Json
-          }
+      solicitar_cancelacion_item_sesion: {
+        Args: {
+          p_cantidad: number
+          p_detalle_id: string
+          p_motivo: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       unfreeze_checkout_coworking: {
         Args: { p_session_id: string }
         Returns: boolean
