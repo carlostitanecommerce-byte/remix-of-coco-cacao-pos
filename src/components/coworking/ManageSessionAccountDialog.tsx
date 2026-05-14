@@ -59,6 +59,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const [tempPax, setTempPax] = useState('');
   const [pendingAmenityUpdate, setPendingAmenityUpdate] = useState<PendingAmenityUpdate | null>(null);
   const mutationLockRef = useRef(false);
+  const mutatedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<SessionItem | null>(null);
   const [cancelQty, setCancelQty] = useState('1');
