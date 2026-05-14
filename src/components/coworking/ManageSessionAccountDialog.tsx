@@ -253,6 +253,7 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
       return;
     }
 
+    mutatedRef.current = true;
     toast({ title: `Pax actualizado a ${pax}` });
     setIsEditingPax(false);
     await onSuccess?.();
