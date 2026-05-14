@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { KdsBoard } from '@/components/cocina/KdsBoard';
+import { CancelacionesPanel } from '@/components/cocina/CancelacionesPanel';
 import { Clock as KdsClock } from '@/components/cocina/Clock';
 import { StartShiftDialog } from '@/components/cocina/StartShiftDialog';
 import type { KdsOrder, KdsOrderItem, KdsEstado, KdsItemCancelacion } from '@/components/cocina/KdsOrderCard';
