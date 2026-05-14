@@ -651,21 +651,48 @@ export default function CocinaPage() {
   const fetchCancelaciones = useCallback(async () => {
     const { data, error } = await supabase
       .from('cancelaciones_items_sesion')
-      .select('id, kds_item_id, kds_order_id, cantidad, motivo, nombre_producto, estado')
-      .eq('estado', 'pendiente_decision');
+      .select('id, kds_item_id, kds_order_id, session_id, cantidad, motivo, nombre_producto, estado, created_at')
+      .eq('estado', 'pendiente_decision')
+      .order('created_at', { ascending: true });
     if (error) {
       console.error('Error fetching cancelaciones', error);
       return;
     }
+    const rows = data ?? [];
+    const sessionIds = Array.from(new Set(rows.map((r: any) => r.session_id).filter(Boolean)));
+    const sessMeta = new Map<string, { cliente: string | null; areaId: string | null }>();
+    if (sessionIds.length) {
+      const { data: sessions } = await supabase
+        .from('coworking_sessions')
+        .select('id, cliente_nombre, area_id')
+        .in('id', sessionIds);
+      (sessions ?? []).forEach((s: any) => sessMeta.set(s.id, { cliente: s.cliente_nombre ?? null, areaId: s.area_id ?? null }));
+    }
+    const areaIds = Array.from(new Set(Array.from(sessMeta.values()).map((m) => m.areaId).filter(Boolean) as string[]));
+    const areaName = new Map<string, string>();
+    if (areaIds.length) {
+      const { data: areas } = await supabase
+        .from('areas_coworking')
+        .select('id, nombre_area')
+        .in('id', areaIds);
+      (areas ?? []).forEach((a: any) => areaName.set(a.id, a.nombre_area));
+    }
     setCancelaciones(
-      (data ?? []).map((c: any) => ({
-        id: c.id,
-        kds_item_id: c.kds_item_id,
-        kds_order_id: c.kds_order_id ?? null,
-        cantidad: c.cantidad,
-        motivo: c.motivo,
-        nombre_producto: c.nombre_producto,
-      })),
+      rows.map((c: any) => {
+        const meta = c.session_id ? sessMeta.get(c.session_id) : null;
+        return {
+          id: c.id,
+          kds_item_id: c.kds_item_id ?? null,
+          kds_order_id: c.kds_order_id ?? null,
+          session_id: c.session_id ?? null,
+          cantidad: c.cantidad,
+          motivo: c.motivo,
+          nombre_producto: c.nombre_producto,
+          created_at: c.created_at ?? null,
+          cliente_nombre: meta?.cliente ?? null,
+          area_nombre: meta?.areaId ? (areaName.get(meta.areaId) ?? null) : null,
+        };
+      }),
     );
   }, []);
 
@@ -692,6 +719,12 @@ export default function CocinaPage() {
     });
     return map;
   }, [cancelaciones]);
+
+  // Cancelaciones sin orden visible: se muestran en el panel dedicado
+  const cancelacionesPanel = useMemo(() => {
+    const visibleOrderIds = new Set(orders.map((o) => o.id));
+    return cancelaciones.filter((c) => !c.kds_order_id || !visibleOrderIds.has(c.kds_order_id));
+  }, [cancelaciones, orders]);
 
   const handleResolveCancel = async (
     cancelId: string,
