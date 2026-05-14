@@ -307,92 +307,50 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
 
   const handleConfirmAmenityRecalc = () => withLock(async () => {
     if (!pendingAmenityUpdate || !session) return;
-    const { newPax: pax, oldPax } = pendingAmenityUpdate;
-    const amenities = (session.tarifa_snapshot?.amenities ?? []) as SnapshotAmenity[];
+    const { newPax: pax } = pendingAmenityUpdate;
 
-    let okCount = 0;
-    let errCount = 0;
-    const deltasParaCocina: { producto_id: string; nombre: string; cantidad: number }[] = [];
+    const { data, error } = await supabase.rpc('recalcular_amenities_pax' as any, {
+      p_session_id: session.id,
+      p_new_pax: pax,
+    });
 
-    for (const a of amenities) {
-      const nuevaCantidad = (a.cantidad_incluida ?? 0) * pax;
-      const cantidadAnterior = (a.cantidad_incluida ?? 0) * oldPax;
-      const delta = nuevaCantidad - cantidadAnterior;
-
-      if (nuevaCantidad <= 0) {
-        // No podemos borrar lineas; setear cantidad a 0 (subtotal 0)
-        const { error } = await (supabase as any)
-          .from('detalle_ventas')
-          .update({ cantidad: 0, subtotal: 0 })
-          .eq('coworking_session_id', session.id)
-          .is('venta_id', null)
-          .eq('producto_id', a.producto_id)
-          .eq('tipo_concepto', 'amenity');
-        if (error) errCount++; else okCount++;
-        continue;
-      }
-
-      const { data: existing } = await (supabase as any)
-        .from('detalle_ventas')
-        .select('id')
-        .eq('coworking_session_id', session.id)
-        .is('venta_id', null)
-        .eq('producto_id', a.producto_id)
-        .eq('tipo_concepto', 'amenity')
-        .maybeSingle();
-
-      if (existing?.id) {
-        const { error } = await (supabase as any)
-          .from('detalle_ventas')
-          .update({ cantidad: nuevaCantidad, subtotal: 0 })
-          .eq('id', existing.id);
-        if (error) errCount++; else okCount++;
-      } else {
-        const { error } = await (supabase as any)
-          .from('detalle_ventas')
-          .insert({
-            coworking_session_id: session.id,
-            venta_id: null,
-            producto_id: a.producto_id,
-            cantidad: nuevaCantidad,
-            precio_unitario: 0,
-            subtotal: 0,
-            tipo_concepto: 'amenity',
-          });
-        if (error) errCount++; else okCount++;
-      }
-
-      if (delta > 0) {
-        deltasParaCocina.push({
-          producto_id: a.producto_id,
-          nombre: a.nombre || 'Amenity',
-          cantidad: delta,
-        });
-      }
+    if (error) {
+      toast({ variant: 'destructive', title: 'No se pudo recalcular amenities', description: error.message });
+      return;
     }
 
+    const result = data as {
+      ok: boolean;
+      increments: Array<{ producto_id: string; nombre: string; cantidad: number }>;
+      mermas_creadas: number;
+      lineas_aumentadas: number;
+      lineas_reducidas: number;
+      lineas_eliminadas: number;
+    };
+
     let kdsFolio: number | null = null;
-    if (deltasParaCocina.length > 0) {
+    if (result.increments && result.increments.length > 0) {
       const kdsRes = await enviarASesionKDS({
         context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'incremento' },
-        items: deltasParaCocina.map(d => ({ ...d, isAmenity: true })),
+        items: result.increments.map(d => ({ ...d, isAmenity: true })),
       });
       kdsFolio = kdsRes.folio;
     }
 
-    if (errCount === 0) {
-      toast({
-        title: 'Amenities actualizados',
-        description: kdsFolio
-          ? `${okCount} amenity(s) a ${pax} pax · cocina #${String(kdsFolio).padStart(4, '0')}`
-          : `${okCount} amenity(s) recalculados a ${pax} pax.`,
-      });
-    } else {
-      toast({ variant: 'destructive', title: 'Actualización parcial', description: `${okCount} ok · ${errCount} con error.` });
+    const partes: string[] = [];
+    if (result.lineas_aumentadas > 0) partes.push(`${result.lineas_aumentadas} aumento(s)`);
+    if (result.lineas_reducidas > 0 || result.lineas_eliminadas > 0) {
+      partes.push(`${result.lineas_reducidas + result.lineas_eliminadas} reducción(es)`);
     }
+    if (result.mermas_creadas > 0) partes.push(`${result.mermas_creadas} merma(s)`);
+    if (kdsFolio) partes.push(`cocina #${String(kdsFolio).padStart(4, '0')}`);
+
+    toast({
+      title: `Amenities actualizados a ${pax} pax`,
+      description: partes.length > 0 ? partes.join(' · ') : 'Sin cambios.',
+    });
 
     setPendingAmenityUpdate(null);
-
     await reloadItemsAndCancels();
     await onSuccess?.();
   });
