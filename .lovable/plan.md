@@ -1,64 +1,57 @@
+# Cancelaciones a cocina: visibilidad profesional
+
 ## Diagnóstico
 
-El error `null value in column "producto_id" of relation "cancelaciones_items_sesion" violates not-null constraint` se dispara al cancelar una línea cuyo `detalle_ventas.producto_id` es `NULL`. Esto ocurre con **líneas de paquete**, donde el detalle solo tiene `paquete_id` y `paquete_nombre` poblados (el `producto_id` es nulo por diseño).
+La cancelación se inserta correctamente en `cancelaciones_items_sesion`, pero la cocina **nunca la ve** en estos casos:
 
-El RPC `solicitar_cancelacion_item_sesion(p_session_id, p_detalle_id, p_cantidad, p_motivo)` lee `v_dv.producto_id` y lo inserta tal cual en `cancelaciones_items_sesion.producto_id`, que actualmente es `NOT NULL` → violación de constraint.
+1. **Paquetes** (`paquete_id IS NOT NULL`): el RPC no intenta enlazar a `kds_orders` y guarda `kds_order_id = NULL`. La UI sólo pinta cancelaciones agrupadas por `kds_order_id` (`cancelacionesPorOrden` descarta las que no tienen).
+2. **Productos simples cuyo KDS ya está "listo"**: el RPC filtra `ko.estado <> 'listo'`, por lo que también queda con `kds_order_id = NULL`.
+3. **Productos simples cuyo KDS quedó "expirada"** (auto-ocultado tras 90s): aunque se enlace, la página sólo carga órdenes en `pendiente|en_preparacion|listo`, así que la tarjeta tampoco existe.
 
-Errores latentes similares detectados:
+Verificado en DB: la última cancelación (paquete "Bebida + Helado") tiene `kds_order_id = NULL` y por eso no aparece.
 
-1. **Misma RPC, búsqueda en KDS**: el bloque que busca `kds_order_items` para enlazar la cancelación filtra por `koi.producto_id = v_dv.producto_id`. Para paquetes esto no aplica y queda sin enlace al KDS.
-2. **Overload heredado de 3 argumentos** (`solicitar_cancelacion_item_sesion(p_detalle_id, p_cantidad, p_motivo)`) tiene exactamente el mismo bug y además fuerza el motivo mínimo distinto. El frontend usa la versión de 4 args; mantener dos firmas es riesgoso si algo legacy llama a la otra.
-3. **Resolver (`resolver_cancelacion_item_sesion`)** ya maneja correctamente paquete vía `detalle_ventas.paquete_id`, así que **no requiere cambios funcionales**, solo se beneficiará de los ajustes de esquema.
+## Objetivo
 
-## Plan
+Que cocina vea y resuelva **toda** cancelación de sesión coworking (producto o paquete) sin importar el estado de la orden KDS asociada, manteniendo el overlay actual cuando sí hay tarjeta visible.
 
-### 1. Esquema — `cancelaciones_items_sesion`
-- Hacer `producto_id` `NULL`-able (las líneas de paquete no tienen producto único).
-- Agregar columna opcional `paquete_id uuid` para trazabilidad cuando la cancelación es de un paquete.
-- Agregar constraint de validación: debe existir `producto_id` **o** `paquete_id` (no ambos nulos).
+## Cambios
 
-### 2. RPC `solicitar_cancelacion_item_sesion` (4 args, la que usa la app)
-- Detectar si la línea es paquete (`v_dv.paquete_id IS NOT NULL`) o producto simple.
-- Para paquete:
-  - `nombre_producto` = `paquete_nombre` (ya cae en el fallback actual).
-  - `producto_id` se inserta como `NULL`, `paquete_id` se rellena con `v_dv.paquete_id`.
-  - Saltar la búsqueda en `kds_order_items` por `producto_id` (los componentes del paquete pueden tener varias filas en KDS; el flujo de KDS para paquetes seguirá manejándose por la cocina, igual que hoy).
-- Para producto simple: comportamiento actual sin cambios.
+### 1. Frontend: panel dedicado "Cancelaciones pendientes"
 
-### 3. RPC heredada de 3 argumentos
-- Eliminarla con `DROP FUNCTION` (firma específica). Evita futuros llamados accidentales con el bug.
+En `CocinaPage.tsx` / `KdsBoard.tsx`:
 
-### 4. Verificación post-migración
-- Probar cancelación de:
-  - Producto simple con KDS pendiente → enlaza KDS, registra solicitud.
-  - Paquete sin producto_id → ahora inserta correctamente con `paquete_id`.
-  - Amenity (si quedara alguno cancelable) → comportamiento sin cambios.
-- Confirmar que el resolver decrementa stock / registra merma correctamente para ambos tipos.
+- Ampliar el `select` de `fetchCancelaciones` para incluir `session_id`, `paquete_id`, `producto_id`, `created_at`.
+- Enriquecer cada cancelación con `cliente_nombre` y `nombre_area` (join en cliente vía `coworking_sessions` + `areas_coworking`, igual que ya se hace para órdenes).
+- Renderizar un nuevo bloque al inicio del board (sólo si hay cancelaciones pendientes) titulado **"Cancelaciones pendientes"** con tarjetas estilo `border-destructive`:
+  - Encabezado: cliente, área, hora, motivo, cantidad, nombre (producto/paquete).
+  - Botones **Retornar a stock** / **Registrar merma** (reusando `handleResolveCancel` y el mismo diálogo de notas que `KdsOrderCard`).
+- Mantener el overlay actual dentro de la tarjeta KDS cuando `kds_order_id` coincide con una orden visible (no romper UX existente). Para evitar duplicidad, en el panel sólo mostrar cancelaciones cuyo `kds_order_id` no esté en las órdenes visibles del board.
+
+### 2. Backend: enlace KDS más permisivo (mejor trazabilidad cuando sí existe)
+
+Migración que reemplaza `solicitar_cancelacion_item_sesion(uuid, uuid, integer, text)`:
+
+- Para producto simple: relajar filtro a `ko.estado IN ('pendiente','en_preparacion','listo')` (incluir `listo`); preferir el item con `cancel_qty < cantidad`.
+- Para paquete: enlazar `kds_order_id` al KDS más reciente de la sesión (sin `kds_item_id`), si existe alguno en estados activos. Esto permite que aparezca como overlay si la tarjeta sigue en pantalla; si no, el panel del punto 1 lo cubre.
+
+### 3. Realtime y orden
+
+- Reusar el canal `cancelaciones-cocina` ya existente para refrescar el panel.
+- Ordenar el panel por `created_at` ascendente y pintar un badge contador en el header del board.
 
 ## Detalles técnicos
 
-```sql
-ALTER TABLE public.cancelaciones_items_sesion
-  ALTER COLUMN producto_id DROP NOT NULL,
-  ADD COLUMN paquete_id uuid,
-  ADD CONSTRAINT cancelaciones_items_sesion_target_chk
-    CHECK (producto_id IS NOT NULL OR paquete_id IS NOT NULL);
+- No se cambia el esquema (sólo el cuerpo del RPC).
+- El componente nuevo puede vivir en `src/components/cocina/CancelacionesPanel.tsx` para mantener `KdsBoard` limpio.
+- Tipos: extender `KdsItemCancelacion` con `session_id`, `cliente_nombre?`, `area_nombre?`, `created_at`.
 
-DROP FUNCTION public.solicitar_cancelacion_item_sesion(uuid, integer, text);
+## Fuera de alcance
 
--- Reemplazo del RPC de 4 args con rama producto/paquete (resumen):
--- IF v_dv.paquete_id IS NOT NULL THEN
---   v_nombre := COALESCE(v_dv.paquete_nombre, 'Paquete');
---   -- no buscar kds por producto_id
--- ELSE
---   -- flujo actual con v_dv.producto_id
--- END IF;
--- INSERT (..., producto_id, paquete_id, ...) VALUES (..., v_dv.producto_id, v_dv.paquete_id, ...);
-```
+- Cancelaciones desde POS (ventas no-coworking) usan `solicitudes_cancelacion` a nivel venta completa y hoy no envían señal a cocina; eso requeriría un flujo nuevo (item-level en POS) y se trataría por separado si lo confirmas.
 
-El resolver ya hace `IF v_dv.paquete_id IS NOT NULL THEN ... paquete_componentes ...`, por lo que no se toca.
+## Verificación
 
-## Alcance
-
-- Migración SQL única (esquema + RPC reemplazado + drop overload).
-- Sin cambios en frontend.
+1. Cancelar un paquete en sesión activa → aparece en panel con cliente/área, retornar a stock funciona.
+2. Cancelar un producto simple cuya KDS está en "listo" → aparece en panel.
+3. Cancelar un producto simple cuya KDS sigue en "pendiente" → aparece como overlay en la tarjeta (comportamiento actual).
+4. Resolver cancelación → desaparece del panel y de la tarjeta en realtime.
