@@ -183,13 +183,14 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
     (cancelRes.data ?? []).forEach((c: any) => {
       if (c.detalle_id) pendingByDetalle.set(c.detalle_id, (pendingByDetalle.get(c.detalle_id) ?? 0) + (c.cantidad || 0));
     });
-    const mapped = ((itemsRes.data ?? []) as any[]).map((u: any) => ({
+    const mapped: SessionItem[] = ((itemsRes.data ?? []) as any[]).map((u: any) => ({
       id: u.id,
       producto_id: u.producto_id,
       nombre: u.productos?.nombre ?? 'Producto',
       precio_especial: Number(u.precio_unitario) || 0,
       cantidad: u.cantidad,
       pendingCancelQty: pendingByDetalle.get(u.id) ?? 0,
+      tipo_concepto: u.tipo_concepto ?? 'producto',
     }));
     setItems(mapped);
   };
