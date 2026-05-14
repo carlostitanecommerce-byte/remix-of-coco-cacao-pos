@@ -40,6 +40,7 @@ interface SessionItem {
   precio_especial: number;
   cantidad: number;
   pendingCancelQty: number;
+  tipo_concepto: string;
 }
 
 interface Props {
