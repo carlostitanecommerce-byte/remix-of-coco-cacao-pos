@@ -799,18 +799,25 @@ export default function CocinaPage() {
       </div>
 
       {/* Board */}
-      <div className="flex-1 p-4 overflow-hidden">
-        <KdsBoard
-          orders={orders}
-          onStart={handleStart}
-          onMarkReady={handleMarkReady}
-          onRevert={handleRevert}
-          onDismiss={handleDismiss}
-          cancelacionesPorOrden={cancelacionesPorOrden}
-          onResolveCancel={handleResolveCancel}
+      <div className="flex-1 p-4 overflow-hidden flex flex-col">
+        <CancelacionesPanel
+          cancelaciones={cancelacionesPanel}
+          onResolve={handleResolveCancel}
           resolvingCancelId={resolvingCancelId}
-          busyId={busyId}
         />
+        <div className="flex-1 min-h-0">
+          <KdsBoard
+            orders={orders}
+            onStart={handleStart}
+            onMarkReady={handleMarkReady}
+            onRevert={handleRevert}
+            onDismiss={handleDismiss}
+            cancelacionesPorOrden={cancelacionesPorOrden}
+            onResolveCancel={handleResolveCancel}
+            resolvingCancelId={resolvingCancelId}
+            busyId={busyId}
+          />
+        </div>
       </div>
 
       {/* Diálogo modal obligatorio: captura el gesto requerido por el navegador
