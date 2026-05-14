@@ -138,28 +138,30 @@ export function ManageSessionAccountDialog({ session, areas, onClose, onSuccess 
   const handleRestoreAmenity = (amenity: any) => withLock(() => doRestoreAmenity(amenity));
   const doRestoreAmenity = async (amenity: any) => {
     if (!session) return;
+    const qty = Math.max(1, Number(amenity.disponible) || 1);
     const { data, error } = await supabase.rpc('registrar_amenity_sesion' as any, {
       p_session_id: session.id,
       p_producto_id: amenity.producto_id,
-      p_cantidad: 1,
+      p_cantidad: qty,
     });
     if (error) {
       toast({ variant: 'destructive', title: 'No se pudo reclamar', description: error.message });
       return;
     }
     const result = data as { ok: boolean; nombre?: string };
+    mutatedRef.current = true;
 
     const kdsRes = await enviarASesionKDS({
       context: { sessionId: session.id, clienteNombre: session.cliente_nombre, motivo: 'add' },
       items: [{
         producto_id: amenity.producto_id,
         nombre: result.nombre || amenity.nombre || 'Amenity',
-        cantidad: 1,
+        cantidad: qty,
         isAmenity: true,
       }],
     });
     toast({
-      title: 'Beneficio restaurado',
+      title: qty > 1 ? `${qty} beneficios reclamados` : 'Beneficio reclamado',
       description: kdsRes.folio ? `Comanda #${String(kdsRes.folio).padStart(4, '0')} enviada a cocina` : undefined,
     });
     await reloadItemsAndCancels();
